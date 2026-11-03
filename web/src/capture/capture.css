@@ -5,10 +5,7 @@
 
 /* --------------------------------------------------------- position sheet */
 
-/* The diagram stays mounted underneath: the active cell is the driver's place
-   in a 27-position walk-around, and rebuilding the picture between positions
-   is both slower and a new screen to re-read. The layer covers it, so the
-   sheet carries the plan-view frame itself (TYRE-147). */
+/* Covers the rig, which stays mounted beneath it (CaptureFlow.tsx). */
 .cap-sheet-layer {
   position: fixed;
   inset: 0;
@@ -265,13 +262,6 @@
   color: var(--ink-secondary);
 }
 
-/* The motive unit's box is disabled because it cannot be unticked
-   (FR-INS-064), not because it is unavailable. Dimming it would say the
-   opposite of what it means. */
-.cap-members .tr-check input:disabled + .tr-check__box {
-  opacity: 1;
-}
-
 .cap-confirm-msg,
 .cap-confirm .cap-hint {
   display: block;
@@ -281,11 +271,9 @@
   margin-top: 2px;
 }
 
-/* A glove button's look (NFR-USE-004) for capture's two plain anchors,
-   "Go to it" and "My inspections". Both leave by a full page load, so a
-   held outbox flushes on app-open (FR-OFF-009), and BackToWork renders
-   without a Router; Tread's Button links are router Links, so they cannot
-   be one. OutboxIndicator's Sync now is a Tread Button, not one of these. */
+/* A glove button's look (NFR-USE-004) for capture's two plain anchors.
+   Tread's Button links are router Links, so it cannot draw them
+   (CaptureDone.tsx, BackToWork). */
 .cap-primary,
 .cap-secondary {
   display: flex;

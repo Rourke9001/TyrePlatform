@@ -180,7 +180,7 @@ describe("PositionSheet", () => {
     expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
   });
 
-  // U146: a half inside the hold re-settles the same cell and re-arms its
+  // U145: a half inside the hold re-settles the same cell and re-arms its
   // one advance, so the driver still moves on exactly once.
   it("at 0.5 mm, a half inside the hold gives 13.5 and one advance", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -200,7 +200,7 @@ describe("PositionSheet", () => {
     expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
   });
 
-  // U146: the reach-back holds when the keypad moves on onto a cell that
+  // U160: the reach-back holds when the keypad moves on onto a cell that
   // already holds a reading, since the driver has not touched that cell yet.
   it("at 0.5 mm, a half after the advance reaches back over a filled cell", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -227,7 +227,7 @@ describe("PositionSheet", () => {
     expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
   });
 
-  // U146: a gloved double tap on the half key stays on the cell left, so the
+  // U160: a gloved double tap on the half key stays on the cell left, so the
   // untouched reading keeps its value and the sheet does not move on again.
   it("at 0.5 mm, a double half after the advance stays on the cell it left", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -314,7 +314,7 @@ describe("PositionSheet", () => {
     expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
   });
 
-  // U146: 3mm never settles, so the driver moves on with the go key, and a
+  // U160: 3mm never settles, so the driver moves on with the go key, and a
   // half straight after still reaches back without skipping a cell.
   it("at 0.5 mm, a half after the go key reaches back and nothing skips", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });

@@ -18,8 +18,8 @@ interface SheetOwnProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   side?: "bottom" | "right";
   // Controls in the head, before Close.
   actions?: ReactNode;
-  // A control after Close, last in the head's tab order, where today's
-  // spare sheet keeps "No spare" (TYRE-155).
+  // A control after Close, last in the head's tab order, where capture's
+  // spare sheet puts its no-spare toggle (TYRE-155).
   trailing?: ReactNode;
   footer?: ReactNode;
   titleAs?: "h2" | "h3" | "p";

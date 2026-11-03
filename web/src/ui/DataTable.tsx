@@ -34,7 +34,8 @@ export interface Column<T> {
 export interface DataTableProps<T> extends HTMLAttributes<HTMLDivElement> {
   // Names the table, and the card list on a phone.
   caption: string;
-  // Today's pages title a table themselves, so the caption is read, not drawn.
+  // Pages title a table with their own heading, so by default the caption is
+  // read, not drawn.
   captionVisible?: boolean;
   columns: Column<T>[];
   rows: readonly T[];
@@ -71,9 +72,8 @@ const SKELETON_ROWS = [0, 1, 2, 3];
 
 const CONTROL = "a, button, input, select, textarea, label, summary, [role='button'], [tabindex]";
 
-// A link, button or field inside a clickable row keeps its own action, as
-// today's tyre rows' "Price it on its receipt" does (e2e/tyres.spec.ts):
-// the row opens only from its own cells.
+// The row opens only from its own cells, so a link, button or field inside
+// a clickable row keeps its own action.
 function fromControl(event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>): boolean {
   if (!(event.target instanceof Element)) return false;
   const control = event.target.closest(CONTROL);

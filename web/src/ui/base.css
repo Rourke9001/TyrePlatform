@@ -1,8 +1,9 @@
 /* The page's ground, type and focus ring, and the layout helpers Tread's
-   components share. Every value is a token from src/theme/tokens.ts, which
-   main.tsx installs before the first paint; this file makes no colour or
-   type decision of its own. Global selectors, not a .tr-root scope, so
-   screens not yet on Tread's components read them too. */
+   components share. Every colour and font is a token from
+   src/theme/tokens.ts, which main.tsx installs before the first paint. The
+   selectors are global, not scoped to a shell, because ConfigFailure
+   renders outside every shell and the legacy Select's menu portals to the
+   body. */
 
 *,
 *::before,

@@ -172,17 +172,16 @@ describe("AppShell", () => {
     expect(screen.getByRole("banner")).toBeInTheDocument();
   });
   // U53 keeps the ring --interactive, which nearly vanishes on a dark brand
-  // bar or the viewer (1.08:1 on the default brand in Daylight). A surface
-  // halo fills the ring's offset, so the ring meets the surface on its inner
-  // edge, the pair tokens.test.ts holds at 4.5:1. jsdom applies no CSS.
+  // bar. A surface halo fills the ring's offset, so the ring meets the
+  // surface, the pair tokens.test.ts holds at 4.5:1. jsdom applies no CSS.
   it("haloes the focus ring on the bar, which carries the brand below 1024px", () => {
     expect(shellCss.replace(/\/\*[\s\S]*?\*\//g, "")).toMatch(
       /\.tr-shell__top :focus-visible \{[^}]*box-shadow: 0 0 0 2px var\(--surface\);/,
     );
   });
 
-  // WCAG 2.4.11: the bar wraps on a phone, to 117px at 360px wide in
-  // Chromium, past the --appbar figure base.css pads by.
+  // WCAG 2.4.11: the bar wraps on a phone past the --appbar figure base.css
+  // pads by.
   it("pads the page's scroll by the bar's height", () => {
     const layout = stubResize(117);
     const html = document.documentElement;

@@ -23,7 +23,7 @@ export interface DiagramPosition {
   empty?: boolean;
   active?: boolean;
   // Which side of the centreline it sits on. When every position on an
-  // axle has one, the axle is split by it instead of by count (U146).
+  // axle has one, the axle is split by it instead of by count (TYRE-447).
   side?: "left" | "right";
 }
 

@@ -37,8 +37,8 @@ describe("Gallery", () => {
     }
   });
 
-  // The route's page reads the lanes' *.gallery.tsx files itself, so a
-  // section a lane adds shows with no edit here (TYRE-447).
+  // The route's page reads the *.gallery.tsx files itself, so a section
+  // added there shows with no edit here (TYRE-447).
   it("shows each *.gallery.tsx section on the route's page", () => {
     const registered = import.meta.glob<{ section: GallerySection }>("./*.gallery.tsx", {
       eager: true,

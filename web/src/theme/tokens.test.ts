@@ -70,9 +70,7 @@ describe("the data ramp", () => {
 
 // U53 (TYRE-276): links, quiet buttons and focus rings use one fixed colour,
 // so it is checked here once instead of per tenant. Text needs 4.5:1 and a
-// focus indicator 3:1, so text is the binding floor on both grounds the
-// token is drawn on (a quiet button's hover and a highlighted option sit on
-// surface-muted).
+// focus indicator 3:1, so text is the binding floor.
 describe("the interactive colour", () => {
   it("clears 4.5:1 on the surface and on surface-muted, in both themes", () => {
     for (const theme of THEME_NAMES) {
@@ -305,9 +303,7 @@ describe("themeCss", () => {
     }
   });
 
-  // NFR-USE-004's three targets (the glove target is sign-in's and the
-  // capture route's), and the spacing step that moved: space-5 is 20px on
-  // Tread's scale.
+  // NFR-USE-004's three targets and Tread's spacing scale.
   it("sets the targets and the spacing scale to Tread's values", () => {
     const light = blocks().get(LIGHT) ?? "";
     expect(light).toContain("--target-min:44px");
@@ -343,7 +339,7 @@ describe("brandVars", () => {
 });
 
 // TYRE-446: every face the type scale asks for is a file beside fonts.ts,
-// so no font request leaves the app's origin (rule 7). A weight with no
+// so no font request leaves the app's origin (ADR-0009). A weight with no
 // face of its own renders silently in the nearest Atkinson weight, so this
 // test is where it is caught.
 describe("treadFont", () => {

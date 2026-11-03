@@ -1,10 +1,10 @@
-// Every displayed count, percentage and tread measurement, written once so
-// no page formats one itself (U55, web/CLAUDE.md).
+// The manager screens' counts, percentages and tread measurements, written
+// once (U55). Capture writes its own compact tread, as web/CLAUDE.md says.
 
 import { groupThousands } from "./groupThousands";
 
 // groupThousands takes an integer's digits, so a count or percentage is
-// made whole first, rounding half away from zero as Intl.NumberFormat did.
+// made whole first, rounding half away from zero.
 function wholeDigits(n: number): string {
   return String(Math.sign(n) * Math.round(Math.abs(n)));
 }
@@ -22,11 +22,8 @@ export function plural(n: number, one: string, many: string): string {
   return `${formatCount(n)} ${pluralWord(n, one, many)}`;
 }
 
-// en-ZA's decimal separator is a comma in current ICU (Intl.NumberFormat
-// would render "4,0 mm" beside formatMoney's "R16,537.50"), so tread uses
-// toFixed and a point instead. A tread value on the wire is whole or half
-// millimetres, the capture keypad has a half key and no decimal point, and
-// the owner fixed the display at one decimal always (TYRE-238 comment 12938).
+// One decimal with a point, never Intl's en-ZA decimal comma (TYRE-238
+// comment 12938, web/CLAUDE.md).
 export function formatMm(n: number): string {
   return `${n.toFixed(1)} mm`;
 }

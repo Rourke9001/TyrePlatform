@@ -159,8 +159,7 @@
   flex: 1;
   overflow-y: auto;
   display: grid;
-  /* One track no wider than the box, so a child with a wide minimum, such
-     as a tab list, scrolls inside itself instead of widening the page. */
+  /* minmax(0, 1fr) for the reason .tr-stack gives (base.css). */
   grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: var(--space-4);

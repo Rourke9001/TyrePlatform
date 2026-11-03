@@ -11,9 +11,6 @@ const PRESSURE = "kPa";
 const MM = "mm";
 const ignore = () => undefined;
 
-// Static on purpose. A *.gallery.tsx exports only its section object
-// (react-refresh/only-export-components), so a stateful demo would live in
-// a sibling tyres.demo.tsx.
 const pressure = (value: string, active: boolean): TreadPressure => ({
   value,
   caption: "Press.",
@@ -90,6 +87,7 @@ const RIG: DiagramUnit[] = [
   },
 ];
 
+// Static on purpose; see GallerySection.
 export const section: GallerySection = {
   id: "tyres",
   title: "Keypad, tread cells, tyre tiles and the rig",

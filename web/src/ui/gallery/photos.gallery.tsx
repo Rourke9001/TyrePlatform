@@ -39,10 +39,8 @@ const DAMAGE = [
   { value: "OTHER", label: "Something else" },
 ];
 
-// Static on purpose. A *.gallery.tsx exports only its section object
-// (react-refresh/only-export-components), so a stateful demo would live in
-// a sibling photos.demo.tsx. PhotoGallery keeps its own state, so its
-// viewer opens here.
+// Static on purpose; see GallerySection. PhotoGallery keeps its own state,
+// so its viewer opens here.
 export const section: GallerySection = {
   id: "photos",
   title: "Photos and damage",

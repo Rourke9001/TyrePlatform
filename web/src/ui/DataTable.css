@@ -1,8 +1,8 @@
 /* Tread's table and its phone cards (ADR-0020). Every colour is a token
    from src/theme/tokens.ts. */
 
-/* A table wider than its box scrolls inside it, as today's tables do,
-   rather than widening the page. */
+/* A table wider than its box scrolls inside it rather than widening the
+   page. */
 .tr-table-wrap {
   min-width: 0;
   overflow-x: auto;

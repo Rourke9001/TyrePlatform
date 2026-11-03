@@ -13,8 +13,7 @@ describe("SearchInput", () => {
     expect(container.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 
-  // A screen keeps the landmarks it has today, so a field used as a filter
-  // adds none unless the caller asks for one.
+  // A field used as a filter adds no landmark unless the caller asks for one.
   it("adds no landmark by default", () => {
     render(<SearchInput label="Find a tyre" />);
     expect(screen.queryByRole("search")).toBeNull();

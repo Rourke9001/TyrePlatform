@@ -153,8 +153,8 @@ export function CaptureReview({
       {/* FR-INS-030a/FR-INS-030b are different fields with different destinations
           (workshop queue vs tyre controller); the label must say which or
           drivers use whichever box is nearer. */}
-      {/* Each label holds all the words it holds today, the hint included,
-          so a box keeps the name it reads as. */}
+      {/* A hint sits inside its label, so a box's accessible name is every
+          word its label shows. */}
       <div className="cap-field">
         <label htmlFor={commentId}>
           <span className="cap-field-label">Comments about the tyres</span>

@@ -18,11 +18,11 @@ export interface EntryState {
   // Digits pressed for the focused field. Kept apart from the value so a
   // leading zero and a correction are both representable.
   buffer: string;
-  // U146: the tread field the last next left, armed only when this visit
+  // U160: the tread field the last next left, armed only when this visit
   // typed into or halved it, so a half pressed straight after can still
   // reach it. A half keeps it; a digit, delete or focus clears it.
   advancedFrom: number | null;
-  // U146: the focused field holds a digit or a half from this visit, which
+  // U160: the focused field holds a digit or a half from this visit, which
   // is what lets next arm advancedFrom.
   touched: boolean;
 }

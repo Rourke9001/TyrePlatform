@@ -34,8 +34,8 @@ export interface DialogProps extends Omit<HTMLAttributes<HTMLDivElement>, "title
   returnTo?: RefObject<HTMLElement | SVGElement | null>;
 }
 
-// role="dialog", not the artifact's alertdialog: the screens it replaces
-// expose a dialog, and their tests and copy stay as they are (TYRE-443).
+// role="dialog", not the artifact's alertdialog, so the screens' tests that
+// find a dialog by role hold (TYRE-443, spec non-goals).
 export function Dialog({
   open,
   onClose,

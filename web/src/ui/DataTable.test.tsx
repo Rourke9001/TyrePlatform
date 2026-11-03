@@ -27,8 +27,8 @@ const rows: Row[] = [
 
 const base = { caption: "Tyres at risk", columns, rowKey: (r: Row) => r.id };
 
-// A cell with its own link and button, as today's tyre rows carry "Price
-// it on its receipt" (e2e/tyres.spec.ts:46).
+// A cell with its own link and button, like a tyre row's "Price it on its
+// receipt" (fleet/tyres/TyreList.tsx).
 function withControls(onHold: (id: string) => void): Column<Row>[] {
   return [
     ...columns,

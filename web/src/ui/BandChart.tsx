@@ -31,9 +31,9 @@ function describe(band: Band): string {
   return `${band.label}: ${plural(band.count, "tyre", "tyres")}, ${formatPct(band.pctOfGroup)}`;
 }
 
-// FR-DSH-008. One ordinal series, so no legend: the title names it and each
+// FR-DSH-008. One ordinal series, so no legend. The title names it and each
 // row names its band. Each row's aria-label and the table behind the
-// disclosure are the accessible and printable forms.
+// disclosure are the accessible forms.
 export function BandChart({
   title,
   bands,

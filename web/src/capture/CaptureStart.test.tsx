@@ -157,9 +157,9 @@ describe("CaptureStart's odometer", () => {
   });
 });
 
-// FR-INS-062: the driver confirms the rig a controller set. Each box's
-// name keeps the descriptor beside the fleet number, as it reads today;
-// e2e/rigs.spec.ts finds the box by the fleet number within that name.
+// FR-INS-062: the driver confirms the rig a controller set. A box's name is
+// its fleet number and descriptor; e2e/rigs.spec.ts finds it by the fleet
+// number within that name.
 describe("CaptureStart's rig", () => {
   it("names each coupled unit's box by its fleet number and descriptor", () => {
     renderStart(vi.fn(), {

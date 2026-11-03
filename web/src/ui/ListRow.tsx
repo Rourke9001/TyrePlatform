@@ -17,8 +17,8 @@ export interface ListRowProps extends Omit<HTMLAttributes<HTMLElement>, "title" 
   trailing?: ReactNode;
   to?: string;
   onClick?: () => void;
-  // The row's whole text in place of title and meta, so a link keeps a
-  // name a page and its tests already read as one string.
+  // The row's whole text in place of title and meta, so a link's name is one
+  // string a page and its tests match whole.
   children?: ReactNode;
 }
 

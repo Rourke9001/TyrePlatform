@@ -127,8 +127,7 @@ const ON_FILL: [ColorToken, ColorToken, number][] = [
   ["on-brand", "brand-pressed", 4.5],
 ];
 
-// A tile's border, an alert's bar, the active ring and field, a ticked box,
-// the current page's underline.
+// A tile's border, an alert's bar, the active ring and field, a ticked box.
 const MARKS: ColorToken[] = [
   "ok-text",
   "warn-text",
@@ -272,8 +271,8 @@ function unchecked(files: Record<string, string> = sheets): string[] {
         // Dimming takes text and marks under their floors by an amount no
         // token states (TYRE-155's absent spare).
         const alpha = value.endsWith("%") ? parseFloat(value) / 100 : parseFloat(value);
-        // Opacity 0 hides rather than dims: a native input under the box
-        // drawn for it stays the click target (Checkbox.css).
+        // Opacity 0 hides rather than dims. The transparent native input
+        // over the drawn box stays the click target (Checkbox.css).
         if (property === "opacity" && (step || alpha === 0)) continue;
         if ((property === "opacity" && alpha < 1) || property === "filter") {
           out.push(`${file}: ${rule.selectors.join(", ")} { ${property}: ${value} }`);
@@ -459,12 +458,11 @@ describe("the capture contrast check catches each planted case", () => {
       ".x { border-color: var(--interactive); box-shadow: 0 0 0 2px var(--interactive-soft); }",
     ],
     ["an entrance animation's see-through first step", "@keyframes k { from { opacity: 0; } }"],
-    ["a native input hidden under its drawn box", ".x input { opacity: 0; }"],
+    ["a native input hidden over its drawn box", ".x input { opacity: 0; }"],
   ])("lets %s pass", (_, css) => {
     expect(unchecked({ [planted]: css })).toEqual([]);
   });
 
-  // The real sheets show a ring echoing a border; this is the fill half.
   it("lets a see-through ring echo its rule's own fill", () => {
     const css =
       ".x { background: var(--warn); color: var(--on-warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 25%, transparent); }";

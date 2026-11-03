@@ -21,8 +21,8 @@ export interface DamageNoteProps extends Omit<HTMLAttributes<HTMLDivElement>, "c
 }
 
 // A driver control by design (TYRE-152, TYRE-448), so every control in it is
-// the glove target. It is on the capture entry's forbidden list on this
-// branch only because no capture route renders it yet (spec, non-goals).
+// the glove target. It stays on the capture entry's forbidden list
+// (web/eslint.config.js) until a capture route renders it (spec, non-goals).
 export function DamageNote({
   types,
   type,

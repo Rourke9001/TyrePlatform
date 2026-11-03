@@ -3,8 +3,8 @@ import { useId } from "react";
 import type { GallerySection } from "./types";
 import "./gallery.css";
 
-// A lane registers a section by adding src/ui/gallery/<group>.gallery.tsx,
-// so no two lanes edit one file to show their components (TYRE-447).
+// Adding src/ui/gallery/<group>.gallery.tsx registers its section, so adding
+// one edits no shared file (TYRE-447).
 const registered = Object.values(
   import.meta.glob<{ section: GallerySection }>("./*.gallery.tsx", { eager: true }),
 ).map((module) => module.section);

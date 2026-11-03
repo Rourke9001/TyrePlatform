@@ -53,9 +53,8 @@ describe("IconButton", () => {
     expect(bare).not.toMatch(/:hover \{/);
   });
 
-  // --ink-muted on the brand measures 1.32:1 on the default brand in
-  // Daylight, so a disabled glyph there keeps --on-brand and fades instead.
-  // The rule ties .tr-iconbtn:disabled on specificity, so it must come later.
+  // IconButton.css says why a disabled on-brand glyph keeps --on-brand. The
+  // rule ties .tr-iconbtn:disabled on specificity, so it must come later.
   it("keeps a disabled on-brand glyph in the on-brand colour", () => {
     const bare = iconCss.replace(/\/\*[\s\S]*?\*\//g, "");
     const rule = /\.tr-iconbtn--on-brand:disabled \{([^}]*)\}/.exec(bare);

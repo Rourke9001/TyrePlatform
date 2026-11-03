@@ -1,4 +1,3 @@
-import type { CSSProperties } from "react";
 import { bandRangeLabel } from "../../domain/vocabulary";
 import { BandChart, type Band } from "../BandChart";
 import { ProvenanceBar } from "../ProvenanceBar";
@@ -19,13 +18,9 @@ const five = sample([0, 5, 8, 11, 14], [8, 6, 5, 3, 2]);
 // Seven, so the blend above five (U56) can be seen beside the five.
 const seven = sample([0, 3, 5, 7, 9, 11, 14], [9, 8, 7, 6, 5, 4, 3]);
 
-// One track no wider than the gallery column, so a wide sample scrolls
-// inside itself (the shells' content grids do the same).
-const column: CSSProperties = { gridTemplateColumns: "minmax(0, 1fr)" };
-
 export function ChartSamples() {
   return (
-    <div className="tr-stack" style={column}>
+    <div className="tr-stack">
       <BandChart title="Sample tread depth across running positions" bands={five} />
       <BandChart
         title="Sample tread depth, with a limit"

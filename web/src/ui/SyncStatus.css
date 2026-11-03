@@ -1,6 +1,6 @@
-/* The outbox chip: a glyph dot per state and the words beside it. Waiting
-   and failed fill the dot so a held inspection is seen at a glance
-   (ADR-0009). */
+/* The outbox chip, a glyph dot per state and the words beside it. Waiting
+   and failed fill the dot in warn and critical, so a held inspection is
+   seen at a glance (ADR-0009). */
 
 .tr-sync {
   display: inline-flex;

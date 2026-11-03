@@ -13,13 +13,13 @@ export interface KeypadProps extends Omit<HTMLAttributes<HTMLDivElement>, "child
   // The go key's whole accessible name, so the caller's words ("Next ›",
   // "Seen it ›") are what a screen reader and a test both find.
   goLabel: string;
-  // U145: no decimal key. A tenant at 0.5 mm gets the half key in the slot
-  // left of 0; every other tenant gets Delete there.
+  // U145: no decimal key. The slot left of 0 is Delete, or the half key
+  // where the caller passes it, as tread entry does at a tenant's 0.5 mm.
   altKey?: "delete" | "half";
   goTone?: "primary" | "warn";
   goDisabled?: boolean;
-  // Names the pad, and only then makes it a group, so a screen whose keypad
-  // has no role or name today gains neither (copy unchanged, TYRE-443).
+  // Names the pad, and only then makes it a group, so an unnamed pad adds no
+  // role or name to its screen (TYRE-443).
   ariaLabel?: string;
 }
 
