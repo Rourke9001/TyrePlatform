@@ -259,4 +259,26 @@ describe("pressure labels", () => {
       "700 XKPA against a 800 XKPA target. Check the inflation before departure.",
     );
   });
+
+  // U55 (TYRE-342): entry reaches 1200 kPa, so both pressure messages group
+  // the reading and the target with a comma.
+  it("groups a four-digit pressure in the confirming warning", () => {
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 1100 }, steer, config, metric);
+    expect(w.find((x) => x.code === "FR-INS-031a")?.message).toBe(
+      "1,100 kPa against a 800 kPa target. Check the gauge and confirm.",
+    );
+  });
+
+  it("groups a four-digit pressure and target in the warn-band warning", () => {
+    const highTarget = { ...steer, targetKpa: 1000 };
+    const w = positionWarnings(
+      { treads: [12, 12, 13], pressureKpa: 1150 },
+      highTarget,
+      config,
+      metric,
+    );
+    expect(w.find((x) => x.code === "FR-INS-037")?.message).toBe(
+      "1,150 kPa against a 1,000 kPa target. Check the inflation before departure.",
+    );
+  });
 });

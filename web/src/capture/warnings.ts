@@ -1,4 +1,5 @@
 import type { CaptureConfig, CapturePosition } from "./captureContext";
+import { groupThousands } from "../format/groupThousands";
 import type { UnitLabels } from "../units/units";
 
 // The code IS the requirement id, travelling to app.inspection_warning
@@ -115,6 +116,9 @@ export function positionWarnings(
     const criticalOver = position.criticalOverPct ?? Infinity;
     const warnUnder = position.warnUnderPct ?? Infinity;
     const warnOver = position.warnOverPct ?? Infinity;
+    // U55: entry reaches 1200 kPa, so both figures are grouped for display.
+    // enteredValue stays the bare number DR-021 stores.
+    const reading = `${groupThousands(String(entry.pressureKpa))} ${units.pressure} against a ${groupThousands(String(target))} ${units.pressure} target.`;
 
     // At most one pressure warning: FR-INS-031a supersedes FR-INS-037's
     // band rather than stacking. Strict under, inclusive over, matching
@@ -124,14 +128,14 @@ export function positionWarnings(
       out.push({
         code: "FR-INS-031a",
         requiresConfirmation: true,
-        message: `${entry.pressureKpa} ${units.pressure} against a ${target} ${units.pressure} target. Check the gauge and confirm.`,
+        message: `${reading} Check the gauge and confirm.`,
         enteredValue: String(entry.pressureKpa),
       });
     } else if (pct < -warnUnder || pct >= warnOver) {
       out.push({
         code: "FR-INS-037",
         requiresConfirmation: false,
-        message: `${entry.pressureKpa} ${units.pressure} against a ${target} ${units.pressure} target. Check the inflation before departure.`,
+        message: `${reading} Check the inflation before departure.`,
         enteredValue: String(entry.pressureKpa),
       });
     }

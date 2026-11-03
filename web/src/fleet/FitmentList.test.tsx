@@ -57,6 +57,18 @@ describe("the fitments list", () => {
     expect(within(row).getByText("42")).toBeInTheDocument();
   });
 
+  // U55 (TYRE-342): a long fitment's day count groups thousands.
+  it("groups a four-digit days fitted with a comma", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, [fitment({ fitmentId: "f1", daysFitted: 1234 })]),
+    );
+    renderScreen();
+
+    const row = (await screen.findByRole("link", { name: "HORSE-1" })).closest("tr");
+    if (!row) throw new Error("row not found");
+    expect(within(row).getByText("1,234")).toBeInTheDocument();
+  });
+
   // rule 6: an instant renders in the tenant's own zone, not the browser's.
   // 22:30Z is 00:30 the next day in Africa/Johannesburg (me()'s own zone).
   it("renders fitted on through useTenantDate", async () => {

@@ -849,3 +849,26 @@ describe("the pressure field's unit", () => {
     expect(screen.getByText("XKPA")).toBeInTheDocument();
   });
 });
+
+// U55 with owner ruling B8 (TYRE-342): the pressure cell is also the live
+// keypad display, and it groups thousands as the driver types.
+describe("the pressure field's grouping", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows a four-digit pressure with a comma while it is typed", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<PositionSheet {...props({})} />);
+
+    await user.click(screen.getByLabelText("Pressure"));
+    for (const d of "1100") {
+      await user.click(screen.getByRole("button", { name: d }));
+    }
+
+    expect(within(screen.getByLabelText("Pressure")).getByText("1,100")).toBeVisible();
+  });
+});
