@@ -1070,9 +1070,9 @@ func TestRotateRefusesContradictoryAndMalformedFields(t *testing.T) {
 	// exact, not contains, wherever one case's expected text is a prefix of
 	// another's: "odometer" is a substring of "odometers", so a decoder that
 	// answered "odometers" for both would satisfy a contains-check on each.
-	// The odometers case is also the only assertion that would catch a
-	// caller's map key leaking into the refusal, which is exactly what
-	// typeErrorField's ADR-0012 claim says cannot happen (admin.go).
+	// The odometers case also catches a caller's map key leaking into the
+	// refusal through a handler (ADR-0012); request_internal_test.go holds
+	// typeErrorField's other paths.
 	for _, tt := range []struct {
 		name     string
 		body     string
