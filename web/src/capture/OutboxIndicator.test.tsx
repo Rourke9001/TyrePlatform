@@ -180,6 +180,35 @@ describe("OutboxIndicator", () => {
     const [remaining] = await outbox().toArray();
     expect(remaining.clientUuid).toBe("u-202");
     expect(screen.getByRole("button", { name: /the office has bac 202/i })).toBeInTheDocument();
+    expect(screen.queryByText("Could not remove it. Try again.")).toBeNull();
+  });
+
+  // TYRE-218: IndexedDB can refuse the delete. The entry stays, so the
+  // driver is told on that entry's line why the tap did nothing, and the
+  // next tap tries again.
+  it("says so on the entry's line when the phone refuses to remove it", async () => {
+    const user = userEvent.setup();
+    await outbox().put(entry("u-101", "failed", "BAC 101"));
+    await outbox().put(entry("u-202", "failed", "BAC 202"));
+    const refused = vi.spyOn(outbox(), "delete").mockRejectedValueOnce(new Error("blocked"));
+    try {
+      render(<OutboxIndicator />);
+      await user.click(await screen.findByRole("button", { name: "The office has BAC 101" }));
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+
+      const line = await screen.findByText("Could not remove it. Try again.");
+      expect(screen.getAllByText("Could not remove it. Try again.")).toHaveLength(1);
+      const group = screen.getByRole("group", { name: /remove this inspection/i });
+      expect(group.parentElement).toContainElement(line);
+      expect(await outbox().count()).toBe(2);
+
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      await waitFor(async () => expect(await outbox().count()).toBe(1));
+      expect(screen.queryByText("Could not remove it. Try again.")).toBeNull();
+      expect(screen.getByRole("button", { name: "The office has BAC 202" })).toBeInTheDocument();
+    } finally {
+      refused.mockRestore();
+    }
   });
 
   // NFR-USE-010, ADR-0009: what is stuck, and the way to unstick it, show
