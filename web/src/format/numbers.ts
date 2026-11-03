@@ -1,5 +1,5 @@
-// The manager screens' counts, percentages and tread measurements, written
-// once (U55). Capture writes its own compact tread, as web/CLAUDE.md says.
+// The manager screens' counts, percentages and tread readings, written once
+// (U55, U164). Capture writes its own compact tread (U164).
 
 import { groupThousands } from "./groupThousands";
 
