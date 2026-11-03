@@ -648,7 +648,9 @@ later import of the chunk fails until a reload. A tap on "Sign in" or "Sign
 out" whose import fails therefore reloads the page while the phone reports a
 connection (`reloadForAuthChunk` in `web/src/shell/chunkReload.ts`); offline,
 the line below the button shows instead, since a reload would strand the
-driver on the browser's offline page. A renewal never reloads, and the
+driver on the browser's offline page. Owner ruling U172 (3 Nov 2026): it
+reloads once inside the route-chunk reload's guard window, so a second
+failure within 10 s shows the line rather than looping the page. A renewal never reloads, and the
 warm-up stays. The device check on deployed staging is the acceptance. The
 bold rule below therefore now reads "never a reason for an automatic
 reload".*

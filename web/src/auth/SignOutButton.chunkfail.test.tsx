@@ -14,6 +14,7 @@ vi.mock("./oidc", () => {
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   window.localStorage.setItem("tyre.dev.auth", "bearer");
   window.localStorage.setItem("tyre.auth.subject", "oid-a");
 });
