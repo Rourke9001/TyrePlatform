@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -120,7 +121,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, into any) bool {
 		return false
 	}
 	if err := json.Unmarshal(raw, into); err != nil {
-		if field, named := typeErrorField(err); named {
+		if field, named := typeErrorField(err, into); named {
 			writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, field+" is the wrong type")
 			return false
 		}
@@ -193,16 +194,85 @@ func unknownJSONField(err error) (string, bool) {
 	return name, true
 }
 
-// typeErrorField names the field whose value had the wrong type. The
-// decoder's own text is never forwarded (ADR-0012); the field name is safe
-// because encoding/json builds this path from this package's own json tags,
-// never caller text, so no length bound is needed here.
-func typeErrorField(err error) (string, bool) {
+// typeErrorField names the field whose value had the wrong type, in this
+// package's json tags only, so no caller text reaches the refusal (ADR-0012).
+// From Go 1.27 the decoder's path carries the caller's map keys, slice indexes
+// and key spelling (TYRE-379), so the name is rebuilt by walking that path
+// through into's type, and it stops at a map, whose key is caller text.
+func typeErrorField(err error, into any) (string, bool) {
 	var typeErr *json.UnmarshalTypeError
 	if !errors.As(err, &typeErr) || typeErr.Field == "" {
 		return "", false
 	}
-	return typeErr.Field, true
+	names := tagPath(reflect.TypeOf(into), strings.Split(typeErr.Field, "."))
+	if len(names) == 0 {
+		return "", false
+	}
+	return strings.Join(names, "."), true
+}
+
+func tagPath(t reflect.Type, segments []string) []string {
+	for t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t == nil || len(segments) == 0 {
+		return nil
+	}
+	switch t.Kind() {
+	case reflect.Slice, reflect.Array:
+		if isIndex(segments[0]) {
+			return tagPath(t.Elem(), segments[1:])
+		}
+		return tagPath(t.Elem(), segments)
+	case reflect.Struct:
+		name, field, ok := jsonField(t, segments[0])
+		if !ok {
+			return nil
+		}
+		return append([]string{name}, tagPath(field, segments[1:])...)
+	default:
+		return nil
+	}
+}
+
+func isIndex(segment string) bool {
+	_, err := strconv.ParseUint(segment, 10, 0)
+	return err == nil
+}
+
+// jsonField finds the field encoding/json would decode segment into, matched
+// as it matches keys (case-insensitively, through embedded structs), and
+// answers the tag's spelling rather than the caller's.
+func jsonField(t reflect.Type, segment string) (string, reflect.Type, bool) {
+	for i := range t.NumField() {
+		f := t.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if f.Anonymous && name == "" {
+			embedded := f.Type
+			if embedded.Kind() == reflect.Pointer {
+				embedded = embedded.Elem()
+			}
+			if embedded.Kind() == reflect.Struct {
+				if n, ft, ok := jsonField(embedded, segment); ok {
+					return n, ft, true
+				}
+				continue
+			}
+		}
+		if !f.IsExported() {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		if strings.EqualFold(name, segment) {
+			return name, f.Type, true
+		}
+	}
+	return "", nil, false
 }
 
 // refuseInvalid answers a validation failure and reports whether it did, so a
