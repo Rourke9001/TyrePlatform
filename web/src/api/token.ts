@@ -4,6 +4,7 @@
 // renewal, a sign-in or a sign-out needs it.
 
 import { ApiError } from "./apiError";
+import { bounded } from "./deadline";
 import { getDevActorId } from "./devTenant";
 import { suppressReloadWhile } from "../shell/chunkReload";
 import type * as AuthChunk from "../auth/oidc";
@@ -139,11 +140,6 @@ const EXPIRY_SKEW_MS = 60_000;
 // help, so the store stops until a reload (spec section 4, A fresh token
 // refused).
 const FRESH_MS = 60_000;
-// Transport timing, not tenant policy (rule 5). The sign-in library's request
-// timeout (oidc.ts), the store's bound on a renewal, the bound on reading
-// config.json (runtimeConfig.ts) and on every API call (client.ts) are this
-// one value.
-export const REQUEST_TIMEOUT_SECONDS = 10;
 
 let latched = false;
 // The last renewed token, kept beside the mirror, because a blocked store
@@ -226,21 +222,6 @@ async function sameDriver(tokens: Renewed): Promise<Renewed> {
     // Best effort; mirrorRenewed clears the mirror either way.
   }
   return null;
-}
-
-// The library's request timeout ends at the response headers, so a stalled
-// body would hold every caller of a renewal (spec section 4, Renewal) or the
-// first render behind the redirect callback (TYRE-388). Past the bound a
-// caller gets a plain Error, which the outbox and the actor query read as
-// offline.
-export function bounded<T>(work: Promise<T>, what: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`${what} timed out`)),
-      REQUEST_TIMEOUT_SECONDS * 1000,
-    );
-    void work.then(resolve, reject).finally(() => clearTimeout(timer));
-  });
 }
 
 // One renewal in flight until it settles, past the bound too, because

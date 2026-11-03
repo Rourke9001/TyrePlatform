@@ -196,7 +196,12 @@ describe("the outbox", () => {
   it("keeps the entry and schedules a retry on a server fault", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}) }),
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve(JSON.stringify({})),
+      }),
     );
     const entry = await queueOne();
 
@@ -213,7 +218,12 @@ describe("the outbox", () => {
   it("stops retrying a permanent refusal but keeps the inspection", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 409, json: () => Promise.resolve({}) }),
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve(JSON.stringify({})),
+      }),
     );
     const entry = await queueOne();
 
@@ -236,6 +246,8 @@ describe("the outbox", () => {
         ok: false,
         status: 409,
         json: () => Promise.resolve({ code: "TY003", message: "already inspected" }),
+        text: () =>
+          Promise.resolve(JSON.stringify({ code: "TY003", message: "already inspected" })),
       }),
     );
     const entry = await queueOne();
@@ -249,9 +261,12 @@ describe("the outbox", () => {
   });
 
   it("does not send an entry before its backoff has elapsed", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}) });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve(JSON.stringify({})),
+    });
     vi.stubGlobal("fetch", fetchMock);
     const entry = await queueOne();
 
@@ -265,9 +280,12 @@ describe("the outbox", () => {
   // FR-OFF-012: the schedule needs a pulse, or a 500 taken while online is
   // never retried at all.
   it("retries on the heartbeat once the backoff has elapsed", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}) });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve(JSON.stringify({})),
+    });
     vi.stubGlobal("fetch", fetchMock);
     const entry = await queueOne();
     await attemptSend(entry.clientUuid);
@@ -292,9 +310,12 @@ describe("the outbox", () => {
   });
 
   it("sends immediately when the driver asks", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}) });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve(JSON.stringify({})),
+    });
     vi.stubGlobal("fetch", fetchMock);
     const entry = await queueOne();
 
@@ -338,6 +359,24 @@ describe("the outbox", () => {
 
   // TYRE-215: the one 422 that time cures. Classified by CODE, not status:
   // the same status with no code stays permanent.
+  // TY021, tenant_inactive and not_provisioned retry only by their code, so a
+  // refusal whose body is lost must not fail the entry (TYRE-389 stage 5).
+  it("holds an entry whose refusal arrives without its body", async () => {
+    const lost = () => Promise.reject(new TypeError("network error"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 403, json: lost, text: lost }),
+    );
+    const entry = await queueOne();
+
+    await attemptSend(entry.clientUuid);
+
+    const [held] = await listOutbox();
+    expect(held.clientUuid).toBe(entry.clientUuid);
+    expect(held.state).toBe("queued");
+    expect(held.lastStatus).toBeNull();
+  });
+
   it("keeps retrying a future-skew refusal with backoff", async () => {
     vi.stubGlobal(
       "fetch",
@@ -345,6 +384,8 @@ describe("the outbox", () => {
         ok: false,
         status: 422,
         json: () => Promise.resolve({ code: "TY021", message: "check the device time" }),
+        text: () =>
+          Promise.resolve(JSON.stringify({ code: "TY021", message: "check the device time" })),
       }),
     );
     const entry = await queueOne();
@@ -362,7 +403,12 @@ describe("the outbox", () => {
   it("drops a failed entry on request and refuses to drop a queued one", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 409, json: () => Promise.resolve({}) }),
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve(JSON.stringify({})),
+      }),
     );
     const failed = await queueOne();
     await attemptSend(failed.clientUuid);

@@ -649,7 +649,9 @@ out" whose import fails therefore reloads the page while the phone reports a
 connection (`reloadForAuthChunk` in `web/src/shell/chunkReload.ts`); offline,
 the line below the button shows instead, since a reload would strand the
 driver on the browser's offline page. A renewal never reloads, and the
-warm-up stays. The device check on deployed staging is the acceptance.*
+warm-up stays. The device check on deployed staging is the acceptance. The
+bold rule below therefore now reads "never a reason for an automatic
+reload".*
 
 **A failed import of the auth chunk is a network failure, never a reason to
 reload.**
@@ -671,6 +673,13 @@ only if the mirror still holds the refused token: a slow 401 for an older
 token clears nothing.
 
 ### The redirect callback
+
+*Amended 3 Nov 2026 by TYRE-388. The first render waits on the callback, so
+the chunk import, discovery and the code exchange together get one
+`REQUEST_TIMEOUT_SECONDS` budget, 10 s (`web/src/api/deadline.ts`). Past it
+the sign-in did not finish: the app renders and the sign-in screen shows its
+line. An exchange that finishes after the budget has spent its code and
+stores a user no compare has seen, so it is discarded (U104).*
 
 On app load, a URL on `/` that carries `state` together with either `code` or
 `error` is handed to `completeSignIn()` before the app renders. The query is

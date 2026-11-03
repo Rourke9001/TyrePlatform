@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { REQUEST_TIMEOUT_SECONDS } from "./deadline";
 import {
   MIRROR_KEY,
   SUBJECT_KEY,
@@ -307,7 +308,7 @@ describe("credential", () => {
     };
 
     const first = watch(token.credential());
-    await vi.advanceTimersByTimeAsync(token.REQUEST_TIMEOUT_SECONDS * 1000);
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_SECONDS * 1000);
     expect(first.value).toBeInstanceOf(Error);
     expect(first.value).not.toBeInstanceOf(ApiError);
     expect(token.sessionLapsed()).toBe(false);

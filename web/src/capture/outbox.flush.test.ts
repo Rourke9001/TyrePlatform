@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// A short bound, so a stalled request ends in a test's time. Every module that
-// reads the bound reads this one value (token.ts).
-vi.mock("../api/token", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../api/token")>()),
-  REQUEST_TIMEOUT_SECONDS: 0.05,
-}));
+// A short bound, so a stalled request ends in a test's time. The API client
+// takes its bound from deadline() (deadline.ts).
+vi.mock("../api/deadline", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../api/deadline")>();
+  return { ...real, deadline: (what?: string) => real.deadline(what, 50) };
+});
 
 vi.mock("../auth/oidc", () => ({
   renew: vi.fn(),

@@ -21,6 +21,7 @@ function stubFetch(status: number, body: unknown) {
       status,
       json: () =>
         body === undefined ? Promise.reject(new SyntaxError("empty")) : Promise.resolve(body),
+      text: () => Promise.resolve(body === undefined ? "" : JSON.stringify(body)),
     }),
   );
   vi.stubGlobal("fetch", fetchMock);

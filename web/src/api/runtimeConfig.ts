@@ -2,7 +2,7 @@
 // bundle serves every environment (ADR-0019, ADR-0017). Section 3 of
 // docs/superpowers/specs/2026-10-16-platform-readiness-design.md.
 
-import { REQUEST_TIMEOUT_SECONDS } from "./token";
+import { deadline } from "./deadline";
 
 // Not an ApiError, so the outbox classifies a send that hits it as
 // retryable and keeps the inspection queued (outbox.ts, classify).
@@ -43,24 +43,19 @@ export function createRuntimeConfig(
     async load() {
       if (origin !== null) return;
       // Bounded, or a stalled depot connection leaves a driver on "Loading."
-      // with no way out. The signal is held until the body is parsed: a
-      // bound that ends with the headers does not cover a stalled body
-      // (docs/lessons.md, 2026-10-02).
-      const controller = new AbortController();
-      const timer = setTimeout(() => {
-        controller.abort();
-      }, REQUEST_TIMEOUT_SECONDS * 1000);
+      // with no way out (deadline.ts).
+      const bound = deadline("config.json");
       try {
         // The default cache mode, so this consumes index.html's preload;
         // freshness is the server's Cache-Control: no-cache on the file.
-        const res = await fetchFn("/config.json", { signal: controller.signal });
+        const res = await bound.within(fetchFn("/config.json", { signal: bound.signal }));
         if (!res.ok) throw new RuntimeConfigError(`config.json answered ${res.status}`);
-        origin = parseApiOrigin(await res.json());
+        origin = parseApiOrigin(await bound.within(res.json()));
       } catch (error) {
         if (error instanceof RuntimeConfigError) throw error;
         throw new RuntimeConfigError("config.json could not be read", { cause: error });
       } finally {
-        clearTimeout(timer);
+        bound.end();
       }
     },
     apiUrl(path) {

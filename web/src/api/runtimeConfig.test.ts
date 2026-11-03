@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RuntimeConfigError, createRuntimeConfig, parseApiOrigin } from "./runtimeConfig";
-import { REQUEST_TIMEOUT_SECONDS } from "./token";
+import { REQUEST_TIMEOUT_SECONDS } from "./deadline";
 
 type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
 

@@ -113,7 +113,12 @@ describe("fetchCaptureContext", () => {
   it("surfaces a refusal without guessing why", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 403, json: () => Promise.resolve({}) }),
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve(JSON.stringify({})),
+      }),
     );
 
     await expect(fetchCaptureContext(body.vehicleId)).rejects.toThrow(/403/);
