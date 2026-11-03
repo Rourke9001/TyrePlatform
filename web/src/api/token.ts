@@ -228,14 +228,15 @@ async function sameDriver(tokens: Renewed): Promise<Renewed> {
   return null;
 }
 
-// The refresh request's timeout ends at its response headers, so a stalled
-// body would hold every caller (spec section 4, Renewal). Past the bound a
+// The library's request timeout ends at the response headers, so a stalled
+// body would hold every caller of a renewal (spec section 4, Renewal) or the
+// first render behind the redirect callback (TYRE-388). Past the bound a
 // caller gets a plain Error, which the outbox and the actor query read as
 // offline.
-function bounded<T>(work: Promise<T>): Promise<T> {
+export function bounded<T>(work: Promise<T>, what: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error("sign-in renewal timed out")),
+      () => reject(new Error(`${what} timed out`)),
       REQUEST_TIMEOUT_SECONDS * 1000,
     );
     void work.then(resolve, reject).finally(() => clearTimeout(timer));
@@ -254,6 +255,7 @@ function renewOnce(): Promise<Mirror | null> {
       .finally(() => {
         renewing = null;
       }),
+    "sign-in renewal",
   );
   return renewing;
 }
