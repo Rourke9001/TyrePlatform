@@ -30,6 +30,22 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-03 - jsdom and user-event ignore `inert`, so a Tab test passes against a focus leak (#158)
+
+**What happened:** stage 5 on #158 found that Shift+Tab from the open
+capture sheet landed on "Discard this inspection", hidden under the
+sheet's opaque layer (WCAG 2.4.11). The fix marks everything outside the
+layer `inert`. jsdom 30 does not honour `inert` when moving focus, and
+user-event 14.6.4's `getTabDestination` filters only on tabindex,
+disabled and visibility, so a `user.tab({ shift: true })` test reaches the
+hidden button with or without the fix.
+
+**The rule:** in vitest, test an `inert` fix by its mechanism: every
+focusable outside the layer has `closest("[inert]")`, and nothing inside
+it does. Prove the behaviour with real Tab presses in Playwright
+(`e2e/sheetFit.spec.ts`), and watch that test fail without the fix
+(2026-11-03).
+
 ## 2026-10-31 - A stacked branch's config taken whole at a rebase stop drops the base's rules, and lint stays green (#154)
 
 **What happened:** #153's body told #154's rebase to resolve
