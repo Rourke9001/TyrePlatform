@@ -115,13 +115,19 @@ describe("a fitment history's distance unit", () => {
 
 // FR-TYR-017: each tread figure names its age, in its own cell.
 describe("a fitment history's tread ages", () => {
+  it("a tread with no known age still carries its unit", () => {
+    renderHistory([fitmentRow({ fitmentId: "f1", displayCode: "TY001", removedAgeDays: null })]);
+    expect(within(rowFor("TY001")).getByText("9.0 mm")).toBeTruthy();
+  });
+
   it("treads on and off show their age", () => {
     renderHistory([
       fitmentRow({ fitmentId: "f1", displayCode: "TY001", fittedAgeDays: 30, removedAgeDays: 1 }),
     ]);
     const row = rowFor("TY001");
-    expect(within(row).getByText("14.5 (30 days ago)")).toBeTruthy();
-    expect(within(row).getByText("9.0 (1 day ago)")).toBeTruthy();
+    // U164: a tread reading on a manager screen goes through formatMm.
+    expect(within(row).getByText("14.5 mm (30 days ago)")).toBeTruthy();
+    expect(within(row).getByText("9.0 mm (1 day ago)")).toBeTruthy();
     expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
       "Tyre",
       "Position",

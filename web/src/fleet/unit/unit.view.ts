@@ -38,7 +38,8 @@ export function distanceCell(row: FitmentHistoryRow, units: UnitLabels): string 
 // FR-TYR-017: a tread figure with its measurement's age, in its own cell.
 export function treadCell(treadMm: string | null, ageDays: number | null): string {
   if (treadMm === null) return "—";
-  return ageDays === null ? treadMm : `${treadMm} (${formatTreadAge(ageDays)})`;
+  const mm = formatMm(Number(treadMm));
+  return ageDays === null ? mm : `${mm} (${formatTreadAge(ageDays)})`;
 }
 
 // A trailer and a motive between trips both read as no trip and no motive,

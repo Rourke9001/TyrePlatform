@@ -207,7 +207,7 @@ What this record settles beyond ADR-0015:
   (`web/CLAUDE.md`):
   - `DataTable` stacks on a phone by rendering cards, not by CSS
     `display: block`, which drops table semantics (TYRE-238 comment 12938).
-  - A measurement renders through `formatMm` with one decimal, on the
+  - A tread reading renders through `formatMm` with one decimal, on the
     manager screens (U164, above).
   - Wire codes become words only in `src/domain/vocabulary.ts`, where
     ADR-0022 moved it.
