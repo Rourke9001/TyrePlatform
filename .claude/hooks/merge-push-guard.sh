@@ -2,11 +2,11 @@
 # The owner merges every PR (U123), and a write that lands on develop or main
 # deploys an environment. git push and gh api run without a prompt (U126,
 # TYRE-413), so this refuses a merge and asks before a push, a ref write or a
-# contents write to either branch (U167, c14119). It reads the text as bash
-# would: quotes, comments, continuations, heredocs, $( ) and a shell's -c. It
-# asks when it cannot tell where a push lands. A command built to evade it
-# passes: a refspec in a variable, a glob refspec, `git push origin :`, a
-# query read from a file (TYRE-413 c14118).
+# contents write to either branch (U167, c14119). Where it cannot read a
+# command precisely, it asks: a shell's -c, eval or a heredoc a shell reads
+# that names a push or merge, and a bare push after a cd it cannot follow.
+# A command built to evade it passes: a refspec in a variable, a glob
+# refspec, `git push origin :`, a query read from a file (TYRE-413 c14118).
 set -uo pipefail
 input=$(cat)
 cmd=$(jq -r '.tool_input.command // empty' <<<"$input" 2>/dev/null) || exit 0
@@ -18,6 +18,15 @@ cwd=${cwd//$'\r'/}
 [[ -z "$cwd" ]] && cwd=$PWD
 
 guarded='^(develop|main)$'
+end='([?"'\''[:space:]]|$)'
+boundary='(^|[^[:alnum:]_.-])'
+repo_flag='([[:space:]]+(-R[[:space:]]*|--repo([[:space:]]+|=))[^[:space:]]+)*'
+merge_re="${boundary}gh${repo_flag}[[:space:]]+pr${repo_flag}[[:space:]]+merge([[:space:]]|$)"
+api_re="${boundary}gh${repo_flag}[[:space:]]+api([[:space:]]|$)"
+push_re="${boundary}git(([[:space:]]+-[Cc][[:space:]]+[^[:space:]]+)|([[:space:]]+--[a-z-]+(=[^[:space:]]+)?))*[[:space:]]+push([[:space:]]|$)"
+cd_re='^[[:space:]]*((if|then|do|else|elif|while|until|time|\{|!)[[:space:]]+)*cd[[:space:]]+'
+dirs_re="${boundary}(pushd|popd)([[:space:]]|$)|(builtin|command)[[:space:]]+cd([[:space:]]|$)"
+mutation_re='(mergePullRequest|enablePullRequestAutoMerge)'
 
 deny() {
   cat >&2 <<EOF
@@ -36,16 +45,15 @@ ask() { asks+=("$1"); }
 
 unquote() { local s=$1; s=${s#[\"\']}; s=${s%[\"\']}; printf '%s' "$s"; }
 
-# A directory the hook can follow, or "?" for one it cannot (a variable, a
-# substitution, cd -).
+# A directory the hook can follow, or "?" for one it cannot.
 resolve() {
   local d
   d=$(unquote "$1")
-  if [[ "$d" == *'$'* || "$d" == *'`'* || "$d" == - || -z "$d" ]]; then printf '?'; return; fi
+  if [[ "$d" == *'$'* || "$d" == *'`'* || "$d" == - || -z "$d" || "$cwd" == "?" ]]; then printf '?'; return; fi
   [[ "$d" == "~" || "$d" == "~/"* ]] && d=$HOME${d#\~}
   case "$d" in
     /* | [A-Za-z]:*) printf '%s' "$d" ;;
-    *) [[ "$cwd" == "?" ]] && printf '?' || printf '%s/%s' "$cwd" "$d" ;;
+    *) printf '%s/%s' "$cwd" "$d" ;;
   esac
 }
 
@@ -109,10 +117,10 @@ check_push() {
 # Reads the call as written, quoted values included, since a path or query
 # may be quoted; so a field that only names an endpoint or mutation counts too.
 check_gh_api() {
-  local s=$1 method="" fields=0 write=0 branch end='([?"'\''[:space:]]|$)'
+  local s=$1 method="" fields=0 write=0 branch
   [[ "$s" =~ pulls/[^/[:space:]]+/merge/?$end ]] && deny "$s"
   [[ "$s" =~ /merges/?$end ]] && deny "$s"
-  [[ "$s" =~ (mergePullRequest|enablePullRequestAutoMerge) ]] && deny "$s"
+  [[ "$s" =~ $mutation_re ]] && deny "$s"
   if [[ "$s" =~ (^|[[:space:]])(-X|--method)[[:space:]=]*[\"\']?([A-Za-z]+) ]]; then
     method=${BASH_REMATCH[3]^^}
   fi
@@ -130,80 +138,103 @@ check_gh_api() {
   fi
 }
 
-# One pass over the text as bash reads it. Each command is printed as three
-# fields, separated by \037 and ended by \036: the command as written; the
-# same with quoted text blanked to "_", which the merge, push and cd patterns
-# search, so a quoted mention is not a command; and its subshell depth, so a
-# cd stays in its subshell. A break falls at ; | ( ) and an & that is not a
-# redirection, and at a newline outside quotes. A newline in quotes is a
-# space, a backslash-newline joins lines, and a # comment ends the line. A
-# $( ), a backtick or a shell's -c or eval body is printed as its own
-# command, and the command around it keeps a placeholder in its place. A
-# heredoc's body is code when a shell on its line reads it, part of the call
-# for a gh api graphql query read from it, and skipped otherwise.
+# Text a shell runs that the hook does not decode: refused when it holds a
+# merge, asked when it names a push or merge, and any cd in it is unknown.
+check_opaque() {
+  local b=$1
+  [[ "$b" =~ $merge_re ]] && deny "$b"
+  if [[ "$b" =~ $api_re ]]; then
+    [[ "$b" =~ pulls/[^/[:space:]]+/merge/?$end || "$b" =~ /merges/?$end || "$b" =~ $mutation_re ]] && deny "$b"
+  fi
+  [[ "$b" =~ (^|[^[:alnum:]_-])(push|merge)([^[:alnum:]_-]|$) ]] && ask "$b"
+  [[ "$b" =~ ${boundary}(cd|pushd|popd)([[:space:]]|$) ]] && cwd="?"
+}
+
+# One pass over the text as bash reads it. Each record is three fields,
+# separated by \037 and ended by \036: the text as written, the same with
+# quoted text blanked to "_" (which the merge, push and cd patterns search,
+# so a quoted mention is not a command), and a kind. "cmd" is a command and
+# "nested" one inside ( ), $( ) or backticks. "opaque" is text a shell runs
+# that is not decoded: a shell's -c or eval word, or a heredoc a shell in the
+# heredoc's own pipeline reads. "gql" is a heredoc a gh api graphql call in
+# that pipeline reads as its query. A break falls at ; | ( ), an & that is
+# not a redirection, and a newline outside quotes. A newline in quotes is a
+# space, a backslash-newline joins lines, and a # comment ends the line. The
+# command around a $( ) or backtick stays whole, with a placeholder.
 read -r -d '' split_awk <<'AWK'
+function emit(f, b, k) { printf "%s\037%s\037%s\036", f, b, k }
 function brk() {
-  if (segf ~ /[^[:space:]]/) printf "%s\037%s\037%d\036", segf, segb, top
+  if (segf ~ /[^[:space:]]/) emit(segf, segb, top > 0 ? "nested" : "cmd")
   segf = ""; segb = ""
 }
 function put(f, b) { segf = segf f; segb = segb b; lineb = lineb b }
+function blank(t,  r) { r = t; gsub(/./, "_", r); return r }
 function wordstart(  p) { p = substr(segf, length(segf), 1); return (segf == "" || p ~ /[[:space:];&|(]/) }
 function opener() {
-  return (segb ~ /(^|[[:space:]])([^[:space:]]*\/)?(ba|z|da|k)?sh([[:space:]]+(-o[[:space:]]+[A-Za-z]+|--[a-z-]+|-[A-Za-z]+))*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/ ||
+  return (segb ~ /(^|[[:space:]])([^[:space:]]*\/)?(ba|z|da|k)?sh([[:space:]]+[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/ ||
     segb ~ /(^|[[:space:]])eval[[:space:]]*$/)
+}
+function wordend(k,  d, qq) {
+  qq = ""
+  while (k <= n) {
+    d = substr(s, k, 1)
+    if (qq == sq) { if (d == sq) qq = ""; k++; continue }
+    if (d == bs) { k += 2; continue }
+    if (qq == dq) { if (d == dq) qq = ""; k++; continue }
+    if (d == sq || d == dq) { qq = d; k++; continue }
+    if (d ~ /[[:space:];&|()<>]/) break
+    k++
+  }
+  return k
 }
 function push(k, c, r) {
   if (k == "group") brk()
   top++; kind[top] = k; cl[top] = c; rq[top] = r; sf[top] = segf; sb[top] = segb
-  segf = ""; segb = ""; q = ""; inner = 0
+  segf = ""; segb = ""; q = ""
 }
 function pop(  k) {
-  k = kind[top]; brk(); segf = sf[top]; segb = sb[top]; q = rq[top]; top--; inner = 0
+  k = kind[top]; brk(); segf = sf[top]; segb = sb[top]; q = rq[top]; top--
   if (k == "group") { segf = ""; segb = ""; return }
-  if (k == "sub") put("$(_)", "$(_)"); else put("'_'", "___")
+  put("$(_)", "$(_)")
 }
-function skipbody(  j, e, line) {
-  j = i + 1
+# The pipeline holding the heredoc: its piece of the line between ; && ||.
+function hdpipe(  t, parts, m, x, r) {
+  t = lineb; gsub(/&&|\|\||;/, "\n", t); m = split(t, parts, "\n"); r = ""
+  for (x = 1; x <= m; x++) if (index(parts[x], "<<")) r = parts[x]
+  return r
+}
+function body(  j, e, line, out) {
+  j = i + 1; out = ""
   while (j <= n) {
     e = index(substr(s, j), "\n"); line = (e ? substr(s, j, e - 1) : substr(s, j))
-    sub(/^\t+/, "", line); j = (e ? j + e : n + 1)
+    j = (e ? j + e : n + 1)
+    sub(/^\t+/, "", line)
     if (line == hd) break
-    if (attach) { segf = segf " " line; segb = segb sprintf("%" (length(line) + 1) "s", "") }
+    out = out line "\n"
   }
   i = j - 1
+  return out
 }
 { s = s $0 "\n" }
 END {
-  n = length(s); q = ""; top = 0; hd = ""; inner = 0; lineb = ""
+  n = length(s); q = ""; top = 0; hd = ""; lineb = ""
   for (i = 1; i <= n; i++) {
     c = substr(s, i, 1); nx = substr(s, i + 1, 1)
-    # Inside a single-quoted -c body, '\'' is one apostrophe of the script.
-    if (top > 0 && kind[top] == "code" && cl[top] == sq && substr(s, i, 4) == sq bs sq sq) {
-      q = (q == sq ? "" : sq); put(substr(s, i, 4), "____"); i += 3; continue
-    }
     if (q == sq) {
       if (c == sq) { q = ""; put(c, "_"); continue }
       put(c == "\n" ? " " : c, "_"); continue
     }
     if (c == bs) {
       if (nx == "\n") { i++; continue }
-      if (top > 0 && cl[top] == dq && nx == dq) {
-        if (q == dq) { q = ""; inner = 0 } else if (q == "") { q = dq; inner = 1 }
-        put(c nx, "__"); i++; continue
-      }
       put(c nx, q == dq ? "__" : c nx); i++; continue
     }
     if (q == dq) {
-      if (c == dq) { if (inner) { pop(); continue } q = ""; put(c, "_"); continue }
+      if (c == dq) { q = ""; put(c, "_"); continue }
       if (c == bq) { push("sub", bq, dq); continue }
       if (c == "$" && nx == "(") { push("sub", ")", dq); i++; continue }
       put(c == "\n" ? " " : c, "_"); continue
     }
-    if (top > 0 && c == cl[top]) {
-      # Bash joins quoted pieces into one word, so the -c body goes on.
-      if (kind[top] == "code" && (nx == sq || nx == dq)) { cl[top] = nx; put(c nx, "__"); i++; continue }
-      pop(); continue
-    }
+    if (top > 0 && c == cl[top]) { pop(); continue }
     if (c == "#" && wordstart()) { while (i < n && substr(s, i + 1, 1) != "\n") i++; continue }
     if (c == "<" && nx == "<" && substr(s, i + 2, 1) != "<" && substr(segf, length(segf), 1) != "<") {
       j = i + 2
@@ -213,12 +244,14 @@ END {
       put(substr(s, i, j - i), substr(s, i, j - i)); i = j - 1; hd = w; continue
     }
     if (c == "\n") {
+      brk()
       if (hd != "") {
-        attach = (segf ~ /(^|[^[:alnum:]_.-])gh[[:space:]].*api[[:space:]]+graphql/ && segf ~ /query=@-|--input[[:space:]]+-/)
-        if (!attach && lineb ~ /(^|[[:space:];&|(])([^[:space:]]*\/)?(ba|z|da|k)?sh([[:space:]]|$)/) { brk(); hd = ""; lineb = ""; continue }
-        skipbody(); brk(); attach = 0; hd = ""; lineb = ""; continue
+        p = hdpipe(); t = body()
+        if (p ~ /(^|[^[:alnum:]_.-])gh[[:space:]].*api[[:space:]]+graphql/ && p ~ /query=@-|--input[[:space:]]+-/) emit(t, "", "gql")
+        else if (p ~ /(^|[[:space:]|(])([^[:space:]]*\/)?(ba|z|da|k)?sh([[:space:]]|$)/) emit(t, "", "opaque")
+        hd = ""
       }
-      brk(); lineb = ""; continue
+      lineb = ""; continue
     }
     if (c == "(") { lineb = lineb c; push("group", ")", ""); continue }
     if (c == ")") { lineb = lineb c; brk(); continue }
@@ -231,7 +264,10 @@ END {
     if (c == "$" && nx == "(") { push("sub", ")", ""); i++; continue }
     if (c == bq) { push("sub", bq, ""); continue }
     if (c == sq || c == dq) {
-      if (opener()) { push("code", c, ""); continue }
+      if (opener()) {
+        j = wordend(i); t = substr(s, i, j - i); emit(t, "", "opaque")
+        gsub(/\n/, " ", t); put(t, blank(t)); i = j - 1; continue
+      }
       q = c; put(c, "_"); continue
     }
     put(c, c)
@@ -240,30 +276,23 @@ END {
 }
 AWK
 
-boundary='(^|[^[:alnum:]_.-])'
-gh_re="${boundary}gh([[:space:]]+(-R|--repo)([[:space:]]+|=)[^[:space:]]+)*[[:space:]]+"
-merge_re="${gh_re}pr[[:space:]]+merge([[:space:]]|$)"
-api_re="${gh_re}api([[:space:]]|$)"
-push_re="${boundary}git(([[:space:]]+-[Cc][[:space:]]+[^[:space:]]+)|([[:space:]]+--[a-z-]+(=[^[:space:]]+)?))*[[:space:]]+push([[:space:]]|$)"
-cd_re='^[[:space:]]*((if|then|do|else|elif|while|until|time|\{|!)[[:space:]]+)*cd[[:space:]]+'
-
 # An awk that cannot read the program would let every command through.
 segs=$(printf '%s' "$cmd" | awk -v sq="'" -v dq='"' -v bq='`' -v bs='\\' "$split_awk") && [[ -n "$segs" ]] ||
   ask "the guard could not read this command"
 
-dirs=("$cwd")
-cur=0
-while IFS=$'\037' read -r -d $'\036' full blank depth; do
-  depth=${depth:-0}
-  for ((k = cur + 1; k <= depth; k++)); do dirs[k]=${dirs[k - 1]}; done
-  cur=$depth
+while IFS=$'\037' read -r -d $'\036' full blank kind; do
+  case "$kind" in
+    opaque) check_opaque "$full"; continue ;;
+    gql) [[ "$full" =~ $mutation_re ]] && deny "a graphql query: $full"; continue ;;
+  esac
+  [[ "$blank" =~ $dirs_re ]] && cwd="?"
   if [[ "$blank" =~ $cd_re ]]; then
-    m=${BASH_REMATCH[0]}
-    word=${full:${#m}}
-    cwd=${dirs[cur]}
-    if [[ "$word" =~ ^(\'[^\']*\'|\"[^\"]*\"|[^[:space:]]+) ]]; then dirs[cur]=$(resolve "${BASH_REMATCH[1]}"); fi
+    if [[ "$kind" == nested ]]; then
+      cwd="?"
+    elif [[ "${full:${#BASH_REMATCH[0]}}" =~ ^(\'[^\']*\'|\"[^\"]*\"|[^[:space:]]+) ]]; then
+      cwd=$(resolve "${BASH_REMATCH[1]}")
+    fi
   fi
-  cwd=${dirs[cur]}
   [[ "$blank" =~ $merge_re ]] && deny "$full"
   [[ "$blank" =~ $api_re ]] && check_gh_api "$full"
   if [[ "$blank" =~ $push_re ]]; then
@@ -274,7 +303,7 @@ while IFS=$'\037' read -r -d $'\036' full blank depth; do
 done <<<"$segs"
 
 ((${#asks[@]} == 0)) && exit 0
-reason="This may land on develop or main, which deploys an environment, or the guard cannot tell where it lands, so the owner approves it (TYRE-413): ${asks[*]}"
+reason="This may land on develop or main, which deploys an environment, or the guard cannot tell, so the owner approves it (TYRE-413): ${asks[*]}"
 jq -n --arg r "$reason" \
   '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: $r}}'
 exit 0
