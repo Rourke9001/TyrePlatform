@@ -1,15 +1,23 @@
 import { useState } from "react";
 
 import { authChunk } from "../api/token";
+import { reloadForAuthChunk } from "../shell/chunkReload";
 import { Button } from "../ui/Button";
 import "./auth.css";
 
 // The path to come back to rides in the request's state (callback.ts checks
-// it is same-origin), so a sign-in from /capture/:id returns there.
-function startSignIn(): Promise<void> {
-  return authChunk().then((auth) =>
-    auth.signIn(`${window.location.pathname}${window.location.search}`),
-  );
+// it is same-origin), so a sign-in from /capture/:id returns there. Resolves
+// true when a failed import reloads the page instead (U105, chunkReload.ts).
+async function startSignIn(): Promise<boolean> {
+  let auth;
+  try {
+    auth = await authChunk();
+  } catch (error) {
+    if (reloadForAuthChunk()) return true;
+    throw error;
+  }
+  await auth.signIn(`${window.location.pathname}${window.location.search}`);
+  return false;
 }
 
 export function SignInButton({ label }: { label: string }) {
@@ -35,9 +43,16 @@ export function SignInButton({ label }: { label: string }) {
           if (pending) return;
           setFailed(false);
           setPending(true);
-          startSignIn()
-            .catch(() => setFailed(true))
-            .finally(() => setPending(false));
+          // A reload keeps the button pending until the page goes.
+          startSignIn().then(
+            (reloading) => {
+              if (!reloading) setPending(false);
+            },
+            () => {
+              setFailed(true);
+              setPending(false);
+            },
+          );
         }}
       >
         {pending ? "Opening sign-in…" : label}

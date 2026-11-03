@@ -16,9 +16,25 @@ const RELOAD_GUARD_WINDOW_MS = 10_000;
 
 // The token store's import of the sign-in library (ADR-0016) fails like any
 // chunk and dispatches the same event. In a dead zone that is a network
-// failure the outbox retries, never a reason to reload. Vite dispatches the
-// event before the import rejects, so the count is still held when it fires.
+// failure the outbox retries, never an automatic reload; only a tap reloads
+// (reloadForAuthChunk). Vite dispatches the event before the import rejects,
+// so the count is still held when it fires.
 let suppressed = 0;
+
+// On an object so a test can replace it: jsdom implements no navigation.
+export const page = { reload: (): void => window.location.reload() };
+
+// U105 (TYRE-381): Chrome and released Safari keep a failed module fetch in
+// the module map for the life of the page, so after one failed import of the
+// auth chunk only a reload loads it again. A tap on Sign in or Sign out
+// reloads; a renewal never does. Offline the reload would strand the driver
+// on the browser's offline page (no service worker, ADR-0009), so it reloads
+// only while the phone reports a connection. Returns whether it reloaded.
+export function reloadForAuthChunk(): boolean {
+  if (!window.navigator.onLine) return false;
+  page.reload();
+  return true;
+}
 
 export function suppressReloadWhile<T>(pending: Promise<T>): Promise<T> {
   suppressed += 1;

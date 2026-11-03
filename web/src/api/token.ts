@@ -120,7 +120,8 @@ export function authConfigured(): boolean {
 }
 
 // The one dynamic import of the sign-in library (ADR-0016). A failed import
-// is a network failure the outbox retries, never a reload (chunkReload.ts).
+// is a network failure the outbox retries, never an automatic reload; only a
+// tap on Sign in or Sign out reloads (U105, chunkReload.ts).
 export function authChunk(): Promise<typeof AuthChunk> {
   return suppressReloadWhile(import("../auth/oidc"));
 }

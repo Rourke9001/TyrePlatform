@@ -16,7 +16,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // After the first render, online, with a session stored, so a later renewal
   // in a dead zone finds the chunk already loaded (spec section 4). A failed
   // warm-up can fail every later import of the chunk until a reload, because
-  // Chrome and released Safari keep the failure in the module map (TYRE-381).
+  // Chrome and released Safari keep the failure in the module map, so a tap on
+  // Sign in or Sign out reloads (U105, TYRE-381).
   useEffect(() => {
     if (bearerMode() && window.navigator.onLine && lastKnownSubject() !== null) {
       authChunk().catch(() => undefined);
