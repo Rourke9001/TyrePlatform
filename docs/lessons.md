@@ -402,6 +402,11 @@ identity (TYRE-317 comment 13468), never in the admin center.
   `docker-compose.yml`) belongs to project `tyreplatform`. With
   `COMPOSE_PROJECT_NAME=tyreplatform` a dry run showed
   `Container tyre-pg Running` and no recreate, and the gate ran.
+- 2026-11-03 (TYRE-443): an Agent-tool subagent told to write its report
+  to `scratchpad/comment-audit/report.md` as it went was refused by the
+  harness ("Subagents should return findings as text"). Its hand-back
+  message was the only report, so a cut before the end would have lost all
+  of it.
 
 **The rule:**
 
@@ -428,7 +433,9 @@ identity (TYRE-317 comment 13468), never in the admin center.
   the report (`VERDICT`), never on the file existing. Tell long-running
   reviewers to write incrementally, since a usage-limit cut loses an
   unwritten report, and tell everyone waiting on them what the last line
-  is (2026-09-03).
+  is (2026-09-03). An Agent-tool subagent cannot write a report file: its
+  hand-back is its only report, so keep its brief narrow enough that a cut
+  loses little, and never ask it for a report file (2026-11-03).
 - Give every parallel agent its own scratch subdirectory in the packet
   (`scratchpad/<slice>/`), and have it record its baseline inside the
   report, not only in a file (2026-09-09).
