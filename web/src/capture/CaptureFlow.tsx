@@ -5,6 +5,7 @@ import { bearerMode } from "../api/token";
 import { failureOf } from "../auth/actorContext";
 import { SignInButton } from "../auth/SignInButton";
 import { Button } from "../ui/Button";
+import { inertOutside } from "../ui/inertOutside";
 
 import { CaptureDiagram } from "./CaptureDiagram";
 import { BackToWork, CaptureDone } from "./CaptureDone";
@@ -294,9 +295,11 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           the driver's place-keeper across 27 positions, and remounting the
           picture on every position is both slower and a new screen to
           re-read. Keyed on the position so reopening one gets a fresh sheet
-          seeded from the draft rather than the previous position's state. */}
+          seeded from the draft rather than the previous position's state.
+          The layer hides the rig and the shell, so they take no focus while
+          it is open (WCAG 2.4.11, ui/inertOutside.ts). */}
         {active && (
-          <div className="cap-sheet-layer">
+          <div className="cap-sheet-layer" ref={inertOutside}>
             <PositionSheet
               key={active.key}
               rig={active}

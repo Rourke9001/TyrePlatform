@@ -37,8 +37,8 @@ interface ModalSheetProps extends SheetOwnProps {
   returnTo?: RefObject<HTMLElement | SVGElement | null>;
 }
 
-// The capture tyre sheet is not modal (ADR-0020, U145): the rig stays
-// reachable, so this one traps nothing and the caller's layer places it.
+// The capture tyre sheet is not modal (ADR-0020, U145), so this one traps
+// nothing. The caller's layer places it and decides what stays reachable.
 interface DockedSheetProps extends SheetOwnProps {
   modal: false;
   onClose?: () => void;
