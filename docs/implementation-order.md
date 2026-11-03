@@ -67,9 +67,9 @@ TYRE-321's restore rehearsal (NFR-BAK-004, with TYRE-203 folded in, U147
 B34) ran on 3 Nov: staging restored to a point in time in about 8 minutes,
 every table matching, with `docs/runbooks/restore-a-database.md` written
 from the run. The geo-restore of production to South Africa West was
-refused, because that region is not open to the subscription; opening it
-takes an Azure support request, which is the owner's call (TYRE-321
-comment 14110).
+refused, because that region is not open to the subscription. The owner
+ruled not to ask Azure to open it: NFR-BAK-005 and 006 now exclude a
+region-wide outage (U166, TYRE-321 comment 14113).
 
 ### Feature work and fixes
 
@@ -145,11 +145,10 @@ tenant, created at TYRE-321's live onboarding (U139).
 
 ## Blocked on people, not code
 
-**The owner:** have a Cowork agent add the two 3 Nov rows to the release
-log on Confluence 10682399, staging's migrate to 60 and the restore
-rehearsal (`docs/HANDOFF_release-row_2026-11-03.md`, gitignored); decide
-whether to ask Azure to open South Africa West so production's geo-restore
-can run (TYRE-321 comment 14110); make TYRE-413's settings edit, its
+**The owner:** have the SRS Cowork agent paste U166's errata for
+NFR-BAK-005 and 006 and fix the release log's staging database row
+(`docs/HANDOFF_srs_errata_TYRE-321_U166_2026-11-03.md`, gitignored);
+make TYRE-413's settings edit, its
 pilot-audit comment's B37 less the production reviewer already set: deny
 `gh pr merge`, a hook that refuses a merge through `gh api` and asks before
 a push to `develop` or `main`, and allow `gh api`. Staging is at 60 since

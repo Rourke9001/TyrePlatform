@@ -311,3 +311,12 @@ Microsoft recommends a vault per application per environment with roles at
 vault scope. The Names list above stays as it is; this amendment adds
 `kv-tyre-api-staging` and `kv-tyre-api-prod`. See
 `docs/superpowers/specs/2026-10-19-api-own-vault-design.md`.
+
+**Amended 2026-11-03 (TYRE-321, U166):** production's geo-redundant backup
+cannot be restored by us. A geo-restore goes only to the paired region,
+South Africa West, which is closed to this subscription, and the owner ruled
+not to ask Azure to open it (TYRE-321 comments 14110 and 14113). So
+NFR-BAK-005 and NFR-BAK-006 cover failures recovered by a point-in-time
+restore inside South Africa North, and a region-wide outage waits for the
+region (SRS errata, TYRE-321). The geo-redundant backup stays: it costs
+nothing at pilot size, and changing it means rebuilding the server.

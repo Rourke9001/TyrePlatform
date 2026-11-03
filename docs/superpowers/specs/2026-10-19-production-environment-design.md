@@ -118,6 +118,12 @@ protections:
 | `CanNotDelete` lock on the Postgres server and the storage account | yes | no | See below. |
 | Postgres maintenance window | custom: Sunday 02:00 to 03:00 SAST (00:00 UTC) | system-managed | NFR-AVL-003. See below. |
 
+*3 Nov 2026, TYRE-321 (U166): the restore rehearsal found a geo-restore to
+South Africa West refused, because the region is closed to the subscription,
+and no support request is raised. The geo-redundant backup below stays, but
+it no longer meets NFR-BAK-005: that objective and NFR-BAK-006 now exclude a
+region-wide outage (SRS errata, TYRE-321).*
+
 - **Geo-redundant backup.**
   - It can be chosen only when the server is created *(documented)*. So
     production's first apply fixes it, and changing it later means
