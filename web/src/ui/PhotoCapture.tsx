@@ -49,9 +49,7 @@ const PHOTO_STATE: Record<PhotoState, { glyph: IconGlyph; label: string }> = {
   failed: { glyph: CriticalIcon, label: "Not sent yet" },
 };
 
-// A driver control by design (TYRE-152, TYRE-448), so every control in it is
-// the glove target. It stays on the capture entry's forbidden list
-// (web/eslint.config.js) until a capture route renders it (spec, non-goals).
+// A driver control, sized and fenced off for DamageNote.tsx's reason.
 export function PhotoCapture({
   photos,
   onAdd,

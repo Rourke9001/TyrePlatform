@@ -173,6 +173,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         <p role="alert" className="cap-alert cap-alert--stop">
           An inspection for another vehicle is still open on this phone. Finish that one first.
         </p>
+        {/* A plain anchor for BackToWork's reason (CaptureDone.tsx). */}
         <a className="cap-primary" href={`/capture/${held.vehicleId}`}>
           Go to it
         </a>

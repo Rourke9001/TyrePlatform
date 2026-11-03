@@ -180,7 +180,7 @@ describe("PositionSheet", () => {
     expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
   });
 
-  // U145: a half inside the hold re-settles the same cell and re-arms its
+  // U160: a half inside the hold re-settles the same cell and re-arms its
   // one advance, so the driver still moves on exactly once.
   it("at 0.5 mm, a half inside the hold gives 13.5 and one advance", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });

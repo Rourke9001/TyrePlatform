@@ -106,7 +106,8 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
       return { state: write(state, "", opts), settled: false };
 
     case "half": {
-      // U145: the half key is a 0.5mm tenant's, and it only ever adds to a tread.
+      // U145: no decimal key, so a 0.5mm tenant gets this one. It only ever
+      // adds to a tread.
       if (opts.granularityMm !== 0.5) return { state, settled: false };
       const from = state.advancedFrom;
       // U160: after next, every half until another key belongs to the whole
