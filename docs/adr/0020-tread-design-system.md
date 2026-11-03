@@ -9,7 +9,9 @@
   keeps a driver's "My inspections" link on every other page, as
   Navigation requires. Amended 3 Nov 2026 by owner ruling U164
   (TYRE-443): the `formatMm` rule under Decision binds the manager screens,
-  and capture writes its own compact "4mm" and "4.5mm".
+  and capture writes its own compact "4mm" and "4.5mm". Amended 3 Nov 2026
+  by owner ruling U147 (21 Oct 2026, TYRE-207): under Capture follows the
+  SRS, the Outer, Centre and Inner ban binds the tread field labels only.
 - **Date:** 2026-10-20
 - **Deciders:** Rourke (owner decision of 20 Oct 2026)
 - **Related:** ADR-0015 (UI substrate; this keeps its substrate and
@@ -193,6 +195,14 @@ What this record settles beyond ADR-0015:
     tenant requires a photo.
   - The driver's Today screen has no vehicle search: a driver starts only
     from a task on the trip's vehicle (U143, TYRE-319).
+
+  *Amended by owner ruling U147 (21 Oct 2026, TYRE-207), from the pilot
+  audit's B10. The Outer, Centre and Inner ban binds the tread field labels
+  only. A dual-position place in the tyre sheet header, such as "axle 1,
+  right inner", is allowed. The compliance words (CR-010, OR-LEG-001) stay
+  banned in all driver-facing text. `web/src/test/spoken.ts` checks the two
+  scopes apart, on driver screens only, since OR-LEG-002 requires a
+  roadworthiness notice on the manager screens.*
 - **Navigation.** Until the pilot ends, Tread changes how screens look and
   the two shells, not the navigation: Exceptions keeps its name, and the
   rigs and fitments pages stay.

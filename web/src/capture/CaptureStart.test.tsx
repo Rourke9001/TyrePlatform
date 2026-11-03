@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { CaptureStart } from "./CaptureStart";
 import { ActorContext } from "../auth/actorContext";
 import { me } from "../test/fixtures";
+import { expectNothingForbiddenSpoken } from "../test/spoken";
 import type { CaptureContext } from "./captureContext";
 
 // FR-INS-020's three pre-fill inputs; frozen clock because 8 days at
@@ -69,12 +70,23 @@ describe("CaptureStart's odometer", () => {
   // reading. Confirming it cannot record last inspection's value as this
   // one's.
   it("offers a projection from the last reading rather than the reading itself", () => {
-    renderStart(vi.fn());
+    const { container } = renderStart(vi.fn());
     // Scoped to the readout: the confirm control names the same number, and
     // that it does is asserted separately below.
     expect(screen.getByText(/416,180/, { selector: "p" })).toBeInTheDocument();
     // Still on screen, because checking the dash against it is the point.
     expect(screen.getByText(/412,180 km/)).toBeInTheDocument();
+    expectNothingForbiddenSpoken(container, /start inspection/);
+  });
+
+  // CR-010/OR-LEG-001 (TYRE-207): the odometer's warning names the reading,
+  // never a legal standard.
+  it("flags an implausible reading without a forbidden word", async () => {
+    const { container } = renderStart(vi.fn());
+    await type("999999");
+
+    expect(screen.getByText(/a day since the last reading/)).toBeInTheDocument();
+    expectNothingForbiddenSpoken(container, /check the digits/);
   });
 
   // "CONFIRMED values are recorded to the odometer timeline": an untouched
@@ -181,11 +193,12 @@ describe("CaptureStart's odometer", () => {
   // so a backwards reading is refused at the cab rather than after the
   // walk-around (FR-INS-032).
   it("still refuses a reading below the last recorded one", async () => {
-    renderStart(vi.fn());
+    const { container } = renderStart(vi.fn());
     await type("400000");
 
     expect(screen.getByRole("alert")).toHaveTextContent(/lower than the last recorded/i);
     expect(screen.getByRole("button", { name: /start inspection/i })).toBeDisabled();
+    expectNothingForbiddenSpoken(container, /lower than the last recorded/);
   });
 
   // FR-INS-020 again, from the other side: a trailer has no odometer field at
@@ -203,7 +216,7 @@ describe("CaptureStart's odometer", () => {
 // number within that name.
 describe("CaptureStart's rig", () => {
   it("names each coupled unit's box by its fleet number and descriptor", () => {
-    renderStart(vi.fn(), {
+    const { container } = renderStart(vi.fn(), {
       combination: {
         id: "c1",
         members: [
@@ -217,6 +230,7 @@ describe("CaptureStart's rig", () => {
     expect(motive).toBeChecked();
     expect(motive).toBeDisabled();
     expect(within(rig).getByRole("checkbox", { name: /BAC711TR.*Link 1/ })).not.toBeChecked();
+    expectNothingForbiddenSpoken(container, /coupled up/);
   });
 });
 
