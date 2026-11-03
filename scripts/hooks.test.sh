@@ -177,6 +177,54 @@ asked "a contents delete on develop" "gh api -X DELETE $R/contents/docs/x.md -f 
 allowed "a contents write to a feature branch" "gh api -X PUT $R/contents/docs/x.md -f message=m -f content=Zg== -f branch=TYRE-1-x"
 allowed "a contents read at develop" "gh api '$R/contents/docs/x.md?ref=develop'"
 
+# Stage 5 of #162, round 2. A substitution is its own command, and the
+# command around it stays whole; a directory the hook cannot resolve asks.
+F=$work/on-feature
+asked "a push with -C from a substitution" "git -C \"\$(git rev-parse --show-toplevel)\" push origin develop"
+denied "a merge path with a substituted number" "gh api -X PUT \"$R/pulls/\$(gh pr view --json number -q .number)/merge\""
+denied "a merge after a substitution and a hash" "x=\$(date)#y; gh pr merge 1"
+asked "a bare push with -C from a substitution" "git -C \"\$(git rev-parse --show-toplevel)\" push"
+asked "a bare push after cd to a variable" "cd \"\$dir\" && git push"
+# U167, clarified (c14119): a contents write asks unless it names another branch.
+asked "a contents write with no branch" "gh api -X PUT $R/contents/docs/x.md -f message=m -f content=Zg=="
+asked "a contents write to 'develop'" "gh api -X PUT $R/contents/docs/x.md -f message=m -f content=Zg== -f branch='develop'"
+asked "a contents write to \"develop\"" "gh api -X PUT $R/contents/docs/x.md -f message=m -f content=Zg== -f branch=\"develop\""
+# A heredoc a shell reads after a pipe, or with arguments, is code; a graphql
+# query read from a heredoc is part of the call.
+denied "a heredoc piped to bash" "cat <<'EOF' | bash${nl}gh pr merge 12${nl}EOF"
+denied "a heredoc piped to sh" "cat <<EOF | sh${nl}gh pr merge 12${nl}EOF"
+denied "a heredoc read by bash -s with arguments" "bash -s -- x <<EOF${nl}gh pr merge 12${nl}EOF"
+denied "a graphql merge from a heredoc" "gh api graphql -F query=@- <<'EOF'${nl}mutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }${nl}EOF"
+# A shell's -c after long options, and a -c script joined by '\''.
+denied "a merge inside bash -o pipefail -c" "bash -o pipefail -c 'gh pr merge 1'"
+denied "a merge inside bash --norc -c" "bash --norc -c 'gh pr merge 1'"
+denied "a merge after the '\\'' idiom" "bash -c 'echo '\\''x'\\''; gh pr merge 1'"
+# cd anywhere in a command, its first word only, and scoped to its subshell.
+asked "a bare push after then cd" "if true; then cd '$D' && git push; fi"
+asked "a bare push after { cd" "{ cd '$D'; git push; }"
+asked "a bare push after cd with 2>/dev/null" "cd '$D' 2>/dev/null && git push"
+asked "a bare push after a subshell's cd" "(cd '$F' && ls); git push" "$D"
+asked "a bare push after a substitution's cd" "root=\$(cd '$F' && pwd); git push" "$D"
+allowed "a bare push after a subshell's cd to develop" "(cd '$D' && ls); git push"
+# gh takes -R or --repo before its subcommand.
+denied "gh -R pr merge" "gh -R o/r pr merge 1"
+denied "gh --repo pr merge" "gh --repo o/r pr merge 1"
+denied "gh --repo= pr merge" "gh --repo=o/r pr merge 1"
+
+# Commands a working session ran on 3 Nov, from a feature branch. Each must
+# pass, so a change that refuses ordinary work shows red.
+allowed "session: push a feature branch and log" "git push -q -u origin TYRE-321-dr-scope-u166 && git log --oneline -1"
+allowed "session: read a PR body through a pipe" "gh pr view 158 --json body -q .body | rg -n \"Re-review|830a299\" | cut -c1-160"
+allowed "session: a commit heredoc then a push" "git commit -q -F - <<'EOF'${nl}fix(claude): TYRE-413 deny gh pr merge${nl}${nl}gh pr merge is refused, and git push origin main asks.${nl}EOF${nl}git push -q origin TYRE-413-merge-push-guard 2>&1 | rg -v \"^remote:\"; git log --oneline -1"
+allowed "session: a PR body heredoc" "gh pr create --base develop --head TYRE-1-x --title \"docs: x\" --body-file - <<'EOF'${nl}Run \`gh api -X PUT $R/pulls/1/merge\` never.${nl}EOF"
+allowed "session: list open PRs" "gh api '$R/pulls?state=open&per_page=100' --jq '.[].title'"
+allowed "session: a comment from a file" "gh api -X POST $R/issues/158/comments -F body=@note.md"
+allowed "session: switch to a new branch" "cd '$F' && git fetch -q origin && git switch -q -c TYRE-9-x origin/develop"
+allowed "session: develop's runs" "gh run list --branch develop --limit 2 --json status -q '.[] | .status'"
+allowed "session: push HEAD to a named feature ref" "git push -q origin HEAD:refs/heads/TYRE-443-tread-comment-audit"
+allowed "session: node -e naming the merge" "node -e 'const s = \"deny \`gh pr merge\` (owner)\"; console.log(s)' \"\$MD\""
+allowed "session: a gh pr checks loop" "for n in 160 161; do gh pr checks \$n 2>&1 | head -3; done"
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails CASE(S) FAILED"
   exit 1
