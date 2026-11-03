@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
+import { expectNothingForbiddenSpoken } from "../test/spoken";
 import type { CaptureContext, CapturePosition } from "./captureContext";
 import { CaptureReview } from "./CaptureReview";
 import type { Draft, DraftPosition } from "./draft";
 import { cellKey } from "./draft";
+import type { WarningCode } from "./warnings";
 
 function spare(vehicleId: string): CapturePosition {
   return {
@@ -116,6 +118,54 @@ describe("CaptureReview", () => {
 
     const rows = screen.getAllByText(/^Spare, /);
     expect(rows.map((r) => r.textContent)).toEqual(["Spare, BAC039SP", "Spare, LINK6"]);
+  });
+
+  // CR-010/OR-LEG-001 (TYRE-207): every name the review gives a flag is
+  // swept, so each warning code is raised once.
+  it("names everything it found without a forbidden word", () => {
+    const codes: WarningCode[] = [
+      "FR-INS-031a",
+      "FR-INS-034",
+      "FR-INS-035",
+      "FR-INS-036",
+      "FR-INS-037",
+      "FR-INS-041",
+    ];
+    const flagged: DraftPosition = {
+      ...flaggedSpare("v1"),
+      warnings: codes.map((code) => ({ code, enteredValue: "3", response: "ACKNOWLEDGED" })),
+    };
+    const draft: Draft = {
+      clientUuid: "c1",
+      vehicleId: "v1",
+      fleetNumber: "BAC039SP",
+      combinationId: null,
+      observedMemberVehicleIds: ["v1"],
+      taskId: null,
+      startedAt: new Date().toISOString(),
+      odometerKm: 999999,
+      comment: null,
+      defectReport: null,
+      positions: { [cellKey("v1", "spare")]: flagged },
+      warnings: [{ code: "FR-INS-033", enteredValue: "999999", response: "CONFIRMED" }],
+      absentSpares: [],
+      driverSubject: "oid-driver-1",
+      legacy: false,
+    };
+
+    const { container } = render(
+      <CaptureReview
+        contexts={[unit("v1", "BAC039SP")]}
+        draft={draft}
+        doneCells={new Set([cellKey("v1", "spare")])}
+        absentCells={new Set()}
+        onBack={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelectorAll("[data-warning-code]")).toHaveLength(7);
+    expectNothingForbiddenSpoken(container, /replacement point/);
   });
 });
 

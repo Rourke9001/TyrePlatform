@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 
+import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureDone } from "./CaptureDone";
 
 describe("CaptureDone", () => {
@@ -40,4 +41,21 @@ describe("CaptureDone", () => {
     render(<CaptureDone state="queued" lastCode={null} lastStatus={null} />);
     expect(screen.getByText(/when you have signal/)).toBeInTheDocument();
   });
+
+  // CR-010/OR-LEG-001 (TYRE-207): every outcome a driver can be shown.
+  it.each([
+    ["sent", null, null, /inspection sent/],
+    ["queued", null, null, /when you have signal/],
+    ["queued", "TY021", 422, /clock is ahead/],
+    ["failed", "TY003", 409, /already inspected/],
+    ["failed", null, 422, /could not accept this inspection/],
+  ] as const)(
+    "says nothing forbidden when %s with code %s",
+    (state, lastCode, lastStatus, present) => {
+      const { container } = render(
+        <CaptureDone state={state} lastCode={lastCode} lastStatus={lastStatus} />,
+      );
+      expectNothingForbiddenSpoken(container, present);
+    },
+  );
 });

@@ -333,10 +333,10 @@ describe("PositionSheet", () => {
     expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
   });
 
-  // FR-INS-029a: the driver never sees the words inner, outer or centre. The
-  // prototype's Outer/Centre/Inner labels are not carried over (decision D-A).
-  // Swept with the one shared list (test/spoken.ts), which carries CR-010's
-  // compliance words with them.
+  // FR-INS-029a: the tread fields never carry the words inner, outer or
+  // centre. The prototype's Outer/Centre/Inner labels are not carried over
+  // (decision D-A). Swept with test/spoken.ts, which checks CR-010's
+  // compliance words across the whole sheet.
   it("never speaks a forbidden word on an untouched sheet", () => {
     const { container } = render(<PositionSheet {...props({})} />);
     expectNothingForbiddenSpoken(container, /tread reading 1 of 3/);
