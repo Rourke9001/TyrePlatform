@@ -7,7 +7,9 @@
   (`docs/superpowers/specs/2026-10-26-tread-frontend-design.md`). Amended
   31 Oct 2026 by owner ruling U159 (TYRE-240): under Shells, `DriverShell`
   keeps a driver's "My inspections" link on every other page, as
-  Navigation requires.
+  Navigation requires. Amended 3 Nov 2026 by owner ruling U164
+  (TYRE-443): the `formatMm` rule under Decision binds the manager screens,
+  and capture writes its own compact "4mm" and "4.5mm".
 - **Date:** 2026-10-20
 - **Deciders:** Rourke (owner decision of 20 Oct 2026)
 - **Related:** ADR-0015 (UI substrate; this keeps its substrate and
@@ -205,7 +207,8 @@ What this record settles beyond ADR-0015:
   (`web/CLAUDE.md`):
   - `DataTable` stacks on a phone by rendering cards, not by CSS
     `display: block`, which drops table semantics (TYRE-238 comment 12938).
-  - A measurement renders through `formatMm` with one decimal.
+  - A measurement renders through `formatMm` with one decimal, on the
+    manager screens (U164, above).
   - Wire codes become words only in `src/domain/vocabulary.ts`, where
     ADR-0022 moved it.
 
