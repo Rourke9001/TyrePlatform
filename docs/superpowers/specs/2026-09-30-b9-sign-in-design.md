@@ -641,6 +641,16 @@ then:
 `ActorState.failure` becomes `'unavailable'`, and the outbox reads 503 as
 retryable. A reload clears the latch.
 
+*Amended by owner ruling U105 (1 Oct 2026, TYRE-381), built 3 Nov 2026 under
+the pilot audit's B36. Chrome and released Safari keep a failed module fetch
+in the module map for the life of the page, so after one failed import every
+later import of the chunk fails until a reload. A tap on "Sign in" or "Sign
+out" whose import fails therefore reloads the page while the phone reports a
+connection (`reloadForAuthChunk` in `web/src/shell/chunkReload.ts`); offline,
+the line below the button shows instead, since a reload would strand the
+driver on the browser's offline page. A renewal never reloads, and the
+warm-up stays. The device check on deployed staging is the acceptance.*
+
 **A failed import of the auth chunk is a network failure, never a reason to
 reload.**
 

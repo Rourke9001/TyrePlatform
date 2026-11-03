@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { authChunk, bearerMode, lastKnownSubject } from "../api/token";
 import { heldCount, type HeldWork } from "../capture/outbox";
+import { reloadForAuthChunk } from "../shell/chunkReload";
 import { Button } from "../ui/Button";
 import "./auth.css";
 
@@ -57,9 +58,10 @@ export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
       try {
         chunk = await authChunk();
       } catch {
-        // With no signal for the lazy chunk the driver stays signed in, and
-        // the line says so.
-        setFailed(true);
+        // The driver stays signed in either way. With a connection a reload
+        // is the only way to load the chunk again (U105, chunkReload.ts), and
+        // the guard above means nothing is held; without one the line says so.
+        if (!reloadForAuthChunk()) setFailed(true);
         return;
       }
       try {
