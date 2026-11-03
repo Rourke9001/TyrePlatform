@@ -45,6 +45,9 @@ export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
     // Emptied first so a repeat refusal with the same count is announced
     // again by the live region.
     setHeld(null);
+    // A reload keeps the button pending until the page goes, so a second tap
+    // cannot repeat the guard and the import.
+    let reloading = false;
     try {
       const work = await heldCount();
       if (work.draft || work.entries > 0) {
@@ -61,7 +64,8 @@ export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
         // The driver stays signed in either way. With a connection a reload
         // is the only way to load the chunk again (U105, chunkReload.ts), and
         // the guard above means nothing is held; without one the line says so.
-        if (!reloadForAuthChunk()) setFailed(true);
+        reloading = reloadForAuthChunk();
+        if (!reloading) setFailed(true);
         return;
       }
       try {
@@ -73,7 +77,7 @@ export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
       // /api/me is asked again (spec section 4, Signing out).
       void queryClient.resetQueries();
     } finally {
-      setPhase("idle");
+      if (!reloading) setPhase("idle");
     }
   }
 

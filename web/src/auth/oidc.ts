@@ -11,7 +11,8 @@ import {
   type User,
 } from "oidc-client-ts";
 
-import { BRANDING_PREFIX, REQUEST_TIMEOUT_SECONDS, clearSession } from "../api/token";
+import { REQUEST_TIMEOUT_SECONDS } from "../api/deadline";
+import { BRANDING_PREFIX, clearSession } from "../api/token";
 
 export interface Tokens {
   accessToken: string;

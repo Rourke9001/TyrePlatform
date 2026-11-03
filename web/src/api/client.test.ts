@@ -8,7 +8,7 @@ vi.mock("../auth/oidc", () => ({
 }));
 
 import { AUTH_HEADER, ApiError, apiGet, apiPatch, apiPost } from "./client";
-import { REQUEST_TIMEOUT_SECONDS } from "./token";
+import { REQUEST_TIMEOUT_SECONDS } from "./deadline";
 import { clearDevActorId, clearDevTenantId, setDevActorId, setDevTenantId } from "./devTenant";
 import { sentBody } from "../test/fixtures";
 import { bearerSession } from "../test/bearerSession";
@@ -21,6 +21,14 @@ function stubFetch(status: number, body: unknown, ok = false) {
         ok,
         status,
         json: () => (body instanceof Error ? Promise.reject(body) : Promise.resolve(body)),
+        // send() reads a refusal as text: a SyntaxError stands for a body
+        // that arrived and does not parse, any other Error for one lost.
+        text: () =>
+          body instanceof SyntaxError
+            ? Promise.resolve("<html>")
+            : body instanceof Error
+              ? Promise.reject(body)
+              : Promise.resolve(JSON.stringify(body)),
       }),
     ),
   );
@@ -65,6 +73,17 @@ describe("the refusal envelope", () => {
 
     expect(err.status).toBe(502);
     expect(err.code).toBeNull();
+  });
+
+  // A refusal's code decides whether the outbox retries it (outbox.ts
+  // classify), so a body lost in transit is offline, not the bare status.
+  it("rejects as offline when a refusal's body is lost in transit", async () => {
+    stubFetch(403, new TypeError("network error"));
+
+    const err = await apiPost("/api/inspections", {}).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(ApiError);
   });
 
   it("reads an unparseable body as a null code", async () => {
@@ -309,7 +328,12 @@ describe("the request bound", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
-        Promise.resolve({ ok: status < 400, status, json: () => new Promise(() => undefined) }),
+        Promise.resolve({
+          ok: status < 400,
+          status,
+          json: () => new Promise(() => undefined),
+          text: () => new Promise(() => undefined),
+        }),
       ),
     );
   }

@@ -160,20 +160,25 @@ function stubApi(
   const byId = new Map(served.map((c) => [c.vehicleId, c]));
   const api = vi.fn((url: string, init?: { method?: string; body?: string }) => {
     if (init?.method === "POST") {
+      const reply =
+        submitStatus < 400 ? { inspectionId: "i1" } : { code: submitCode, message: "refused" };
       return Promise.resolve({
         ok: submitStatus < 400,
         status: submitStatus,
-        json: () =>
-          Promise.resolve(
-            submitStatus < 400 ? { inspectionId: "i1" } : { code: submitCode, message: "refused" },
-          ),
+        json: () => Promise.resolve(reply),
+        text: () => Promise.resolve(JSON.stringify(reply)),
       });
     }
     const asked = byId.get(url.split("?")[0].split("/").pop() ?? "");
     return Promise.resolve(
       asked
         ? { ok: true, status: 200, json: () => Promise.resolve(asked) }
-        : { ok: false, status: 404, json: () => Promise.resolve({}) },
+        : {
+            ok: false,
+            status: 404,
+            json: () => Promise.resolve({}),
+            text: () => Promise.resolve(JSON.stringify({})),
+          },
     );
   });
   vi.stubGlobal("fetch", api);
@@ -866,6 +871,7 @@ describe("sign-in inside capture", () => {
           ok: false,
           status: 401,
           json: () => Promise.resolve({ code: "unauthorized", message: "x" }),
+          text: () => Promise.resolve(JSON.stringify({ code: "unauthorized", message: "x" })),
         }),
       ),
     );

@@ -4,14 +4,8 @@
 import { getDevActorId, getDevTenantId } from "./devTenant";
 import { ApiError } from "./apiError";
 import { apiUrl } from "./runtimeConfig";
-import {
-  REQUEST_TIMEOUT_SECONDS,
-  authUnavailable,
-  isLatched,
-  refused,
-  sender,
-  type Sender,
-} from "./token";
+import { deadline } from "./deadline";
+import { authUnavailable, isLatched, refused, sender, type Sender } from "./token";
 
 export { ApiError } from "./apiError";
 
@@ -19,13 +13,13 @@ export { ApiError } from "./apiError";
 // (bearer.HeaderName), so the two sides cannot disagree (ADR-0016).
 export const AUTH_HEADER = "Authorization";
 
-// An unreadable body yields nulls, not a throw (ADR-0012): failing to parse
-// a refusal must not lose the inspection the outbox is holding. Both fields
-// come from one parse; a Response body reads once.
-async function refusal(res: Response): Promise<{ code: string | null; message: string | null }> {
+// A refusal's text that arrived but carries no envelope (a proxy's HTML page,
+// a body cut short) yields nulls, so the status alone decides. Both fields
+// come from one parse.
+function refusal(text: string): { code: string | null; message: string | null } {
   const none = { code: null, message: null };
   try {
-    const body: unknown = await res.json();
+    const body: unknown = JSON.parse(text);
     if (typeof body !== "object" || body === null) return none;
     return {
       code: "code" in body && typeof body.code === "string" ? body.code : null,
@@ -34,26 +28,6 @@ async function refusal(res: Response): Promise<{ code: string | null; message: s
   } catch {
     return none;
   }
-}
-
-// TYRE-389: one bound over the request and its body read, because on a dead
-// link either can stall for minutes. Past it the call rejects with a plain
-// Error, which the outbox (classify) and the queries read as offline. The
-// race does not wait on the abort reaching the body, which a stubbed or
-// older fetch may never do.
-function deadline() {
-  const controller = new AbortController();
-  const expired = new Promise<never>((_resolve, reject) => {
-    controller.signal.addEventListener("abort", () => reject(new Error("request timed out")));
-  });
-  // Raced on every await below; this keeps an unraced expiry quiet.
-  expired.catch(() => undefined);
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_SECONDS * 1000);
-  return {
-    signal: controller.signal,
-    within: <R>(work: Promise<R>): Promise<R> => Promise.race([work, expired]),
-    end: () => clearTimeout(timer),
-  };
 }
 
 // One implementation of identity attribution, refusal shaping and 204
@@ -75,8 +49,8 @@ async function send<T>(method: string, path: string, body?: unknown, as?: Sender
     if (devActor) headers["X-User-ID"] = devActor;
   }
 
-  // The bound starts here, after the credential: a renewal carries its own
-  // (token.ts).
+  // TYRE-389: bounded from here, after the credential, since a renewal
+  // carries its own bound (token.ts).
   const bound = deadline();
   try {
     const res = await bound.within(
@@ -92,8 +66,9 @@ async function send<T>(method: string, path: string, body?: unknown, as?: Sender
         throw authUnavailable();
       }
       // A refusal's code can make it retryable (outbox.ts classify), so a
-      // stalled refusal body expires as offline rather than as the status.
-      const { code, message } = await bound.within(refusal(res));
+      // body that stalls or is lost in transit is offline, never the bare
+      // status: the read stays outside refusal()'s catch.
+      const { code, message } = refusal(await bound.within(res.text()));
       throw new ApiError(res.status, message ?? `${method} ${path} failed: ${res.status}`, code);
     }
     // A 204 from any verb carries no body, by spec, and res.json() rejects on

@@ -51,6 +51,7 @@ describe("CaptureFlow in bearer mode", () => {
           ok: false,
           status: 401,
           json: () => Promise.resolve({ code: "unauthorized", message: "x" }),
+          text: () => Promise.resolve(JSON.stringify({ code: "unauthorized", message: "x" })),
         }),
       ),
     );

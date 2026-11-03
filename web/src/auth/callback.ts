@@ -2,11 +2,11 @@ import {
   OTHER_DRIVER_KEY,
   authChunk,
   bearerMode,
-  bounded,
   clearMirror,
   rememberSubject,
   writeMirror,
 } from "../api/token";
+import { bounded } from "../api/deadline";
 import { flushOutbox, heldStamps } from "../capture/outbox";
 import type { SignedIn } from "./oidc";
 

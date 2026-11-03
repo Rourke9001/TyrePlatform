@@ -56,4 +56,10 @@ it("reloads, with a connection, when the sign-out chunk cannot load, and stays s
   await vi.waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
   expect(screen.queryByRole("alert")).toBeNull();
   expect(window.localStorage.getItem("tyre.auth.subject")).toBe("oid-a");
+  // Held until the page goes, so a second tap cannot run the guard and the
+  // import again (TYRE-381 stage 5).
+  expect(screen.getByRole("button", { name: "Signing out…" })).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
 });

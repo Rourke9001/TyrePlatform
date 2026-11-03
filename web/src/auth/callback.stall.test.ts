@@ -31,7 +31,7 @@ const PENDING = "pending" as const;
 // Past the bound on the fake clock, then whether the work has settled. A red
 // run fails on its assertion instead of hanging to the test timeout.
 async function afterTheBound<T>(work: Promise<T>, extraMs = 0): Promise<T | typeof PENDING> {
-  const { REQUEST_TIMEOUT_SECONDS } = await import("../api/token");
+  const { REQUEST_TIMEOUT_SECONDS } = await import("../api/deadline");
   const settled = work.then((v) => v);
   await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_SECONDS * 1000 + extraMs);
   return Promise.race([settled, Promise.resolve(PENDING)]);
