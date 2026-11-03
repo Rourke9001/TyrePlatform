@@ -585,8 +585,8 @@ U156 (26 Oct) replaced U145's Tread sequence, which had 445 and 446 in
 sprint 1, 447 split into a core and manager set (447a, sprint 2) and a
 capture set (447b, sprint 3), logic fixes before each restyle, and the
 older screens after the pilot. Instead every route moved to Tread at once
-for the 28 Oct shareholder demo, on `TYRE-443-tread-frontend`, which stays
-with the tag `tread-demo-safe-0` at 96e7fdf. After the demo it was rebased
+for the 28 Oct shareholder demo, on `TYRE-443-tread-frontend`. The branch
+was deleted on 3 Nov; the tag `tread-demo-safe-0` keeps its head, 96e7fdf. After the demo it was rebased
 onto `develop` and cut into #151 to #154. Each was rebase-merged, and after
 each merge the owner rebased the next branch onto `develop` and
 force-pushed it. The integration branch had recorded the capture budget
