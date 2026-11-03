@@ -105,12 +105,12 @@ az postgres flexible-server geo-restore -g $TRG -n psql-tyre-georestore-$DAY \
 location 'southafricawest' ... for type 'locations/checkNameAvailability'`.
 `Microsoft.DBforPostgreSQL/flexibleServers` lists South Africa North and no
 South Africa West for this subscription, and Azure lists South Africa West
-as a restricted region ("Other"). So a geo-restore needs Azure to open that
-region to the subscription first, through a support request. Until it does,
-production's geo-redundant backup cannot be restored anywhere, and the
-recovery from a South Africa North outage is a point-in-time restore once
-the region is back. Whether to raise that request is the owner's call
-(TYRE-321).
+as a restricted region ("Other"). Opening it takes an Azure support request,
+and the owner ruled not to raise one (U166, TYRE-321 comment 14113). So
+production's geo-redundant backup cannot be restored by us, and the recovery
+from a South Africa North outage is a point-in-time restore once the region
+is back. NFR-BAK-005 and NFR-BAK-006 exclude that case (SRS errata,
+TYRE-321). Run this section only if the region is ever opened.
 
 ## 4. Verify
 
