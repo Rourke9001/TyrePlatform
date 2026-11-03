@@ -1,12 +1,27 @@
-/* The chevron is drawn over the select's own arrow, which the frame's
-   appearance: none removes; clicks pass through it to the select. */
+/* TextInput.css's appearance: none removes the select's own arrow, so this
+   file draws one. The chevron sits over the select's right padding and
+   takes no pointer events, so a click on it reaches the select. */
+
+.tr-input--select {
+  position: relative;
+}
 
 .tr-input select {
   cursor: pointer;
 }
 
+/* Two classes, so it outranks TextInput.css's .tr-input select on
+   specificity, never on load order (docs/lessons.md, 2026-10-26). The text
+   stops clear of the chevron, which is 18px (Select.tsx). */
+.tr-input.tr-input--select select {
+  padding-right: calc(2 * var(--space-3) + 18px);
+}
+
 .tr-input__chev {
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  transform: translateY(-50%);
   pointer-events: none;
-  margin-right: var(--space-3);
   color: var(--ink-secondary);
 }
