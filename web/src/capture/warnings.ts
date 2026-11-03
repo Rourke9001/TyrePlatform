@@ -118,7 +118,9 @@ export function positionWarnings(
     const warnOver = position.warnOverPct ?? Infinity;
     // U55: entry reaches 1200 kPa, so both figures are grouped for display.
     // enteredValue stays the bare number DR-021 stores.
-    const reading = `${groupThousands(String(entry.pressureKpa))} ${units.pressure} against a ${groupThousands(String(target))} ${units.pressure} target.`;
+    // "the" target, since "a" or "an" before it would depend on how the
+    // tenant's number is read aloud ("a 900", "an 800"), TYRE-129.
+    const reading = `${groupThousands(String(entry.pressureKpa))} ${units.pressure} against the ${groupThousands(String(target))} ${units.pressure} target.`;
 
     // At most one pressure warning: FR-INS-031a supersedes FR-INS-037's
     // band rather than stacking. Strict under, inclusive over, matching

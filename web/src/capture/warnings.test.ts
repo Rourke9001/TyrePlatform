@@ -256,7 +256,7 @@ describe("pressure labels", () => {
       unitLabels("XKPA", "KM"),
     );
     expect(w.find((x) => x.code === "FR-INS-037")?.message).toBe(
-      "700 XKPA against a 800 XKPA target. Check the inflation before departure.",
+      "700 XKPA against the 800 XKPA target. Check the inflation before departure.",
     );
   });
 
@@ -265,7 +265,7 @@ describe("pressure labels", () => {
   it("groups a four-digit pressure in the confirming warning", () => {
     const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 1100 }, steer, config, metric);
     expect(w.find((x) => x.code === "FR-INS-031a")?.message).toBe(
-      "1,100 kPa against a 800 kPa target. Check the gauge and confirm.",
+      "1,100 kPa against the 800 kPa target. Check the gauge and confirm.",
     );
   });
 
@@ -278,7 +278,7 @@ describe("pressure labels", () => {
       metric,
     );
     expect(w.find((x) => x.code === "FR-INS-037")?.message).toBe(
-      "1,150 kPa against a 1,000 kPa target. Check the inflation before departure.",
+      "1,150 kPa against the 1,000 kPa target. Check the inflation before departure.",
     );
   });
 });
