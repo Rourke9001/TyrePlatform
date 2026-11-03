@@ -187,7 +187,7 @@ record-consent: db-up ## Record or withdraw a tenant's consent locally (T=<tenan
 # Go runs in docker (no host toolchain on Windows), joined to the compose
 # network so integration tests reach tyre-pg. app_login's password here is
 # local-only; CI sets its own and staging's lives in Key Vault.
-GO_IMAGE ?= golang:1.24-alpine@sha256:8bee1901f1e530bfb4a7850aa7a479d17ae3a18beb6e09064ed54cfd245b7191
+GO_IMAGE ?= golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb
 GO_RUN   = MSYS_NO_PATHCONV=1 docker run --rm \
   -v "$(CURDIR)/api:/app" -w /app -v tyre-gomodcache:/go/pkg/mod
 GO_DOCKER = $(GO_RUN) --network tyreplatform_default \
@@ -363,15 +363,15 @@ fmt: py-tools-check ## Format everything
 # Every line must be able to fail the target (TYRE-49): a gate that
 # swallows its exit code reports success it did not earn. Same set and
 # order as CI, so a green make lint means a green CI lint. staticcheck is
-# pinned via api/go.mod's tool directive; v0.6.1 is the last release under
-# go 1.24, so a Renovate bump past it needs the toolchain moved first, not
-# the linter unpinned.
+# pinned via api/go.mod's tool directive, and each release supports only
+# the Go versions its notes name, so a staticcheck bump and a GO_IMAGE bump
+# move together, never by unpinning the linter (TYRE-379).
 #
 # The money gate runs its self-test first so a run that finds nothing has
 # proven it could have (rule 2, TYRE-36). Its web half is an ESLint rule and
 # rides `npm run lint` above.
 .PHONY: lint
-lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bicep lint, actionlint, eslint, tsc, comment standard, colour literals, money paths, bundle
+lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bicep lint, actionlint, eslint, tsc, comment standard, colour literals, Go pins, money paths, bundle
 	$(GO_RUN) $(GO_IMAGE) sh -c 'test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run make fmt"; exit 1; }'
 	$(GO_RUN) $(GO_IMAGE) go vet -tags devheader ./...
 	$(GO_RUN) $(GO_IMAGE) go tool staticcheck -tags devheader ./...
@@ -384,6 +384,8 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bi
 	node scripts/check-comment-style.mjs
 	node scripts/check-colour-literals.mjs --self-test
 	node scripts/check-colour-literals.mjs
+	node scripts/check-go-pins.mjs --self-test
+	node scripts/check-go-pins.mjs
 	node scripts/check-money-types.mjs --self-test
 	node scripts/check-money-types.mjs
 	$(MAKE) web-bundle
