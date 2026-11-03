@@ -93,9 +93,10 @@ The redesign has failed, even if it looks right, if any of these is true:
 The artifact was drawn before U145. ADR-0020's Decision is the later
 authority, and where they differ the ADR wins. No lane ports these:
 
-*3 Nov 2026, PR #158: the capture sheet's layer covers the rig (TYRE-220),
-so while a position is open the rig is inert rather than reachable, and
-Close returns to it in one tap. The sheet still traps nothing.*
+*3 Nov 2026, PR #158: this supersedes the table's last row. The capture
+sheet's layer has covered the rig since TYRE-69, so while a position is open
+the rig is inert rather than reachable, and Close returns to it in one tap.
+The sheet still has no backdrop and traps nothing.*
 
 | The artifact | What ships instead | Why |
 |---|---|---|
