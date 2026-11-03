@@ -96,3 +96,33 @@ for (const phone of PHONES) {
     expect(go.y + go.height).toBeLessThanOrEqual(phone.height);
   });
 }
+
+// WCAG 2.4.11: the sheet's layer covers the rig and the shell bars, so no
+// Tab or Shift+Tab from inside it may land on a control it hides
+// (CaptureFlow.tsx, ui/inertOutside.ts). Leaving the page is fine.
+test("Tab and Shift+Tab never reach a control the open sheet hides", async ({ page, request }) => {
+  await page.setViewportSize(PHONES[0]);
+  const horse = await assignedVehicle(request, "HORSE");
+  await page.goto(`/capture/${horse.id}`);
+  await page.getByRole("button", { name: /start inspection/i }).click();
+  await page.locator("[data-position-id]").first().click();
+  const layer = page.locator(".cap-sheet-layer");
+  await expect(layer).toBeVisible();
+
+  const hidden = () =>
+    page.evaluate(() => {
+      const at = document.activeElement;
+      const inLayer = document.querySelector(".cap-sheet-layer")?.contains(at) ?? false;
+      return at === null || at === document.body || inLayer
+        ? null
+        : `${at.tagName} "${at.getAttribute("aria-label") ?? at.textContent ?? ""}"`;
+    });
+  await layer.getByRole("button").first().focus();
+  await page.keyboard.press("Shift+Tab");
+  expect(await hidden(), "Shift+Tab from the sheet's first control").toBeNull();
+  await layer.getByRole("button").first().focus();
+  for (let i = 0; i < 40; i++) {
+    await page.keyboard.press("Tab");
+    expect(await hidden(), `Tab ${i + 1} from the sheet's first control`).toBeNull();
+  }
+});

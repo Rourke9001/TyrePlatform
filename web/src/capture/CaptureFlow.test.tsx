@@ -457,6 +457,40 @@ describe("CaptureFlow", () => {
     ).toEqual(["p1"]);
   });
 
+  // WCAG 2.4.11: the sheet's layer is opaque over the whole screen, so
+  // nothing it covers may take focus while a position is open. jsdom and
+  // user-event ignore inert, so this pins the attribute; e2e/sheetFit.spec.ts
+  // presses Shift+Tab in a browser.
+  it("leaves nothing the open sheet covers able to take focus, and frees it on close", async () => {
+    const user = newUser();
+    stubApi();
+    // Stands in for the shell's bar, which CaptureFlow does not render.
+    const shellBar = document.body.appendChild(document.createElement("button"));
+    shellBar.textContent = "Back";
+    try {
+      renderFlow();
+      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+      await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
+
+      const layer = document.querySelector(".cap-sheet-layer");
+      expect(layer).not.toBeNull();
+      const focusable = Array.from(
+        document.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea"),
+      );
+      const outside = focusable.filter((el) => !layer?.contains(el));
+      expect(outside.map((el) => el.textContent)).toContain("Discard this inspection");
+      expect(outside).toContain(shellBar);
+      expect(outside.filter((el) => el.closest("[inert]") === null)).toEqual([]);
+      expect(focusable.filter((el) => layer?.contains(el) && el.closest("[inert]"))).toEqual([]);
+
+      await user.click(screen.getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(document.querySelector(".cap-sheet-layer")).toBeNull());
+      expect(document.querySelectorAll("[inert]")).toHaveLength(0);
+    } finally {
+      shellBar.remove();
+    }
+  });
+
   // app.inspection.completeness_pct defaults to 100 (NFR-PRO-003), so a
   // submit without it is recorded complete. The denominator is every
   // position on every confirmed unit (FR-INS-065), a rig not the motive
