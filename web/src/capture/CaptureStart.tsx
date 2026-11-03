@@ -160,9 +160,12 @@ export function CaptureStart({
             {groupThousands(shown === "" ? "000000" : shown)}
             <span className="cap-odo-unit">{labels.distance}</span>
           </p>
+          {/* TYRE-171: only a submitted inspection writes the odometer
+              timeline, so a unit's own recorded odometer is not a reading
+              here. */}
           <p className="cap-hint">
             {motive.lastOdometerKm === null
-              ? "No reading on record yet. This one starts the count."
+              ? "No odometer reading from an inspection yet. This one starts the count."
               : `Last reading ${groupThousands(String(motive.lastOdometerKm))} ${labels.distance}`}
             {motive.lastOdometerAt
               ? `, ${Math.round((openedAt - Date.parse(motive.lastOdometerAt)) / 86_400_000)} days ago`
@@ -197,9 +200,11 @@ export function CaptureStart({
                 setAccepted(false);
                 setTyped((o) => (o.length >= ODOMETER_MAX_DIGITS ? o : o + k.digit));
               }
+              // TYRE-171: one character, so a mis-tap in a seven-digit field
+              // is not a full re-type (NFR-USE-006).
               if (k.type === "delete") {
                 setAccepted(false);
-                setTyped("");
+                setTyped((t) => t.slice(0, -1));
               }
               // The go key is the largest control on the keypad. Leaving it
               // inert here would train a driver to distrust it on the entry

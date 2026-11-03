@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import type { CaptureContext, CapturePosition } from "./captureContext";
@@ -116,5 +116,61 @@ describe("CaptureReview", () => {
 
     const rows = screen.getAllByText(/^Spare, /);
     expect(rows.map((r) => r.textContent)).toEqual(["Spare, BAC039SP", "Spare, LINK6"]);
+  });
+});
+
+// TYRE-171: a draft held on the phone can be resumed days later (ADR-0009),
+// so the elapsed time reads in hours from the first hour on, never as a
+// count of thousands of minutes.
+describe("CaptureReview's elapsed time", () => {
+  const NOW = new Date("2026-08-27T06:00:00Z");
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function subtitleAfter(seconds: number): string | null {
+    render(
+      <CaptureReview
+        contexts={[unit("v1", "BAC039SP")]}
+        draft={{
+          clientUuid: "c1",
+          vehicleId: "v1",
+          fleetNumber: "BAC039SP",
+          combinationId: null,
+          observedMemberVehicleIds: ["v1"],
+          taskId: null,
+          startedAt: new Date(NOW.getTime() - seconds * 1000).toISOString(),
+          odometerKm: null,
+          comment: null,
+          defectReport: null,
+          positions: {},
+          warnings: [],
+          absentSpares: [],
+          driverSubject: "oid-driver-1",
+          legacy: false,
+        }}
+        doneCells={new Set()}
+        absentCells={new Set()}
+        onBack={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+    return screen.getByText(/positions done/).textContent;
+  }
+
+  it.each([
+    [42, "42 sec"],
+    [59 * 60 + 59, "59 min 59 sec"],
+    [60 * 60, "1 hr 0 min"],
+    [3 * 3600 + 12 * 60 + 30, "3 hr 12 min"],
+    [3 * 86_400, "72 hr 0 min"],
+    [1000 * 3600, "1,000 hr 0 min"],
+  ])("reads %i seconds as %s", (seconds, words) => {
+    expect(subtitleAfter(seconds)).toBe(`0 of 1 positions done · ${words}`);
   });
 });

@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from "react";
 
+import { groupThousands } from "../format/groupThousands";
 import { Button } from "../ui/Button";
 import { ListRow } from "../ui/ListRow";
 import { TextArea } from "../ui/TextArea";
@@ -27,9 +28,13 @@ const WARNING_NAME: Record<WarningCode, string> = {
 // NFR-USE-001's budget, frozen at review-open rather than ticking (a
 // summary, not a stopwatch). Elapsed time here; the acceptance median is
 // measured from per-position seconds instead (payload.ts, TYRE-150).
+// A draft resumed days later (ADR-0009) reads in hours, not thousands of
+// minutes (TYRE-171).
 function elapsedWords(fromIso: string, to: number): string {
   const seconds = Math.max(0, Math.round((to - Date.parse(fromIso)) / 1000));
   const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  if (hours > 0) return `${groupThousands(String(hours))} hr ${minutes % 60} min`;
   return minutes === 0 ? `${seconds} sec` : `${minutes} min ${seconds % 60} sec`;
 }
 

@@ -105,8 +105,8 @@ async function enter(user: UserEvent, treads: string[], pressure: string) {
   for (let i = 0; i < treads.length; i++) {
     await user.click(screen.getByRole("button", { name: treads[i] }));
     await advance(250);
-    // A settling digit (4-9 empty) auto-advances on the timer; a
-    // non-settling one (0-3) needs the Next click. aria-current says which
+    // A settling digit (0 or 4-9 empty) auto-advances on the timer; a
+    // non-settling one (1-3) needs the Next click. aria-current says which
     // case ran.
     const stillOnField = screen.getByLabelText(`Tread reading ${i + 1} of ${treads.length}`);
     if (stillOnField.getAttribute("aria-current") === "true") {

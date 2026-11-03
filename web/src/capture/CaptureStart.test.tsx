@@ -127,6 +127,21 @@ describe("CaptureStart's odometer", () => {
     expect(onStart.mock.calls[0][0].odometerKm).toBe(413500);
   });
 
+  // TYRE-171: one mis-tapped digit in six costs one Delete and the right
+  // digit, not a re-type of the five the driver had right (NFR-USE-006).
+  it("drops one digit on delete and keeps the rest", async () => {
+    const onStart = vi.fn<Init>();
+    renderStart(onStart);
+    const user = await type("413509");
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByText("41,350", { selector: "p" })).toBeInTheDocument();
+
+    await type("7");
+    await user.click(screen.getByRole("button", { name: /start inspection/i }));
+    expect(onStart.mock.calls[0][0].odometerKm).toBe(413507);
+  });
+
   // A projection needs a rate as well as a reading. Without one there is
   // nothing to project, and the field starts empty rather than falling back to
   // the last reading, which is the value that must never arrive pre-filled.
@@ -134,6 +149,16 @@ describe("CaptureStart's odometer", () => {
     renderStart(vi.fn(), { averageDailyKm: null });
     expect(screen.getByText(/000,000/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /confirm/i })).toBeNull();
+  });
+
+  // TYRE-171 (TYRE-330 f14): the timeline is written only by a submitted
+  // inspection, so a unit added with an odometer on its record still has no
+  // reading here, and the hint says which count is empty.
+  it("says the count starts from inspections when none has read the odometer", () => {
+    renderStart(vi.fn(), { lastOdometerKm: null, lastOdometerAt: null, averageDailyKm: null });
+    expect(
+      screen.getByText("No odometer reading from an inspection yet. This one starts the count."),
+    ).toBeInTheDocument();
   });
 
   // A corrected reading still meets a rejection: BR-INS-002 is unconditional,
