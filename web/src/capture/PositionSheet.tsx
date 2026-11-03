@@ -14,6 +14,7 @@ import { historyWarnings } from "./history";
 import { entryKey } from "./keypadKey";
 import { placeWords } from "./place";
 import { TreadGlyph } from "./TreadGlyph";
+import { groupThousands } from "../format/groupThousands";
 import { useUnitLabels } from "../units/units";
 import "./capture.css";
 
@@ -314,7 +315,9 @@ export function PositionSheet({
         onSelect={(i) => press({ type: "focus", field: i })}
         unitText="mm"
         pressure={{
-          value: state.pressureKpa === null ? "" : String(state.pressureKpa),
+          // U55 with owner ruling B8 (TYRE-342): grouped as typed, as the
+          // odometer readout is.
+          value: state.pressureKpa === null ? "" : groupThousands(String(state.pressureKpa)),
           caption: "Press.",
           unitText: labels.pressure,
           ariaLabel: "Pressure",

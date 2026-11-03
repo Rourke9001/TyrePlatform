@@ -161,6 +161,22 @@ describe("CaptureStart's odometer", () => {
     ).toBeInTheDocument();
   });
 
+  const daysBefore = (days: number) =>
+    new Date(Date.parse("2026-08-27T06:00:00Z") - days * 86_400_000).toISOString();
+
+  // U55 (TYRE-342): the age beside the grouped reading groups too.
+  it("groups a four-digit day count beside the last reading", () => {
+    renderStart(vi.fn(), { lastOdometerAt: daysBefore(1000) });
+    expect(screen.getByText("Last reading 412,180 km, 1,000 days ago")).toBeInTheDocument();
+  });
+
+  // A reading taken yesterday is one day, in the words formatTreadAge
+  // writes for every other age the driver reads.
+  it("says 1 day, not 1 days", () => {
+    renderStart(vi.fn(), { lastOdometerAt: daysBefore(1) });
+    expect(screen.getByText("Last reading 412,180 km, 1 day ago")).toBeInTheDocument();
+  });
+
   // A corrected reading still meets a rejection: BR-INS-002 is unconditional,
   // so a backwards reading is refused at the cab rather than after the
   // walk-around (FR-INS-032).

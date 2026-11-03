@@ -8,6 +8,7 @@ import { odometerRejection, odometerWarnings, projectedOdometerKm } from "./hist
 import type { RecordedWarning } from "./draft";
 import { entryKey } from "./keypadKey";
 import { groupThousands } from "../format/groupThousands";
+import { formatTreadAge } from "../format/treadAge";
 import { useUnitLabels } from "../units/units";
 import "./capture.css";
 
@@ -167,8 +168,10 @@ export function CaptureStart({
             {motive.lastOdometerKm === null
               ? "No odometer reading from an inspection yet. This one starts the count."
               : `Last reading ${groupThousands(String(motive.lastOdometerKm))} ${labels.distance}`}
+            {/* The age words every other reading's age uses: grouped (U55),
+                and one day is "1 day" (TYRE-342). */}
             {motive.lastOdometerAt
-              ? `, ${Math.round((openedAt - Date.parse(motive.lastOdometerAt)) / 86_400_000)} days ago`
+              ? `, ${formatTreadAge(Math.round((openedAt - Date.parse(motive.lastOdometerAt)) / 86_400_000))}`
               : ""}
           </p>
           {/* The confirm half of "confirm or correct" (FR-INS-020): one tap,
