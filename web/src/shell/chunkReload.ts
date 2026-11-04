@@ -36,7 +36,10 @@ function stampReload(storage: Pick<Storage, "getItem" | "setItem"> | undefined, 
   try {
     const store = storage ?? window.sessionStorage;
     const stamp = store.getItem(STAMP_KEY);
-    if (stamp !== null && now - Number(stamp) < RELOAD_GUARD_WINDOW_MS) return false;
+    // A clock corrected backwards leaves the stamp in the future, which is
+    // not recent; the reload re-stamps at the corrected time.
+    const age = stamp === null ? NaN : now - Number(stamp);
+    if (age >= 0 && age < RELOAD_GUARD_WINDOW_MS) return false;
     store.setItem(STAMP_KEY, String(now));
     return true;
   } catch {
@@ -74,7 +77,7 @@ export interface ChunkReloadDeps {
 // Injectable so a test never touches window.location; the real defaults are
 // what main.tsx installs.
 export function installChunkReload(deps: Partial<ChunkReloadDeps> = {}): () => void {
-  const reload = deps.reload ?? (() => window.location.reload());
+  const reload = deps.reload ?? page.reload;
   const now = deps.now ?? Date.now;
 
   // Without a reload the error reaches RouteErrorBoundary, which offers the

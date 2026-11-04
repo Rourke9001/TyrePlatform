@@ -59,8 +59,7 @@ it("reloads, with a connection, when the sign-out chunk cannot load, and stays s
   expect(window.localStorage.getItem("tyre.auth.subject")).toBe("oid-a");
   // Held until the page goes, so a second tap cannot run the guard and the
   // import again (TYRE-381 stage 5).
-  expect(screen.getByRole("button", { name: "Signing out…" })).toHaveAttribute(
-    "aria-disabled",
-    "true",
-  );
+  // The label says "Signing out" only once the chunk has loaded, since the
+  // driver comes back from the reload still signed in.
+  expect(screen.getByRole("button", { name: "Sign out" })).toHaveAttribute("aria-disabled", "true");
 });

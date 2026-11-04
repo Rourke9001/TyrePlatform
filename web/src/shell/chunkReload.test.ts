@@ -73,6 +73,18 @@ describe("installChunkReload", () => {
     expect(storage.getItem("chunkReloadAt")).toBe(String(now));
   });
 
+  it("reloads when the last stamp is in the future", () => {
+    const reload = vi.fn();
+    const storage = fakeStorage();
+    const now = 1_000_000;
+    storage.setItem("chunkReloadAt", String(now + 3_600_000));
+    uninstall = installChunkReload({ reload, storage, now: () => now });
+
+    dispatchPreloadError();
+
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
   it("never reloads when storage throws", () => {
     const reload = vi.fn();
     const storage: Storage = {
@@ -184,6 +196,16 @@ describe("reloadForAuthChunk", () => {
   it("reloads again once the guard window has passed", () => {
     const reload = online(true);
     window.sessionStorage.setItem("chunkReloadAt", String(Date.now() - 10_001));
+
+    expect(reloadForAuthChunk()).toBe(true);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  // A clock corrected backwards leaves the last stamp in the future, which
+  // is not "recent".
+  it("reloads when the last stamp is in the future", () => {
+    const reload = online(true);
+    window.sessionStorage.setItem("chunkReloadAt", String(Date.now() + 3_600_000));
 
     expect(reloadForAuthChunk()).toBe(true);
     expect(reload).toHaveBeenCalledTimes(1);

@@ -55,7 +55,8 @@ afterEach(() => {
 });
 
 // TYRE-388: the library's request timeout ends at the token response's
-// headers, so a body that never arrives held the first render.
+// headers, and the first render waits on the callback, so the callback's own
+// bound is what lets the app render.
 it("renders the app, signed out, once the bound passes on a code exchange that never finishes", async () => {
   const { callback, oidc, token, boot } = await fresh();
   vi.mocked(oidc.completeSignIn).mockReturnValue(new Promise(() => undefined));
