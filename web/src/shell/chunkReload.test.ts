@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { installChunkReload, page, reloadForAuthChunk, suppressReloadWhile } from "./chunkReload";
+import { installChunkReload } from "./chunkReload";
 
 // A fake store: same get/set/throw contract as sessionStorage, without
 // touching jsdom's real one, so the "blocked storage" case can be forced.
@@ -144,87 +144,6 @@ describe("installChunkReload", () => {
     uninstall();
     dispatchPreloadError();
 
-    expect(reload).not.toHaveBeenCalled();
-  });
-
-  // The token store imports the sign-in library on its own behalf; failing
-  // in a dead zone is a network failure the outbox retries, never a reload.
-  it("does not reload while a suppressed import is pending, and does once it settles", async () => {
-    const reload = vi.fn();
-    const storage = fakeStorage();
-    uninstall = installChunkReload({ reload, storage, now: () => 1_000 });
-
-    let settle: () => void = () => undefined;
-    const pending = suppressReloadWhile(
-      new Promise<void>((resolve) => {
-        settle = resolve;
-      }),
-    );
-    dispatchPreloadError();
-    expect(reload).not.toHaveBeenCalled();
-
-    settle();
-    await pending;
-    dispatchPreloadError();
-    expect(reload).toHaveBeenCalledTimes(1);
-  });
-});
-
-// U172 (TYRE-381): a tap reloads once; a second failed import inside the
-// guard window shows the line instead, so a chunk that fails on every load
-// cannot loop the page.
-describe("reloadForAuthChunk", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-    window.sessionStorage.clear();
-  });
-
-  function online(value: boolean) {
-    vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(value);
-    return vi.spyOn(page, "reload").mockImplementation(() => undefined);
-  }
-
-  it("reloads once, then not again inside the guard window", () => {
-    const reload = online(true);
-
-    expect(reloadForAuthChunk()).toBe(true);
-    expect(reloadForAuthChunk()).toBe(false);
-
-    expect(reload).toHaveBeenCalledTimes(1);
-  });
-
-  it("reloads again once the guard window has passed", () => {
-    const reload = online(true);
-    window.sessionStorage.setItem("chunkReloadAt", String(Date.now() - 10_001));
-
-    expect(reloadForAuthChunk()).toBe(true);
-    expect(reload).toHaveBeenCalledTimes(1);
-  });
-
-  // A clock corrected backwards leaves the last stamp in the future, which
-  // is not "recent".
-  it("reloads when the last stamp is in the future", () => {
-    const reload = online(true);
-    window.sessionStorage.setItem("chunkReloadAt", String(Date.now() + 3_600_000));
-
-    expect(reloadForAuthChunk()).toBe(true);
-    expect(reload).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not reload offline", () => {
-    const reload = online(false);
-
-    expect(reloadForAuthChunk()).toBe(false);
-    expect(reload).not.toHaveBeenCalled();
-  });
-
-  it("does not reload when storage cannot hold the stamp", () => {
-    const reload = online(true);
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new DOMException("full", "QuotaExceededError");
-    });
-
-    expect(reloadForAuthChunk()).toBe(false);
     expect(reload).not.toHaveBeenCalled();
   });
 });

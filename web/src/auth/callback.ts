@@ -1,6 +1,5 @@
 import {
   OTHER_DRIVER_KEY,
-  authChunk,
   bearerMode,
   clearMirror,
   rememberSubject,
@@ -8,7 +7,7 @@ import {
 } from "../api/token";
 import { bounded } from "../api/deadline";
 import { flushOutbox, heldStamps } from "../capture/outbox";
-import type { SignedIn } from "./oidc";
+import { completeSignIn, discardUser, signOut, type SignedIn } from "./oidc";
 
 let didNotFinish = false;
 
@@ -54,7 +53,7 @@ async function undoSignIn(): Promise<void> {
     // Without the marker the screen shows its neutral line instead.
   }
   try {
-    await (await authChunk()).signOut();
+    await signOut();
   } catch {
     // Best effort.
   }
@@ -62,7 +61,7 @@ async function undoSignIn(): Promise<void> {
 
 async function discardLate(): Promise<void> {
   try {
-    await (await authChunk()).discardUser();
+    await discardUser();
   } catch {
     // Best effort. A renewal adopts it only for the last-known subject
     // (U111 B, token.ts).
@@ -78,7 +77,9 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
   if (!bearerMode() || !isRedirectCallback(url)) return "none";
 
   // Bounded, because the first render waits on this (TYRE-388).
-  const exchange = authChunk().then((auth) => auth.completeSignIn(url.href));
+  // Started inside the chain, so a synchronous throw (blocked storage) is
+  // caught below like any failed exchange.
+  const exchange = Promise.resolve(url.href).then(completeSignIn);
   let signedIn: SignedIn;
   try {
     signedIn = await bounded(exchange, "sign-in callback");
@@ -114,7 +115,7 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
     // so that load shows the sign-in screen.
     clearMirror();
     try {
-      await (await authChunk()).discardUser();
+      await discardUser();
     } catch {
       // Best effort.
     }

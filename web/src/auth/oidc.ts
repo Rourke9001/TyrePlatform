@@ -1,6 +1,6 @@
-// The one module that imports oidc-client-ts, reached only through the token
-// store's authChunk() (ADR-0016), so the library stays out of the capture
-// entry. The module functions act on one UserManager built from VITE_AUTH_*;
+// The one module that imports oidc-client-ts. It ships in the entry (U175,
+// ADR-0016's amendment), since the driver's renewal, sign-in and sign-out wait
+// on it. The module functions act on one UserManager built from VITE_AUTH_*;
 // createAuth exists so a test can hand it a navigator and metadata.
 import {
   ErrorResponse,

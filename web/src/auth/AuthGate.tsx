@@ -1,6 +1,5 @@
-import { useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
-import { authChunk, bearerMode, lastKnownSubject } from "../api/token";
 import { AccessScreen } from "./AccessScreen";
 import { useGateFailure } from "./actorContext";
 import { SignInScreen } from "./SignInScreen";
@@ -12,17 +11,6 @@ import { SignInScreen } from "./SignInScreen";
 // the shell offers sign-in beside them, so a capture is never unmounted.
 export function AuthGate({ children }: { children: ReactNode }) {
   const failure = useGateFailure();
-
-  // After the first render, online, with a session stored, so a later renewal
-  // in a dead zone finds the chunk already loaded (spec section 4). A failed
-  // warm-up can fail every later import of the chunk until a reload, because
-  // Chrome and released Safari keep the failure in the module map, so a tap on
-  // Sign in or Sign out reloads (U105, TYRE-381).
-  useEffect(() => {
-    if (bearerMode() && window.navigator.onLine && lastKnownSubject() !== null) {
-      authChunk().catch(() => undefined);
-    }
-  }, []);
 
   if (failure === null) return <>{children}</>;
   if (failure === "signed-out") return <SignInScreen />;

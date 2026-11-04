@@ -61,8 +61,11 @@ export default defineConfig(({ isPreview }) => ({
     },
   },
   // The bundle gate reads which chunks the entry statically imports; nothing
-  // else needs the manifest (TYRE-238, ADR-0015).
-  build: { manifest: true },
+  // else needs the manifest (TYRE-238, ADR-0015). That gate's gzip budget is
+  // the entry's size limit, so Vite's raw-size warning, which advises a
+  // dynamic import, is raised past the entry: the sign-in library ships in
+  // it on purpose (U175).
+  build: { manifest: true, chunkSizeWarningLimit: 600 },
   ...(isPreview ? { preview: { headers: previewHeaders() } } : {}),
   test: {
     // Components could not be rendered in a test before this: Vitest defaults

@@ -107,10 +107,6 @@ vi.mock("../auth/oidc", () => ({
   signOut: vi.fn(),
   discardUser: vi.fn(() => Promise.resolve()),
 }));
-vi.mock("../shell/chunkReload", async (original) => ({
-  ...(await original<typeof import("../shell/chunkReload")>()),
-  suppressReloadWhile: vi.fn((p: Promise<unknown>) => p),
-}));
 
 // Module state such as the latch lives in the module, so each case imports a
 // fresh copy.
@@ -119,26 +115,38 @@ async function fresh() {
   const token = await import("./token");
   const oidc = await import("../auth/oidc");
   const { ApiError } = await import("./apiError");
-  const { suppressReloadWhile } = await import("../shell/chunkReload");
-  return { token, oidc, ApiError, suppressReloadWhile };
+  return { token, oidc, ApiError };
 }
 
 const RENEWED = { accessToken: "at-2", expiresAt: Date.now() + 3_600_000, subject: "oid-a" };
 
 describe("credential", () => {
-  // A driver has signed in on this phone. Without a last-known subject there
-  // is no session to renew (token.chunkfail.test.ts).
+  // A driver has signed in on this phone, except where a case removes it.
   beforeEach(() => {
     bearerSession();
     rememberSubject("oid-a");
   });
 
-  it("hands back a valid mirrored token without loading the auth chunk", async () => {
-    const { token, oidc, suppressReloadWhile } = await fresh();
+  it("hands back a valid mirrored token without renewing", async () => {
+    const { token, oidc } = await fresh();
     token.writeMirror(MIRROR);
     await expect(token.credential()).resolves.toEqual({ accessToken: "at-1", subject: "oid-a" });
     expect(oidc.renew).not.toHaveBeenCalled();
-    expect(suppressReloadWhile).not.toHaveBeenCalled();
+  });
+
+  // Every sign-in writes the last-known subject or does not finish, so a
+  // library user left without one (a callback whose discard failed) must not
+  // spend its refresh token (spec section 4, Renewal).
+  it("answers 401 signed_out without renewing when no driver has signed in", async () => {
+    window.localStorage.removeItem(SUBJECT_KEY);
+    const { token, oidc, ApiError } = await fresh();
+
+    const error = await token.credential().catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as InstanceType<typeof ApiError>).status).toBe(401);
+    expect((error as InstanceType<typeof ApiError>).code).toBe("signed_out");
+    expect(oidc.renew).not.toHaveBeenCalled();
   });
 
   // 60 seconds early, so no token expires between the check and the server.
@@ -163,7 +171,7 @@ describe("credential", () => {
     expect(oidc.renew).toHaveBeenCalledTimes(1);
   });
 
-  // The chunk answers null for no refresh token and for a refused one
+  // renew() answers null for no refresh token and for a refused one
   // (oidc.test.ts pins which). The API is never called.
   it("answers 401 signed_out, clears the mirror and keeps the last-known subject", async () => {
     const { token, oidc, ApiError } = await fresh();
@@ -216,7 +224,7 @@ describe("credential", () => {
   });
 
   // Discarding is best effort; the mirror is cleared and the call refused
-  // whether or not the chunk could remove its stored user.
+  // whether or not the library could remove its stored user.
   it("refuses the renewal even when the stored user cannot be discarded", async () => {
     const { token, oidc } = await fresh();
     token.writeMirror({ ...MIRROR, expiresAt: 0 });
@@ -388,15 +396,14 @@ describe("credential", () => {
     expect(oidc.renew).toHaveBeenCalledTimes(2);
   });
 
-  it("answers 503 auth_unavailable, without the chunk, when the build carries no VITE_AUTH_* values", async () => {
+  it("answers 503 auth_unavailable, without renewing, when the build carries no VITE_AUTH_* values", async () => {
     vi.unstubAllEnvs();
-    const { token, oidc, ApiError, suppressReloadWhile } = await fresh();
+    const { token, oidc, ApiError } = await fresh();
 
     const error = await token.credential().catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect((error as InstanceType<typeof ApiError>).code).toBe("auth_unavailable");
     expect(oidc.renew).not.toHaveBeenCalled();
-    expect(suppressReloadWhile).not.toHaveBeenCalled();
   });
 });
 
@@ -466,14 +473,13 @@ describe("refused", () => {
 });
 
 describe("sender and stampSubject under the DEV header path", () => {
-  it("stand the dev actor in and never load the chunk", async () => {
-    const { token, oidc, suppressReloadWhile } = await fresh();
+  it("stand the dev actor in and never renew", async () => {
+    const { token, oidc } = await fresh();
     window.localStorage.setItem("tyre.dev.user-id", "dev-actor");
 
     await expect(token.sender()).resolves.toEqual({ accessToken: null, subject: "dev-actor" });
     expect(token.stampSubject()).toBe("dev-actor");
     expect(oidc.renew).not.toHaveBeenCalled();
-    expect(suppressReloadWhile).not.toHaveBeenCalled();
   });
 
   it("stamp from the last-known subject on the bearer path", async () => {

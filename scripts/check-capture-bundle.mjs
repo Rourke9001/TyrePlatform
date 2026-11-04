@@ -11,10 +11,10 @@ const budgetPath = resolve(root, "web/bundle-budget.json");
 const record = process.argv.includes("--record");
 const recordCss = process.argv.includes("--record-css");
 
-// TYRE-317, ADR-0016: the sign-in library loads only when a renewal, a
-// sign-in or a sign-out needs it, so a re-record must never take it as an
-// ordinary rise. _signoutStart is one of its method names, a property that
-// minification keeps.
+// U175, ADR-0016's amendment: the driver's renewal, sign-in and sign-out wait
+// on the sign-in library, so it ships in the entry, never in a chunk fetched
+// later that can fail and stay failed. _signoutStart is one of its method
+// names, a property that minification keeps.
 const LIBRARY_MARKER = "_signoutStart";
 const AUTH_CHUNK = "src/auth/oidc.ts";
 
@@ -43,29 +43,28 @@ function closures(manifest, entryKey) {
   return { seen, order, reachable };
 }
 
-function authChunkFindings(manifest, entryKey, readChunk) {
-  const { seen, order, reachable } = closures(manifest, entryKey);
+function authLibraryFindings(manifest, entryKey, readChunk) {
+  const { seen, order } = closures(manifest, entryKey);
   const out = [];
-  if (seen.has(AUTH_CHUNK))
-    out.push(`${AUTH_CHUNK} is in the entry's static closure`);
-  if (!reachable.has(AUTH_CHUNK))
-    out.push(`${AUTH_CHUNK} is not reachable from the entry at all`);
-  // A library bump that renamed the marker would otherwise pass vacuously.
+  // Without the marker anywhere in the closure, a renamed marker fails here
+  // rather than passing vacuously.
   if (
-    reachable.has(AUTH_CHUNK) &&
-    !readChunk(manifest[AUTH_CHUNK].file).includes(LIBRARY_MARKER)
-  ) {
+    !order.some((key) => readChunk(manifest[key].file).includes(LIBRARY_MARKER))
+  )
     out.push(
-      `${manifest[AUTH_CHUNK].file} no longer carries "${LIBRARY_MARKER}"; the guard cannot see the library`,
+      `the entry's static closure does not carry oidc-client-ts ("${LIBRARY_MARKER}"), so a renewal, sign-in or sign-out would wait on a chunk fetch (U175)`,
     );
-  }
-  for (const key of order) {
-    if (readChunk(manifest[key].file).includes(LIBRARY_MARKER)) {
+  for (const [key, chunk] of Object.entries(manifest)) {
+    if (seen.has(key) || !chunk.file.endsWith(".js")) continue;
+    if (readChunk(chunk.file).includes(LIBRARY_MARKER))
       out.push(
-        `${manifest[key].file} carries oidc-client-ts ("${LIBRARY_MARKER}")`,
+        `${chunk.file} carries oidc-client-ts ("${LIBRARY_MARKER}") outside the entry's static closure`,
       );
-    }
   }
+  // Vite inlines a static import, so this key exists only if a regression
+  // splits the module out again.
+  if (manifest[AUTH_CHUNK] && !seen.has(AUTH_CHUNK))
+    out.push(`${AUTH_CHUNK} is reachable only through a dynamic import`);
   return out;
 }
 
@@ -164,7 +163,8 @@ function loadBudget(readText) {
   }
   return {
     budget: null,
-    problem: "web/bundle-budget.json is not a JSON object; re-record with --record on a known-good tree",
+    problem:
+      "web/bundle-budget.json is not a JSON object; re-record with --record on a known-good tree",
   };
 }
 
@@ -198,6 +198,12 @@ function nextBudget(budget, got, chunkFiles, cssOnly, today) {
 
 // A guard that finds nothing has to be shown able to find something (TYRE-49).
 if (process.argv.includes("--self-test")) {
+  // U175: the library ships in the entry. Each fixture below fires the rules
+  // named in its expected texts, and no others.
+  const inClosure = `the entry's static closure does not carry oidc-client-ts ("${LIBRARY_MARKER}"), so a renewal, sign-in or sign-out would wait on a chunk fetch (U175)`;
+  const outside = (file) =>
+    `${file} carries oidc-client-ts ("${LIBRARY_MARKER}") outside the entry's static closure`;
+  const dynamicOnly = `${AUTH_CHUNK} is reachable only through a dynamic import`;
   const lazy = {
     "index.html": {
       file: "entry.js",
@@ -210,43 +216,79 @@ if (process.argv.includes("--self-test")) {
     "index.html": { file: "entry.js", isEntry: true, imports: [AUTH_CHUNK] },
     [AUTH_CHUNK]: { file: "oidc.js" },
   };
-  const absent = { "index.html": { file: "entry.js", isEntry: true } };
+  // What Vite emits for a static import it inlines: no key of its own.
+  const inlined = { "index.html": { file: "entry.js", isEntry: true } };
+  const withLazyCopy = {
+    "index.html": {
+      file: "entry.js",
+      isEntry: true,
+      dynamicImports: ["_copy"],
+    },
+    _copy: { file: "copy.js" },
+  };
   const text = (files) => (file) => files[file] ?? "";
-  const cases = [
+  const authCases = [
     [
-      "lazy and clean",
-      authChunkFindings(
-        lazy,
-        "index.html",
-        text({ "oidc.js": LIBRARY_MARKER }),
-      ),
-      0,
-    ],
-    [
-      "imported statically",
-      authChunkFindings(
+      "imported statically, its own chunk",
+      authLibraryFindings(
         eager,
         "index.html",
         text({ "oidc.js": LIBRARY_MARKER }),
       ),
-      2,
+      [],
     ],
     [
-      "library bundled into the entry",
-      authChunkFindings(
+      "inlined into the entry",
+      authLibraryFindings(
+        inlined,
+        "index.html",
+        text({ "entry.js": LIBRARY_MARKER }),
+      ),
+      [],
+    ],
+    [
+      "lazy, as before U175",
+      authLibraryFindings(
         lazy,
         "index.html",
-        text({ "entry.js": LIBRARY_MARKER, "oidc.js": LIBRARY_MARKER }),
+        text({ "oidc.js": LIBRARY_MARKER }),
       ),
-      1,
+      [inClosure, outside("oidc.js"), dynamicOnly],
     ],
     [
-      "library marker gone from the auth chunk",
-      authChunkFindings(lazy, "index.html", text({})),
-      1,
+      "in the entry and in a lazy chunk too",
+      authLibraryFindings(
+        withLazyCopy,
+        "index.html",
+        text({ "entry.js": LIBRARY_MARKER, "copy.js": LIBRARY_MARKER }),
+      ),
+      [outside("copy.js")],
     ],
-    ["never reached", authChunkFindings(absent, "index.html", text({})), 1],
+    [
+      "in the entry, with the auth module still a dynamic import",
+      authLibraryFindings(
+        lazy,
+        "index.html",
+        text({ "entry.js": LIBRARY_MARKER }),
+      ),
+      [dynamicOnly],
+    ],
+    // A library bump that renamed the marker fails here rather than passing.
+    [
+      "the marker nowhere",
+      authLibraryFindings(inlined, "index.html", text({})),
+      [inClosure],
+    ],
   ];
+  for (const [name, found, want] of authCases) {
+    if (JSON.stringify(found) !== JSON.stringify(want)) {
+      console.error(
+        `self-test: ${name}: expected ${JSON.stringify(want)}, got ${JSON.stringify(found)}`,
+      );
+      process.exit(1);
+    }
+  }
+  const cases = [];
   const bytes = (files) => (file) => Buffer.from(files[file] ?? "");
   const twice = {
     "index.html": {
@@ -466,7 +508,7 @@ if (!entryKey) {
 // source path, which is what this reads, and it refuses --record too.
 const { seen, order, reachable } = closures(manifest, entryKey);
 
-const findings = authChunkFindings(manifest, entryKey, (file) =>
+const findings = authLibraryFindings(manifest, entryKey, (file) =>
   readFileSync(resolve(dist, file), "utf8"),
 ).map((f) => `FAIL: ${f}`);
 
