@@ -1,7 +1,7 @@
 # ADR-0016: Identity provider and token-to-actor resolution
 
 - **Status:** Accepted. Checks b and c2 on TYRE-317 passed on 2 Oct 2026
-  (comment 13468), the design's stage 2.
+  (comment 13468), the design's stage 2. Amended 4 Nov 2026 (U175).
 - **Date:** 2026-09-30
 - **Deciders:** Rourke
 - **Related:** ADR-0011 (actor context, Option B; this closes its revisit
@@ -126,7 +126,8 @@ on each Entra user and proven by an RLS lookup of `app.app_user` by `oid`.**
    same transaction, so the link does not depend on that role bypassing RLS.
    The application role's column grants exclude `subject`.
 7. **The web client** keeps the tokens in `localStorage` for their lifetime
-   (U102), through a lazily loaded oidc-client-ts, and clears them when a
+   (U102), through a lazily loaded oidc-client-ts *(in the entry since
+   2026-11-04, see the amendment below)*, and clears them when a
    renewal is refused or the user signs out. MSAL is rejected because from v4
    its `localStorage` cache does not survive a browser restart without "Keep
    me signed in".
@@ -178,3 +179,30 @@ person needs several tenants; a custom domain lands (TYRE-19),
 which moves the issuer, redirect URIs and CSP; the marketplace's second
 customer type is decided (ADR-0003); `PLATFORM_ADMIN` login or SSO
 (FR-AUT-021) is taken on; the Go toolchain moves past 1.24 (TYRE-379).
+
+## Amendment, 2026-11-04 (U175, TYRE-381)
+
+Decision 7 reached oidc-client-ts through a lazily loaded chunk, because of
+the capture-bundle constraint above: about five bytes of headroom on 30 Sep
+2026. The library is now imported statically and ships in the entry.
+
+- **Why.** The driver's own flow waits on the library: a renewal before a
+  send, sign-in and sign-out. Chrome and released Safari keep a failed
+  module fetch failed for the life of the page, so a lazy chunk dropped on
+  a depot connection needed a reload to recover (owner rulings U105, U172
+  and U174), and each of PR #165's three stage 5 rounds found another stall
+  in that recovery. Vite documents a reload as the recovery for a failed
+  chunk; the library in the entry needs no recovery, which is what
+  `scripts/check-capture-bundle.mjs` already demanded of every capture
+  module.
+- **Cost.** The entry's gzipped JS rises by about 18 KB, from about 149 KB
+  to about 167 KB, recorded in `web/bundle-budget.json`: about 0.4 s once
+  per release at 400 kbps, then cached.
+- **What changes.** The bundle check requires the library in the entry's
+  static closure and refuses it in any lazy chunk. The tap reloads, the
+  warm-up import and the chunk-failed flag go, and U105, U172 and U174 are
+  superseded. The route-chunk reload for manager routes (TYRE-280) stays.
+- **Rejected.** A service worker precaching the chunk: an update lifecycle
+  and a second cache to reason about, and its first install rides the same
+  link. A cache-busted re-import: it bypasses Vite's preload helper, loads a
+  second copy of the module, and cannot recover a failed static dependency.

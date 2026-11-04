@@ -641,21 +641,12 @@ then:
 `ActorState.failure` becomes `'unavailable'`, and the outbox reads 503 as
 retryable. A reload clears the latch.
 
-*Amended by owner ruling U105 (1 Oct 2026, TYRE-381), built 3 Nov 2026 under
-the pilot audit's B36. Chrome and released Safari keep a failed module fetch
-in the module map for the life of the page, so after one failed import every
-later import of the chunk fails until a reload. A tap on "Sign in" or "Sign
-out" whose import fails therefore reloads the page while the phone reports a
-connection (`reloadForAuthChunk` in `web/src/shell/chunkReload.ts`); offline,
-the line below the button shows instead, since a reload would strand the
-driver on the browser's offline page. Owner ruling U172 (3 Nov 2026): it
-reloads once inside the route-chunk reload's guard window, so a second
-failure within 10 s shows the line rather than looping the page. Owner
-ruling U174 (4 Nov 2026): "Sync now" reloads the same way once an import has
-failed, since with work held neither Sign in nor Sign out is on screen. A
-renewal never reloads, and the warm-up stays. The device check on deployed
-staging is the acceptance. The bold rule below is therefore to be read as
-"never a reason for an automatic reload".*
+*Superseded by owner ruling U175 (4 Nov 2026, TYRE-381). The library is
+imported statically, in the entry (The auth chunk), so it has no import of
+its own to fail, and the rule below, the suppression handle and the warm-up
+have nothing to apply to. Owner rulings U105, U172 and U174, which reloaded
+the page on a tap after a failed import, were built in PR #165 and never
+shipped.*
 
 **A failed import of the auth chunk is a network failure, never a reason to
 reload.**
@@ -679,7 +670,7 @@ token clears nothing.
 ### The redirect callback
 
 *Amended 3 Nov 2026 by TYRE-388. The first render waits on the callback, so
-the chunk import, discovery and the code exchange together get one
+discovery and the code exchange together get one
 `REQUEST_TIMEOUT_SECONDS` budget, 10 s (`web/src/api/deadline.ts`). Past it
 the sign-in did not finish: the app renders and the sign-in screen shows its
 line. An exchange that finishes after the budget has spent its code and
@@ -697,6 +688,21 @@ then removed with `history.replaceState`, whether or not sign-in succeeded.
   finish, together with the button.
 
 ### The auth chunk
+
+*Amended by owner ruling U175 (4 Nov 2026, TYRE-381; ADR-0016's
+amendment). oidc-client-ts is imported statically and ships in the entry.
+The driver's own flow waits on it (a renewal before a send, sign-in and
+sign-out), and a lazy chunk that fails on a depot connection stays failed
+in Chrome and released Safari until a reload. Wherever this spec says the
+library or the auth chunk loads lazily, is warmed up, or is imported by a
+caller, read that it loads with the entry. A test or rule about a failed
+import of it has nothing left to test, and one that says a path never
+imports it (the DEV header path, a store with no session) is to be read as
+never calling it. `web/src/auth/oidc.ts` stays the
+one module that imports the library, and
+`scripts/check-capture-bundle.mjs` now requires it in the entry's static
+closure. The entry's recorded budget rises by the library's size, about
+18 KB gzipped.*
 
 *Amended 4 Nov 2026 (TYRE-381, PR #165's stage 5). A fresh page fetches
 discovery before a sign-in or sign-out redirect, and the library's timeout
@@ -862,8 +868,9 @@ it again on the next send (TYRE-317, code review finding V01).
 ### Signing out
 
 *Amended 4 Nov 2026 (TYRE-381, PR #165's stage 5). "Signing out…" shows
-only once the guard has passed and the auth chunk has loaded (U109), so a
-failed import, which reloads, never says it. `signOut()` reads the stored
+once the guard has passed (U109); with the library in the entry (U175)
+there is no chunk to load, and no failed import to report, so the line for
+one goes. `signOut()` reads the stored
 user's ID token, removes the stored user, and only then fetches discovery,
 the first request that can fail, so a rejected sign-out has cleared
 everything local. It passes the ID token to `signoutRedirect()` as
