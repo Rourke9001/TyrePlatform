@@ -703,8 +703,10 @@ discovery before a sign-in or sign-out redirect, and the library's timeout
 ends at its headers, so `signIn()` and `signOut()` bound that fetch with
 `REQUEST_TIMEOUT_SECONDS` (`web/src/api/deadline.ts`). The redirect
 itself is not bounded: it resolves only when the page comes back, so a slow
-but working sign-in would read as a failure. `renew()` is not bounded here,
-since the store keeps one renewal in flight past its bound (Renewal).*
+but working sign-in would read as a failure. `renew()` bounds the same
+fetch, which comes before the refresh POST and sends no token. The POST is
+not bounded here, since the store keeps one renewal in flight past its bound
+(Renewal).*
 
 The `UserManager` is configured as follows:
 
@@ -858,6 +860,15 @@ it again on the next send (TYRE-317, code review finding V01).
   which clears the latch.
 
 ### Signing out
+
+*Amended 4 Nov 2026 (TYRE-381, PR #165's stage 5). "Signing out…" shows
+only once the guard has passed and the auth chunk has loaded (U109), so a
+failed import, which reloads, never says it. `signOut()` reads the stored
+user's ID token, removes the stored user, and only then fetches discovery,
+the first request that can fail, so a rejected sign-out has cleared
+everything local. It passes the ID token to `signoutRedirect()` as
+`id_token_hint`, so clearing the library's store first keeps the hint. Step
+2 below is to be read that way.*
 
 A plain "Sign out" button sits beside `ActorBadge` in the shell header. It is
 new, uses no Radix, and counts towards the entry rise. It imports the auth

@@ -13,6 +13,27 @@ import { clearDevActorId, clearDevTenantId, setDevActorId, setDevTenantId } from
 import { sentBody } from "../test/fixtures";
 import { bearerSession } from "../test/bearerSession";
 
+// A 401 whose body never arrives, and whether send() let go of it.
+function unreadBody(status: number) {
+  const state = { cancelled: false };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            cancel: () => {
+              state.cancelled = true;
+            },
+          }),
+          { status },
+        ),
+      ),
+    ),
+  );
+  return state;
+}
+
 function stubFetch(status: number, body: unknown, ok = false) {
   vi.stubGlobal(
     "fetch",
@@ -95,6 +116,16 @@ describe("the refusal envelope", () => {
 
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(401);
+  });
+
+  // An unread body still holds its connection, past the bound too.
+  it("cancels a 401's body, which it never reads", async () => {
+    const body = unreadBody(401);
+
+    const err = (await apiGet("/api/me").catch((e: unknown) => e)) as ApiError;
+
+    expect(err.status).toBe(401);
+    await vi.waitFor(() => expect(body.cancelled).toBe(true));
   });
 
   it("reads an unparseable body as a null code", async () => {
@@ -312,6 +343,18 @@ describe("the bearer path", () => {
     expect(first.code).toBe("auth_unavailable");
     expect(second.status).toBe(503);
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels the body of the 401 it turns into 503", async () => {
+    const { apiGet: get } = await freshClient();
+    mirror(Date.now());
+    const body = unreadBody(401);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const err = (await get("/api/me").catch((e: unknown) => e)) as ApiError;
+
+    expect(err.status).toBe(503);
+    await vi.waitFor(() => expect(body.cancelled).toBe(true));
   });
 });
 
