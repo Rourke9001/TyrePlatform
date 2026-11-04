@@ -12,6 +12,9 @@ const SETTINGS = {
   apiScope: "api://tyre-api/access_as_user",
   origin: "http://localhost:5173",
 };
+// oidc-client-ts 3.5.0: "oidc." + user:${authority}:${client_id}.
+const USER_KEY = `oidc.user:${IDP}/:pwa`;
+const DISCOVERY_URL = `${IDP}/.well-known/openid-configuration`;
 const DISCOVERY = {
   issuer: `${IDP}/`,
   authorization_endpoint: `${IDP}/authorize`,
@@ -64,6 +67,23 @@ function discoveryAnswers() {
   );
 }
 
+// The library's stored user, as a sign-in leaves it: its ID token names the
+// driver, and its refresh token can renew the session.
+function storeUser(expiresInSeconds: number) {
+  window.localStorage.setItem(
+    USER_KEY,
+    JSON.stringify({
+      id_token: "id-token-naming-the-driver",
+      access_token: "at",
+      refresh_token: "rt",
+      token_type: "Bearer",
+      scope: "openid profile offline_access",
+      profile: { sub: "s", oid: "oid-a" },
+      expires_at: Math.floor(Date.now() / 1000) + expiresInSeconds,
+    }),
+  );
+}
+
 const PENDING = "pending" as const;
 
 async function afterTheBound(work: Promise<unknown>): Promise<unknown> {
@@ -100,9 +120,11 @@ it("signIn rejects once the bound passes on a discovery body that never arrives"
 });
 
 // The local clear comes first (spec section 4, Signing out), so a stalled
-// discovery must still end the wait.
+// discovery must still end the wait, and leave no stored user behind: its
+// refresh token and the ID token naming the driver (spec section 6).
 it("signOut rejects once the bound passes, after clearing the local session", async () => {
   window.localStorage.setItem("tyre.auth.subject", "oid-a");
+  storeUser(3600);
   discoveryBodyStalls();
 
   const result = await afterTheBound(createAuth(SETTINGS, navigator).signOut());
@@ -110,6 +132,38 @@ it("signOut rejects once the bound passes, after clearing the local session", as
   expect(result).toBeInstanceOf(Error);
   expect(navigated).toEqual([]);
   expect(window.localStorage.getItem("tyre.auth.subject")).toBeNull();
+  expect(window.localStorage.getItem(USER_KEY)).toBeNull();
+});
+
+// Offline on a fresh page, which has not fetched discovery yet.
+it("signOut removes the stored user when discovery cannot be fetched at all", async () => {
+  window.localStorage.setItem("tyre.auth.subject", "oid-a");
+  storeUser(3600);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+  );
+
+  await expect(createAuth(SETTINGS, navigator).signOut()).rejects.toBeInstanceOf(Error);
+
+  expect(navigated).toEqual([]);
+  expect(window.localStorage.getItem(USER_KEY)).toBeNull();
+});
+
+// A fresh page's first renewal fetches discovery before the refresh POST,
+// and the store keeps a renewal in flight until it settles (token.ts), so a
+// stalled discovery held every later send until a reload.
+it("renew rejects once the bound passes on a stalled discovery, before any token is sent", async () => {
+  storeUser(-60);
+  discoveryBodyStalls();
+
+  const result = await afterTheBound(createAuth(SETTINGS, navigator).renew());
+
+  expect(result).toBeInstanceOf(Error);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch).toHaveBeenCalledWith(DISCOVERY_URL, expect.anything());
+  // Still there: a discovery that fails says nothing about the session.
+  expect(window.localStorage.getItem(USER_KEY)).not.toBeNull();
 });
 
 // The redirect resolves only when the page comes back (pageshow), so it is

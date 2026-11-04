@@ -59,7 +59,8 @@ function returnToOf(state: unknown): unknown {
 }
 
 // What the entry wrote: the token store's session and every cached tenant
-// brand. The library's own user is left for signoutRedirect.
+// brand. The library's own user is signOut()'s to remove, once it has read
+// the hint.
 function forgetIdentity(): void {
   clearSession();
   const storage = window.localStorage;
@@ -97,11 +98,11 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
     redirectNavigator,
   );
 
-  // A fresh page fetches discovery before either redirect, and the library's
-  // timeout ends at its headers, so only that request is bounded. The
-  // redirect itself resolves only when the page comes back, so bounding it
-  // would fail a slow but working sign-in (TYRE-381). What arrives late is
-  // cached for the next tap.
+  // A fresh page fetches discovery before either redirect and before a
+  // renewal's refresh POST, and the library's timeout ends at its headers, so
+  // that request is bounded. The redirect itself resolves only when the page
+  // comes back, so bounding it would fail a slow but working sign-in
+  // (TYRE-381). What arrives late is cached for the next call.
   const discovered = () => bounded(manager.metadataService.getMetadata(), "sign-in discovery");
 
   return {
@@ -131,6 +132,10 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
         if (user) await manager.removeUser();
         return null;
       }
+      // Before the refresh token is sent, so bounding this cannot spend it
+      // twice (spec section 4, The auth chunk). Its timeout is a plain
+      // Error, which goes through as offline.
+      await discovered();
       let renewed: User | null;
       try {
         // The settings' timeout does not reach the refresh request
@@ -171,11 +176,15 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
     },
     async signOut() {
       forgetIdentity();
+      // The stored user goes before the first request that can fail: it holds
+      // a refresh token and an ID token naming the driver (spec section 6).
+      // Its ID token still goes as id_token_hint. Without the hint Entra may
+      // show an account picker instead of returning to "/", and the U104 undo
+      // depends on the return.
+      const hint = (await manager.getUser())?.id_token;
+      await manager.removeUser();
       await discovered();
-      // signoutRedirect reads the stored user for id_token_hint, then removes
-      // it. Without the hint Entra may show an account picker instead of
-      // returning to "/", and the U104 undo depends on the return.
-      await manager.signoutRedirect();
+      await manager.signoutRedirect(hint === undefined ? {} : { id_token_hint: hint });
     },
   };
 }
