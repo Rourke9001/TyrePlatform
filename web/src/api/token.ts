@@ -1,13 +1,11 @@
-// The session the API sees (ADR-0016, U102). The entry reads the access
+// The session the API sees (ADR-0016, U102). The store reads the access
 // token from a mirror in its own localStorage key and never reads the
-// sign-in library's storage format, so the library loads only when a
-// renewal, a sign-in or a sign-out needs it.
+// sign-in library's storage format.
 
 import { ApiError } from "./apiError";
 import { bounded } from "./deadline";
 import { getDevActorId } from "./devTenant";
-import { suppressReloadWhile } from "../shell/chunkReload";
-import type * as AuthChunk from "../auth/oidc";
+import { discardUser, renew, type Tokens } from "../auth/oidc";
 
 export const MIRROR_KEY = "tyre.auth.mirror";
 // The last driver who signed in on this phone. Held inspections are stamped
@@ -120,30 +118,6 @@ export function authConfigured(): boolean {
   );
 }
 
-let chunkFailed = false;
-
-// U174: Chrome and released Safari fail every later import on a page after
-// one fails, so Sync now reloads once this is true (OutboxIndicator.tsx).
-export function authChunkFailed(): boolean {
-  return chunkFailed;
-}
-
-// The one dynamic import of the sign-in library (ADR-0016). A failed import
-// is a network failure the outbox retries, never an automatic reload; only a
-// tap on Sign in, Sign out or Sync now reloads (U105, U174, chunkReload.ts).
-export function authChunk(): Promise<typeof AuthChunk> {
-  return suppressReloadWhile(import("../auth/oidc")).then(
-    (chunk) => {
-      chunkFailed = false;
-      return chunk;
-    },
-    (error: unknown) => {
-      chunkFailed = true;
-      throw error;
-    },
-  );
-}
-
 export interface Sender {
   accessToken: string | null;
   subject: string | null;
@@ -202,9 +176,9 @@ function setLapsed(value: boolean): void {
   lapseListeners.forEach((listener) => listener());
 }
 
-type Renewed = Awaited<ReturnType<typeof AuthChunk.renew>>;
+type Renewed = Tokens | null;
 
-// The chunk never writes the mirror (spec section 4), so the store does. A
+// oidc.ts never writes the mirror (spec section 4), so the store does. A
 // blocked store must not fail a renewed token, so only then is `held` kept;
 // a working store stays the one source, which another tab's sign-out clears.
 function mirrorRenewed(tokens: Renewed): Mirror | null {
@@ -234,7 +208,7 @@ function mirrorRenewed(tokens: Renewed): Mirror | null {
 async function sameDriver(tokens: Renewed): Promise<Renewed> {
   if (tokens === null || tokens.subject === lastKnownSubject()) return tokens;
   try {
-    await (await authChunk()).discardUser();
+    await discardUser();
   } catch {
     // Best effort; mirrorRenewed clears the mirror either way.
   }
@@ -246,8 +220,7 @@ async function sameDriver(tokens: Renewed): Promise<Renewed> {
 // one twice. A caller that joins a stuck one gets its rejection at once.
 function renewOnce(): Promise<Mirror | null> {
   renewing ??= bounded(
-    authChunk()
-      .then((auth) => auth.renew())
+    renew()
       .then(sameDriver)
       .then(mirrorRenewed)
       .finally(() => {
@@ -259,14 +232,13 @@ function renewOnce(): Promise<Mirror | null> {
 }
 
 export async function credential(): Promise<{ accessToken: string; subject: string }> {
-  // Checked before the import, since a build without VITE_AUTH_* cannot sign
-  // anyone in.
+  // Checked first, since a build without VITE_AUTH_* cannot sign anyone in.
   if (latched || !authConfigured()) throw authUnavailable();
   const usable = (m: Mirror | null) => m !== null && m.expiresAt - EXPIRY_SKEW_MS > Date.now();
   const mirror = readMirror();
   // Every sign-in writes the last-known subject or does not finish, so
-  // without one there is no session to renew, and the chunk is not imported
-  // only to learn that (spec section 4, Renewal).
+  // without one there is no session to renew, and no refresh token a stray
+  // library user holds is spent learning that (spec section 4, Renewal).
   const current = usable(mirror)
     ? mirror
     : usable(held)

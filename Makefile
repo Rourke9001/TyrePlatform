@@ -276,7 +276,7 @@ deploy-smoke-test: ## The post-deploy smoke's pass and fail cases, with a stub c
 	bash scripts/deploy-smoke.test.sh
 
 .PHONY: web-bundle
-web-bundle: ## The capture route's JavaScript budget (TYRE-238, ADR-0015), the lazy sign-in chunk, no dev identity in the build (TYRE-317), its sign-in values (TYRE-79) and the deploy's web config writer (TYRE-51)
+web-bundle: ## The capture route's JavaScript budget (TYRE-238, ADR-0015), the sign-in library in the entry (U175), no dev identity in the build (TYRE-317), its sign-in values (TYRE-79) and the deploy's web config writer (TYRE-51)
 	node scripts/check-capture-bundle.mjs --self-test
 	cd web && npm run build && npm run bundle:check
 	node scripts/check-dist-dev-strings.mjs --self-test

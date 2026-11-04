@@ -213,6 +213,28 @@ describe("OutboxIndicator", () => {
       window.localStorage.clear();
     }
   });
+
+  // FR-OFF-010: the tap sends what is still waiting out its retry delay,
+  // which the mount flush leaves for later.
+  it("sends an inspection that is still backing off when Sync now is tapped", async () => {
+    window.localStorage.setItem("tyre.dev.user-id", "oid-driver-1");
+    try {
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(JSON.stringify({ inspectionId: "i-1" }), { status: 201 }),
+      );
+      await outbox().put(entry("u-backoff", "queued"));
+      render(<OutboxIndicator />);
+      await screen.findByText("1 inspection waiting to send");
+      expect(fetch).not.toHaveBeenCalled();
+
+      await userEvent.setup().click(screen.getByRole("button", { name: "Sync now" }));
+
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/api/inspections");
+    } finally {
+      window.localStorage.clear();
+    }
+  });
 });
 
 describe("the sign-in line", () => {

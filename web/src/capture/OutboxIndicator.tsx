@@ -1,8 +1,6 @@
 import { useEffect } from "react";
 
-import { authChunkFailed } from "../api/token";
 import { SignInButton } from "../auth/SignInButton";
-import { reloadForAuthChunk } from "../shell/chunkReload";
 import { Button } from "../ui/Button";
 
 import { ConfirmDiscard } from "./ConfirmDiscard";
@@ -98,12 +96,7 @@ export function OutboxIndicator() {
         variant="secondary"
         size="glove"
         className="cap-outbox-sync"
-        onClick={() => {
-          // U174: with work held, neither Sign in nor Sign out is on screen,
-          // so this is the tap that reloads after the chunk has failed.
-          if (authChunkFailed() && reloadForAuthChunk()) return;
-          void flushOutbox({ force: true });
-        }}
+        onClick={() => void flushOutbox({ force: true })}
       >
         Sync now
       </Button>

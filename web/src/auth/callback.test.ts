@@ -2,20 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { bearerSession } from "../test/bearerSession";
 
-// The factory runs when the chunk is first imported, so a count of zero
-// shows the entry never reached for it.
-const chunk = vi.hoisted(() => ({ loads: 0 }));
-
-vi.mock("./oidc", () => {
-  chunk.loads += 1;
-  return {
-    completeSignIn: vi.fn(),
-    signOut: vi.fn(),
-    renew: vi.fn(),
-    signIn: vi.fn(),
-    discardUser: vi.fn(() => Promise.resolve()),
-  };
-});
+vi.mock("./oidc", () => ({
+  completeSignIn: vi.fn(),
+  signOut: vi.fn(),
+  renew: vi.fn(),
+  signIn: vi.fn(),
+  discardUser: vi.fn(() => Promise.resolve()),
+}));
 
 const SIGNED_IN = {
   accessToken: "at-a",
@@ -89,13 +82,24 @@ async function holdEntryStampedFor(
 }
 
 describe("completeRedirect", () => {
-  it("does nothing, and loads no chunk, on a URL that is not a callback", async () => {
+  it("does nothing on a URL that is not a callback", async () => {
     window.history.replaceState(null, "", "/my");
-    vi.resetModules();
-    chunk.loads = 0;
-    const callback = await import("./callback");
+    const { callback, oidc } = await fresh();
     await expect(callback.completeRedirect()).resolves.toBe("none");
-    expect(chunk.loads).toBe(0);
+    expect(oidc.completeSignIn).not.toHaveBeenCalled();
+  });
+
+  // Blocked storage makes the library throw before it returns a promise. That
+  // is a sign-in that did not finish, and the spent code still leaves the URL.
+  it("reports a sign-in whose exchange throws at once as not finished, and clears the URL", async () => {
+    const { callback, oidc } = await fresh();
+    vi.mocked(oidc.completeSignIn).mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+
+    await expect(callback.completeRedirect()).resolves.toBe("failed");
+    expect(callback.signInDidNotFinish()).toBe(true);
+    expect(window.location.search).toBe("");
   });
 
   it("does nothing under the DEV header path, even on a callback URL", async () => {

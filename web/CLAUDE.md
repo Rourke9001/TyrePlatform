@@ -75,15 +75,15 @@ Online-first with a durable submit outbox — not an offline sync engine.
 `src/api/token.ts` is the token store and sits in the entry: it reads a
 mirror of the access token from its own `localStorage` key, never the
 library's storage format. `src/auth/oidc.ts` is the only file that imports
-oidc-client-ts, reached only through the store's `authChunk()`, so the
-library stays out of the capture budget. Under vite dev and vitest the dev
+oidc-client-ts, and it ships in the entry, since the driver's renewal,
+sign-in and sign-out wait on it (U175, ADR-0016's amendment). Under vite dev and vitest the dev
 headers remain the default; `localStorage["tyre.dev.auth"] = "bearer"`
 opts a session into the bearer path. On the dev header path the dev actor id
 stands in as the U104 stamp, and only under `import.meta.env.DEV`. A
 production build has only the bearer path, `scripts/check-dist-dev-strings.mjs`
 (in `make web-bundle` and CI) fails a build that still names the dev headers
-or keys, and `scripts/check-capture-bundle.mjs` fails one whose entry carries
-oidc-client-ts.
+or keys, and `scripts/check-capture-bundle.mjs` fails one whose entry does
+not carry oidc-client-ts, or that carries it in a lazy chunk too.
 
 ## Browser tests (e2e/)
 
@@ -217,8 +217,8 @@ looked at before it is reviewed. Rules that are not visible in the code:
   - A module under `src/capture/` or `src/driver/` is reachable from the
     entry only through a dynamic import, so the driver's flow would wait on
     a chunk fetch (ADR-0009, rule 7).
-  - The entry carries oidc-client-ts, or the check can no longer see the
-    library (TYRE-317, ADR-0016).
+  - The entry's static closure does not carry oidc-client-ts, or a lazy
+    chunk does (U175, ADR-0016's amendment).
 
   The budget only ratchets down. A rise needs a reason in the PR and a
   re-record on a known-good tree: `npm run bundle:check -- --record` writes

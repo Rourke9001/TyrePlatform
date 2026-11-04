@@ -48,7 +48,7 @@ it("keeps keyboard focus while the start is in flight", async () => {
   expect(button).toHaveFocus();
 });
 
-// The chunk can take seconds on weak signal; the label says it is working.
+// Discovery can take seconds on weak signal; the label says it is working.
 it("names what it is doing while the start is in flight", async () => {
   render(<SignInButton label="Sign in" />);
   const button = screen.getByRole("button", { name: "Sign in" });

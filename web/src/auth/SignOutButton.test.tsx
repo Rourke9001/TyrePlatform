@@ -230,7 +230,7 @@ describe("SignOutButton (PD-S3)", () => {
   });
 
   // U109: the guard may yet refuse, so the label changes only once it has
-  // passed and the sign-out chunk starts to load.
+  // passed.
   it("says Sign out while the guard reads, and Signing out only once it has passed", async () => {
     let release: (held: HeldWork) => void = () => undefined;
     const outbox = await import("../capture/outbox");

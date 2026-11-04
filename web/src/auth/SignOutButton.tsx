@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { authChunk, bearerMode, lastKnownSubject } from "../api/token";
+import { bearerMode, lastKnownSubject } from "../api/token";
 import { heldCount, type HeldWork } from "../capture/outbox";
-import { reloadForAuthChunk } from "../shell/chunkReload";
 import { Button } from "../ui/Button";
+import { signOut } from "./oidc";
 import "./auth.css";
 
 // U108: the refusal names the fix. A draft never sends by itself, so for a
@@ -31,7 +31,6 @@ function stillHeld({ draft, entries }: HeldWork): string {
 export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
   const queryClient = useQueryClient();
   const [held, setHeld] = useState<HeldWork | null>(null);
-  const [failed, setFailed] = useState(false);
   // signOut() clears everything local before it can reject, and its resolve
   // is a navigation a bfcache restore can undo, so the button settles on
   // either and the next render re-reads the subject (TYRE-317).
@@ -41,35 +40,20 @@ export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
   async function onClick() {
     if (phase !== "idle") return;
     setPhase("checking");
-    setFailed(false);
     // Emptied first so a repeat refusal with the same count is announced
     // again by the live region.
     setHeld(null);
-    // A reload keeps the button pending until the page goes, so a second tap
-    // cannot repeat the guard and the import.
-    let reloading = false;
     try {
       const work = await heldCount();
       if (work.draft || work.entries > 0) {
         setHeld(work);
         return;
       }
-      let chunk;
-      try {
-        chunk = await authChunk();
-      } catch {
-        // The driver stays signed in either way. With a connection a reload
-        // is the only way to load the chunk again (U105, chunkReload.ts), and
-        // the guard above means nothing is held; without one the line says so.
-        reloading = reloadForAuthChunk();
-        if (!reloading) setFailed(true);
-        return;
-      }
       // Only now does the label say "Signing out": until the guard passes it
-      // may still refuse (U109), and a reload brings the driver back signed in.
+      // may still refuse (U109).
       setPhase("signing-out");
       try {
-        await chunk.signOut();
+        await signOut();
       } catch {
         // Rejected after the local clear, so signed out locally.
       }
@@ -77,7 +61,7 @@ export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
       // /api/me is asked again (spec section 4, Signing out).
       void queryClient.resetQueries();
     } finally {
-      if (!reloading) setPhase("idle");
+      setPhase("idle");
     }
   }
 
@@ -96,11 +80,6 @@ export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
       <p role="status" className="auth-note auth-live">
         {held !== null ? stillHeld(held) : ""}
       </p>
-      {failed && (
-        <p role="alert" className="auth-note">
-          Could not sign out. Find signal and try again.
-        </p>
-      )}
     </div>
   );
 }

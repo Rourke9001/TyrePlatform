@@ -12,17 +12,12 @@ import { bearerSession } from "../test/bearerSession";
 import { me } from "../test/fixtures";
 import { db } from "../capture/draft";
 import { OutboxIndicator } from "../capture/OutboxIndicator";
-import { suppressReloadWhile } from "../shell/chunkReload";
 
 vi.mock("./oidc", () => ({
   signIn: vi.fn(() => new Promise(() => undefined)),
   completeSignIn: vi.fn(),
   renew: vi.fn(),
   signOut: vi.fn(),
-}));
-vi.mock("../shell/chunkReload", async (original) => ({
-  ...(await original<typeof import("../shell/chunkReload")>()),
-  suppressReloadWhile: vi.fn((p: Promise<unknown>) => p),
 }));
 
 function gate(failure: AuthFailure, actor = null as ReturnType<typeof me> | null) {
@@ -213,39 +208,5 @@ describe("a refetch of /api/me answering 401 while an actor is held", () => {
     expect(screen.getByText("capture in progress")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Sign in" })).toBeNull();
     expect({ mounts, unmounts }).toEqual({ mounts: 1, unmounts: 0 });
-  });
-});
-
-// Spec section 4: once, after the first render, while online and with a
-// stored session, the store warms the auth chunk. Every authChunk() call
-// passes through suppressReloadWhile, so the spy counts the imports.
-describe("the auth chunk warm-up", () => {
-  it("loads the chunk after the first render, online, with a session stored", () => {
-    window.localStorage.setItem("tyre.auth.subject", "oid-a");
-    gate(null, me());
-    expect(suppressReloadWhile).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not warm without a stored session", () => {
-    gate(null, me());
-    expect(suppressReloadWhile).not.toHaveBeenCalled();
-  });
-
-  it("does not warm offline", () => {
-    window.localStorage.setItem("tyre.auth.subject", "oid-a");
-    const offline = vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(false);
-    try {
-      gate(null, me());
-      expect(suppressReloadWhile).not.toHaveBeenCalled();
-    } finally {
-      offline.mockRestore();
-    }
-  });
-
-  it("does not warm under the DEV header path", () => {
-    window.localStorage.removeItem("tyre.dev.auth");
-    window.localStorage.setItem("tyre.auth.subject", "oid-a");
-    gate(null, me());
-    expect(suppressReloadWhile).not.toHaveBeenCalled();
   });
 });
