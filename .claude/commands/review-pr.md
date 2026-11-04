@@ -36,6 +36,9 @@ come from a session that does not share the author's context.
    give at most five, each with a one-line fix, and count the rest. It is
    fixed in the PR or goes under the PR's "Set aside", never into a ticket
    of its own (CLAUDE.md, U130). List what you set aside, with the reason.
+   When a finding lands on a mechanism that an earlier round of this PR,
+   or an earlier PR, already fixed, say so in the finding and recommend
+   `/design-audit <mechanism>` before the next fix round.
 
 Reply with the counts by severity and the number of bugs, the merge verdict
 (merge, merge after fixes, or do not merge; any open bug means merge after
