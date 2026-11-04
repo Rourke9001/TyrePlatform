@@ -20,7 +20,7 @@ import { MIRROR_KEY, SUBJECT_KEY } from "../api/token";
 import { renew } from "../auth/oidc";
 import { bearerSession } from "../test/bearerSession";
 import { clearDraft, db, savePosition, startDraft } from "./draft";
-import { flushOutbox, listOutbox, queueDraft } from "./outbox";
+import { attemptSend, discardEntry, flushOutbox, listOutbox, queueDraft } from "./outbox";
 
 const DRIVER = "oid-driver-1";
 const meta = { granularityMm: 1.0, deviceId: "device-1", appVersion: "0.0.0", totalPositions: 1 };
@@ -101,8 +101,8 @@ describe("a stalled send (TYRE-389)", () => {
   });
 });
 
-// Folded in from TYRE-385: each due entry asked the token store for a
-// credential, so a flush over three entries started three renewals in turn.
+// TYRE-385: a credential that failed is not asked for again in the same
+// flush, since each ask can be a bounded renewal.
 describe("one renewal per flush (TYRE-385)", () => {
   beforeEach(() => {
     clearDevActorId();
@@ -139,6 +139,26 @@ describe("one renewal per flush (TYRE-385)", () => {
       ["queued", 1],
       ["queued", 1],
     ]);
+  });
+
+  // The Remove dialog promises "nothing will be sent", and a forced send can
+  // wait up to the bound on its renewal while Remove is still offered.
+  it("does not post an entry the driver removed while its renewal ran", async () => {
+    let finish!: (tokens: { accessToken: string; expiresAt: number; subject: string }) => void;
+    vi.mocked(renew).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const entry = await queueOne();
+    await db.table("outbox").update(entry.clientUuid, { state: "failed", lastStatus: 409 });
+
+    const sending = attemptSend(entry.clientUuid, { force: true });
+    await vi.waitFor(() => expect(renew).toHaveBeenCalled());
+    await discardEntry(entry.clientUuid);
+    finish({ accessToken: "at-new", expiresAt: Date.now() + 3_600_000, subject: DRIVER });
+    await sending;
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await listOutbox()).toEqual([]);
   });
 
   it("marks every due entry signed out from one lapsed renewal", async () => {

@@ -650,10 +650,12 @@ connection (`reloadForAuthChunk` in `web/src/shell/chunkReload.ts`); offline,
 the line below the button shows instead, since a reload would strand the
 driver on the browser's offline page. Owner ruling U172 (3 Nov 2026): it
 reloads once inside the route-chunk reload's guard window, so a second
-failure within 10 s shows the line rather than looping the page. A renewal never reloads, and the
-warm-up stays. The device check on deployed staging is the acceptance. The
-bold rule below therefore now reads "never a reason for an automatic
-reload".*
+failure within 10 s shows the line rather than looping the page. Owner
+ruling U174 (4 Nov 2026): "Sync now" reloads the same way once an import has
+failed, since with work held neither Sign in nor Sign out is on screen. A
+renewal never reloads, and the warm-up stays. The device check on deployed
+staging is the acceptance. The bold rule below is therefore to be read as
+"never a reason for an automatic reload".*
 
 **A failed import of the auth chunk is a network failure, never a reason to
 reload.**
@@ -695,6 +697,14 @@ then removed with `history.replaceState`, whether or not sign-in succeeded.
   finish, together with the button.
 
 ### The auth chunk
+
+*Amended 4 Nov 2026 (TYRE-381, PR #165's stage 5). A fresh page fetches
+discovery before a sign-in or sign-out redirect, and the library's timeout
+ends at its headers, so `signIn()` and `signOut()` bound that fetch with
+`REQUEST_TIMEOUT_SECONDS` (`web/src/api/deadline.ts`). The redirect
+itself is not bounded: it resolves only when the page comes back, so a slow
+but working sign-in would read as a failure. `renew()` is not bounded here,
+since the store keeps one renewal in flight past its bound (Renewal).*
 
 The `UserManager` is configured as follows:
 

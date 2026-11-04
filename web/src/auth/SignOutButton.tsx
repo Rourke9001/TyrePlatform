@@ -54,9 +54,6 @@ export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
         setHeld(work);
         return;
       }
-      // Only now does the label say "Signing out", since until the guard
-      // passes it may still refuse (U109).
-      setPhase("signing-out");
       let chunk;
       try {
         chunk = await authChunk();
@@ -68,6 +65,9 @@ export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
         if (!reloading) setFailed(true);
         return;
       }
+      // Only now does the label say "Signing out": until the guard passes it
+      // may still refuse (U109), and a reload brings the driver back signed in.
+      setPhase("signing-out");
       try {
         await chunk.signOut();
       } catch {

@@ -223,7 +223,10 @@ async function sendEntry(entry: OutboxEntry, credential: () => Promise<Sender>):
   const stamp = { driverSubject: entry.driverSubject ?? null, legacy: entry.legacy ?? false };
   if (!mayCarry(stamp, who.subject)) return;
 
-  await table().update(clientUuid, { state: "sending" });
+  // Remove deletes only a failed row, so a forced send whose renewal ran
+  // while the driver removed it finds nothing to claim and posts nothing
+  // (FR-OFF-013).
+  if ((await table().update(clientUuid, { state: "sending" })) === 0) return;
   try {
     // FR-OFF-011: 201 first time, 200 on replay, and the outbox treats them
     // identically. The server has the inspection either way, which is the

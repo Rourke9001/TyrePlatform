@@ -64,7 +64,7 @@ async function discardLate(): Promise<void> {
   try {
     await (await authChunk()).discardUser();
   } catch {
-    // Best effort; with no last-known subject for it, nothing renews it
+    // Best effort. A renewal adopts it only for the last-known subject
     // (U111 B, token.ts).
   }
 }

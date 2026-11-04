@@ -86,6 +86,17 @@ describe("the refusal envelope", () => {
     expect(err).not.toBeInstanceOf(ApiError);
   });
 
+  // Nothing reads a 401's code (failureOf, classify), so its body is not
+  // waited for: "Sign in to send" shows on this attempt, not the next.
+  it("reads a 401 whose body is lost as a 401", async () => {
+    stubFetch(401, new TypeError("network error"));
+
+    const err = (await apiGet("/api/me").catch((e: unknown) => e)) as ApiError;
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(401);
+  });
+
   it("reads an unparseable body as a null code", async () => {
     stubFetch(500, new SyntaxError("Unexpected token < in JSON"));
 

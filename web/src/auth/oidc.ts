@@ -11,7 +11,7 @@ import {
   type User,
 } from "oidc-client-ts";
 
-import { REQUEST_TIMEOUT_SECONDS } from "../api/deadline";
+import { REQUEST_TIMEOUT_SECONDS, bounded } from "../api/deadline";
 import { BRANDING_PREFIX, clearSession } from "../api/token";
 
 export interface Tokens {
@@ -37,9 +37,8 @@ export interface Auth {
   completeSignIn(url: string): Promise<SignedIn>;
   renew(): Promise<Tokens | null>;
   signOut(): Promise<void>;
-  // Removes the library's stored user without ending the Entra session: in
-  // the callback when the mirror cannot be written (callback.ts), and in the
-  // token store when a renewal names another driver (U111 B, token.ts).
+  // Removes the library's stored user without ending the Entra session, in
+  // the callback (callback.ts) and in the token store (U111 B, token.ts).
   discardUser(): Promise<void>;
 }
 
@@ -98,8 +97,16 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
     redirectNavigator,
   );
 
+  // A fresh page fetches discovery before either redirect, and the library's
+  // timeout ends at its headers, so only that request is bounded. The
+  // redirect itself resolves only when the page comes back, so bounding it
+  // would fail a slow but working sign-in (TYRE-381). What arrives late is
+  // cached for the next tap.
+  const discovered = () => bounded(manager.metadataService.getMetadata(), "sign-in discovery");
+
   return {
     async signIn(returnTo) {
+      await discovered();
       await manager.signinRedirect({ state: { returnTo } });
     },
     async completeSignIn(url) {
@@ -164,6 +171,7 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
     },
     async signOut() {
       forgetIdentity();
+      await discovered();
       // signoutRedirect reads the stored user for id_token_hint, then removes
       // it. Without the hint Entra may show an account picker instead of
       // returning to "/", and the U104 undo depends on the return.

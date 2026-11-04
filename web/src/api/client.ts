@@ -65,6 +65,9 @@ async function send<T>(method: string, path: string, body?: unknown, as?: Sender
       if (res.status === 401 && who.accessToken !== null && refused(who.accessToken)) {
         throw authUnavailable();
       }
+      // Nothing reads a 401's code (failureOf, classify), so its body is not
+      // waited for, and a lost one cannot delay "Sign in to send".
+      if (res.status === 401) throw new ApiError(401, `${method} ${path} failed: 401`, null);
       // A refusal's code can make it retryable (outbox.ts classify), so a
       // body that stalls or is lost in transit is offline, never the bare
       // status: the read stays outside refusal()'s catch.

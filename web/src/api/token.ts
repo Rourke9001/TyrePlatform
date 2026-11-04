@@ -120,11 +120,28 @@ export function authConfigured(): boolean {
   );
 }
 
+let chunkFailed = false;
+
+// U174: Chrome and released Safari fail every later import on a page after
+// one fails, so Sync now reloads once this is true (OutboxIndicator.tsx).
+export function authChunkFailed(): boolean {
+  return chunkFailed;
+}
+
 // The one dynamic import of the sign-in library (ADR-0016). A failed import
 // is a network failure the outbox retries, never an automatic reload; only a
-// tap on Sign in or Sign out reloads (U105, chunkReload.ts).
+// tap on Sign in, Sign out or Sync now reloads (U105, U174, chunkReload.ts).
 export function authChunk(): Promise<typeof AuthChunk> {
-  return suppressReloadWhile(import("../auth/oidc"));
+  return suppressReloadWhile(import("../auth/oidc")).then(
+    (chunk) => {
+      chunkFailed = false;
+      return chunk;
+    },
+    (error: unknown) => {
+      chunkFailed = true;
+      throw error;
+    },
+  );
 }
 
 export interface Sender {
