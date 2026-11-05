@@ -1,15 +1,15 @@
 module tyreplatform/api
 
-go 1.24
+go 1.25.0
 
 require (
-	github.com/MicahParks/keyfunc/v3 v3.8.0
+	github.com/MicahParks/keyfunc/v3 v3.8.2
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/time v0.9.0
+	golang.org/x/time v0.15.0
 )
 
 require (
