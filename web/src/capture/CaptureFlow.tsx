@@ -236,7 +236,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     // A context from an earlier day is renewing (captureContext.ts): its
     // counts are not shown, and Start does not seed a draft's window from it.
     // A failed or paused renewal falls through to the copy.
-    (motive.isStale && motive.isFetching) ||
+    (motive.data !== undefined && motive.isStale && motive.isFetching) ||
     membersRefreshing
   ) {
     body = <p className="cap-wait">Loading…</p>;

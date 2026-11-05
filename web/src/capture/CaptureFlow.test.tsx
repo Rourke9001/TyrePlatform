@@ -972,6 +972,22 @@ describe("a vehicle that does not load", () => {
     expect(screen.getByRole("button", { name: "Reload rig" })).toBeInTheDocument();
   });
 
+  // Loading waits only on a copy that is renewing. A member still loading
+  // for the first time does not hold the start screen back.
+  it("shows the start screen while a rig member first loads", async () => {
+    // The member's GET never answers, so it stays on its first load.
+    const hang = new Promise<Response>((resolve) => void resolve);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        url.split("?")[0].endsWith("/v1") ? Promise.resolve(json(200, rigMotive)) : hang,
+      ),
+    );
+    renderFlow();
+
+    expect(await screen.findByRole("button", { name: /start inspection/i })).toBeInTheDocument();
+  });
+
   // A failed query is fetched again only by a mount, focus or reconnect, so
   // the screen that says try again offers the try.
   it("reloads a rig member that failed with a 500", async () => {
