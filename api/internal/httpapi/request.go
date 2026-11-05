@@ -121,8 +121,8 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, into any) bool {
 		return false
 	}
 	if err := json.Unmarshal(raw, into); err != nil {
-		if field, named := typeErrorField(err, into); named {
-			writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, field+" is the wrong type")
+		if message, named := typeErrorMessage(err, into); named {
+			writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, message)
 			return false
 		}
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
@@ -194,6 +194,34 @@ func unknownJSONField(err error) (string, bool) {
 	return name, true
 }
 
+// typeErrorMessage words a refusal for a value the field could not take, or
+// answers false when typeErrorField cannot name the field.
+func typeErrorMessage(err error, into any) (string, bool) {
+	field, named := typeErrorField(err, into)
+	if !named {
+		return "", false
+	}
+	// A number the field cannot hold (too large, past float64's range, or a
+	// fraction for an integer) is still a number, so it is not called the
+	// wrong type, which would send the caller to fix the wrong thing.
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) && strings.HasPrefix(typeErr.Value, "number ") && isNumber(deref(typeErr.Type)) {
+		return field + " is not a number this field can hold", true
+	}
+	return field + " is the wrong type", true
+}
+
+func isNumber(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return true
+	default:
+		return false
+	}
+}
+
 // typeErrorField names the field whose value had the wrong type, in this
 // package's json tags only, so no caller text reaches the refusal (ADR-0012).
 // From Go 1.27 the decoder's path carries the caller's map keys, slice indexes
@@ -221,7 +249,8 @@ func typeErrorField(err error, into any) (string, bool) {
 
 // tagPath answers the tag names along segments and the type the walk ends
 // on. A map stops the walk with no type to check, since what follows it in
-// the path is the caller's key.
+// the path is the caller's key, so typeErrorField's backstop does not reach
+// past a map.
 func tagPath(t reflect.Type, segments []string) ([]string, reflect.Type, bool) {
 	t = deref(t)
 	if t == nil {
@@ -274,35 +303,37 @@ type jsonMatch struct {
 
 // jsonField answers the one field whose name folds equal to segment, counted
 // through untagged embedded structs, by its tag's spelling rather than the
-// caller's. Two such fields answer nothing: the decoder chooses between them
+// caller's. Two such fields answer nothing. The decoder chooses between them
 // (an exact name first, then the shallower field), and that choice is not
 // reproduced here.
 func jsonField(t reflect.Type, segment string) (string, reflect.Type, bool) {
-	var found []jsonMatch
-	foldMatches(t, segment, map[reflect.Type]bool{}, &found)
+	found := foldMatches(t, segment, map[reflect.Type]bool{})
 	if len(found) != 1 {
 		return "", nil, false
 	}
 	return found[0].name, found[0].typ, true
 }
 
-// foldMatches reads the fields encoding/json reads: an exported field, and a
-// tagged embedded struct of any type's export. seen stops a type that embeds
-// itself.
-func foldMatches(t reflect.Type, segment string, seen map[reflect.Type]bool, found *[]jsonMatch) {
+// foldMatches skips the fields encoding/json skips: one tagged exactly "-",
+// and an unexported field that is not an embedded struct. A tagged embedded
+// struct is a named field whether or not its type is exported. seen stops a
+// type that embeds itself.
+func foldMatches(t reflect.Type, segment string, seen map[reflect.Type]bool) []jsonMatch {
 	if seen[t] {
-		return
+		return nil
 	}
 	seen[t] = true
+	var found []jsonMatch
 	for i := range t.NumField() {
 		f := t.Field(i)
-		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
-		if name == "-" {
+		tag := f.Tag.Get("json")
+		if tag == "-" {
 			continue
 		}
+		name, _, _ := strings.Cut(tag, ",")
 		embeddedStruct := f.Anonymous && deref(f.Type).Kind() == reflect.Struct
 		if embeddedStruct && name == "" {
-			foldMatches(deref(f.Type), segment, seen, found)
+			found = append(found, foldMatches(deref(f.Type), segment, seen)...)
 			continue
 		}
 		if !f.IsExported() && !embeddedStruct {
@@ -312,9 +343,10 @@ func foldMatches(t reflect.Type, segment string, seen map[reflect.Type]bool, fou
 			name = f.Name
 		}
 		if strings.EqualFold(name, segment) {
-			*found = append(*found, jsonMatch{name, f.Type})
+			found = append(found, jsonMatch{name, f.Type})
 		}
 	}
+	return found
 }
 
 // refuseInvalid answers a validation failure and reports whether it did, so a

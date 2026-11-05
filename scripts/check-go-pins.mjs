@@ -36,11 +36,11 @@ const MINOR = /^(\d+\.\d+)(?:\.(?:\d+|x))?$/;
 
 const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 
-// A `#` at a line's start or after whitespace, and `//` in go.mod, start a
-// comment that is read as nothing before any match, so a note naming an old
-// golang tag or a go-version is not a pin. That is YAML's rule: a Make `#`
-// with no space before it is still read (U184). Newlines stay, so a reported
-// line is still the file's.
+// A `#` at a line's start or after whitespace, even inside a quoted string or
+// a block scalar, and `//` in go.mod, start a comment that is read as nothing
+// before any match, so a note naming an old golang tag or a go-version is not
+// a pin. A Make `#` with no space before it is still read (U184). Newlines
+// stay, so a reported line is still the file's.
 const uncommented = (rel, text) =>
   /(^|\/)go\.mod$/.test(rel) ? text.replace(/\/\/.*$/gm, '') : text.replace(/(^|\s)#.*$/gm, '$1');
 
