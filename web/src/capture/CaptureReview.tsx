@@ -146,7 +146,7 @@ export function CaptureReview({
                 meta={WARNING_NAME[f.code]}
                 trailing={
                   f.enteredValue !== null ? (
-                    <span className="cap-flag-val">{f.enteredValue}</span>
+                    <span className="cap-flag-val">{groupThousands(f.enteredValue)}</span>
                   ) : undefined
                 }
               />

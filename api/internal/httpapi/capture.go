@@ -85,11 +85,12 @@ type captureContextBody struct {
 	// has one until the first inspection writes it.
 	UnitKind       string `json:"unitKind"`
 	LastOdometerKm *int64 `json:"lastOdometerKm"`
-	// FR-INS-033 divides by the gap since this date. Serving the value
-	// without it leaves the plausibility warning with no denominator.
+	// FR-INS-020's projection runs from this date; the value alone has no
+	// starting point.
 	LastOdometerAt *time.Time `json:"lastOdometerAt"`
-	// FR-TYR-017: days since LastOdometerAt in the tenant's calendar (rule
-	// 6); nil when LastOdometerAt is.
+	// Days since LastOdometerAt in the tenant's calendar (rule 6, TYRE-342),
+	// and FR-INS-033's denominator, as DR-020's trigger counts whole days;
+	// nil when LastOdometerAt is.
 	LastOdometerAgeDays *int `json:"lastOdometerAgeDays"`
 	// FR-INS-020's pre-fill is a PROJECTION: the last known reading carried
 	// forward by this unit's average daily distance. It is not the last
@@ -180,8 +181,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	// correctly yields no rate (FR-INS-020 then starts empty).
 	//
 	// reading_date is a date, not an instant, so its age is the tenant's
-	// today minus it (rule 6). app.tenant_days_since would read it as a
-	// midnight, which falls on the day before west of UTC.
+	// today minus it (rule 6).
 	err := tx.QueryRow(ctx, `
 		SELECT v.id, v.fleet_number, v.registration, v.unit_kind::text,
 		       o.odometer_km, o.reading_date, app.tenant_today(tn.timezone) - o.reading_date,

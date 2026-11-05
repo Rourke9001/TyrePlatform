@@ -38,7 +38,8 @@ export function useRigComposition(
     .map((q) => q.data)
     .filter((c): c is CaptureContext => c !== undefined);
   const contexts = loaded.length === memberIds.length && memberIds.length > 0 ? loaded : null;
-  const membersFailed = memberQueries.some((q) => q.isError);
+  // The first failure's error, so a refusal is told apart from lost signal.
+  const membersError = memberQueries.find((q) => q.isError)?.error ?? null;
 
   function toggleAttached(id: string) {
     setAttachedIds((ids) => {
@@ -47,7 +48,7 @@ export function useRigComposition(
     });
   }
 
-  return { confirmedIds, seededIds, contexts, membersFailed, toggleAttached };
+  return { confirmedIds, seededIds, contexts, membersError, toggleAttached };
 }
 
 // Walk order, which is the combination's own sequence. The projection has to

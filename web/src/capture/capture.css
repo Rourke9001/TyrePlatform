@@ -37,8 +37,9 @@
   flex-basis: 100%;
 }
 
-/* TYRE-220: four mono digits ("13.5", a 1200 pressure) fill a quarter of a
-   360px phone, so the cells give up their side padding rather than spill. */
+/* TYRE-220: four mono glyphs ("13.5", "1200") fill a quarter of a 360px
+   phone, so the cells give up their side padding rather than spill. A
+   grouped "1,200" is five, which TreadReadings.css sets smaller (U55). */
 .cap-sheet .tr-tread__cell {
   padding-inline: 2px;
 }

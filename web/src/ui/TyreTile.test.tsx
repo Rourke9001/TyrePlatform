@@ -131,7 +131,7 @@ describe("TyreTile", () => {
     expect(screen.getByRole("listitem")).toHaveTextContent("1");
   });
 
-  it("speaks no compliance or side word of its own", () => {
+  it("speaks no compliance word of its own", () => {
     const { container } = render(
       <TyreTile numberText="1" valueText="9mm" badgeText="OK" condition="ok" onClick={vi.fn()} />,
     );

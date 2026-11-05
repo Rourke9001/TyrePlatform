@@ -36,11 +36,11 @@ interface Outcome {
 // change it (TYRE-329). On this read a 403 "forbidden" is a vehicle outside
 // the driver's capture set (ADR-0006), not the unset account failureOf
 // takes it for on GET /api/me.
-function refusalWords(error: unknown): string | null {
+function refusalWords(error: unknown, what: string): string | null {
   if (!(error instanceof ApiError) || error.status !== 403) return null;
   if (error.code === "tenant_inactive") return ACCESS_COPY["tenant-inactive"].body;
   if (error.code === "not_provisioned") return ACCESS_COPY["not-set-up"].body;
-  return "You do not have permission to inspect this vehicle. Ask your fleet office to check you are assigned to it.";
+  return `You do not have permission to inspect ${what}. Ask your fleet office to check you are assigned to it.`;
 }
 
 export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: string | null }) {
@@ -77,7 +77,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     setAttachedIds,
     startedAt,
   );
-  const { confirmedIds, contexts, membersFailed, toggleAttached } = rigComp;
+  const { confirmedIds, contexts, membersError, toggleAttached } = rigComp;
 
   // The tenant's unit words, read once for every position's warnings.
   const labels = useUnitLabels();
@@ -204,7 +204,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     // alert is hoisted so its retry can sit beside this screen's own, each
     // naming its own action.
     const signedOut = failureOf(motive.error) === "signed-out";
-    const refusal = refusalWords(motive.error);
+    const refusal = refusalWords(motive.error, "this vehicle");
     body =
       refusal === null ? (
         <section className="cap-screen">
@@ -241,12 +241,16 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         onStart={handleStart}
       />
     );
-  } else if (membersFailed) {
+  } else if (membersError !== null) {
+    // TYRE-329 for the member units: a refusal says who can change it.
+    const refusal = refusalWords(membersError, "a unit on this rig");
     body = (
       <section className="cap-screen">
         <p role="alert" className="cap-alert cap-alert--stop">
-          Could not load the rest of the rig. Find signal and try again. Your readings are saved.
+          {refusal ?? "Could not load the rest of the rig. Find signal and try again."} Your
+          readings are saved.
         </p>
+        {refusal !== null && <BackToWork />}
       </section>
     );
   } else if (!contexts || !draft) {

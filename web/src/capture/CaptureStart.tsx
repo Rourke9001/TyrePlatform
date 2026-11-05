@@ -59,12 +59,12 @@ export function CaptureStart({
   // nobody read (NFR-PRO-003).
   const [accepted, setAccepted] = useState(false);
   // FR-INS-033: warn and REQUIRE confirmation. A pre-checked box satisfies
-  // the control without the driver acting on it. Separate from accepted:
-  // one confirms WHAT, the other confirms an implausible jump is real.
+  // the control without the driver acting on it, so every key that changes
+  // the value clears it. Separate from accepted: one confirms WHAT, the
+  // other confirms an implausible jump is real.
   const [plausible, setPlausible] = useState(false);
-  // Frozen at mount: this screen is open seconds and nothing on it is
-  // finer than day granularity, so the clock must not depend on when React
-  // re-renders (FR-INS-033's denominator included).
+  // Frozen at mount: this screen is open seconds, so the projection the
+  // driver confirms must not move when React re-renders.
   const [openedAt] = useState(() => Date.now());
   const labels = useUnitLabels();
 
@@ -74,7 +74,7 @@ export function CaptureStart({
   const projected = projectedOdometerKm(motive, new Date(openedAt));
   const value = typed !== "" ? parseInt(typed, 10) : accepted ? projected : null;
   const rejection = odometerRejection(value, motive, labels);
-  const warnings = odometerWarnings(value, motive, new Date(openedAt), labels);
+  const warnings = odometerWarnings(value, motive, labels);
   // What the readout shows: the driver's digits, else the projection offered
   // for confirmation, else nothing. Dimmed until it is the recorded value, so
   // a provisional number never looks like an entered one (NFR-USE-005).
@@ -201,12 +201,14 @@ export function CaptureStart({
               // hybrid of two readings.
               if (k.type === "digit") {
                 setAccepted(false);
+                setPlausible(false);
                 setTyped((o) => (o.length >= ODOMETER_MAX_DIGITS ? o : o + k.digit));
               }
               // TYRE-171: one character, so a mis-tap in a seven-digit field
               // is not a full re-type (NFR-USE-006).
               if (k.type === "delete") {
                 setAccepted(false);
+                setPlausible(false);
                 setTyped((t) => t.slice(0, -1));
               }
               // The go key is the largest control on the keypad. Leaving it

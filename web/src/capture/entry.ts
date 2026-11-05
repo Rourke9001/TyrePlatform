@@ -36,9 +36,10 @@ export type EntryKey =
 
 export interface EntryResult {
   state: EntryState;
-  // True when no further digit could change this field's value, so the caller
-  // may advance without waiting for a tap. The caller owns the timing; a
-  // reducer that scheduled its own would not be testable.
+  // True when no further digit could change this field's value, or the field
+  // holds a lone 0mm tread (TYRE-171), so the caller may advance without
+  // waiting for a tap. The caller owns the timing; a reducer that scheduled
+  // its own would not be testable.
   settled: boolean;
 }
 
@@ -142,9 +143,14 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
       // Could another digit still change this answer? Appending "0" is the
       // smallest possible growth, so if even that overshoots, nothing can.
       const overshoots = valueOf(buffer + "0", state, opts) > ceiling;
-      // TYRE-171: no tread reading starts with a zero, so a lone 0 is a 0mm
-      // tread. Pressure waits, so 0 kPa is held on its field.
-      const loneZeroTread = buffer === "0" && !isPressure(state, opts);
+      // TYRE-171: no tread reading starts with a zero, so a 0 on an empty
+      // field is a 0mm tread. Not a 0 the ceiling restarted on, nor one at
+      // tenths, where 0 then 7 is 0.7 (U177). Pressure waits on 0 kPa.
+      const loneZeroTread =
+        state.buffer === "" &&
+        buffer === "0" &&
+        opts.granularityMm >= 0.5 &&
+        !isPressure(state, opts);
       return { state: next, settled: overshoots || loneZeroTread };
     }
   }

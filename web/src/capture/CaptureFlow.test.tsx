@@ -939,6 +939,35 @@ describe("a vehicle that does not load", () => {
     expect(screen.getByRole("link", { name: "My inspections" })).toHaveAttribute("href", "/my");
   });
 
+  // The rig's member units load after Start, so a trip that ends or a
+  // tenant deactivated in between refuses one of them alone.
+  it("says why a rig member's 403 refuses it, not signal", async () => {
+    const json = (status: number, body: unknown) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.split("?")[0].endsWith("/v1")
+            ? json(200, rigMotive)
+            : json(403, { code: "forbidden", message: "x" }),
+        ),
+      ),
+    );
+    renderFlow();
+
+    await newUser().click(await screen.findByRole("button", { name: /start inspection/i }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "You do not have permission to inspect a unit on this rig. Ask your fleet office to check you are assigned to it. Your readings are saved.",
+    );
+    expect(screen.queryByText(/Find signal/)).toBeNull();
+    expect(screen.getByRole("link", { name: "My inspections" })).toHaveAttribute("href", "/my");
+  });
+
   it.each([
     ["a 500", () => answer(500, "internal")],
     [
