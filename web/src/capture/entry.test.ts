@@ -67,6 +67,19 @@ describe("applyKey at whole-millimetre granularity", () => {
     expect(r.settled).toBe(false);
   });
 
+  // The keypad leaves a field by next or a tap on another, and both empty
+  // the buffer, so a 0mm tread settles on every field, not only the first.
+  it.each([
+    ["next", { type: "next" } as const],
+    ["a tap", { type: "focus", field: 1 } as const],
+  ])("settles a lone 0 on the field %s moved to", (_, move) => {
+    const eight = applyKey(newEntryState(3), { type: "digit", digit: "8" }, whole);
+    const moved = applyKey(eight.state, move, whole).state;
+    const r = applyKey(moved, { type: "digit", digit: "0" }, whole);
+    expect(r.state.treads).toEqual([8, 0, null]);
+    expect(r.settled).toBe(true);
+  });
+
   it("settles once a second digit lands", () => {
     const { settled, state } = type(newEntryState(3), "13", whole);
     expect(state.treads[0]).toBe(13);
