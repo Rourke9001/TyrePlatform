@@ -37,6 +37,19 @@ describe("CaptureDone", () => {
     expect(screen.queryByText(/when you have signal/)).not.toBeInTheDocument();
   });
 
+  // The server answered, so signal is not what holds it.
+  it.each([
+    [500, null],
+    [429, null],
+    [503, "concurrent_change"],
+  ])("says the server holds a %i %s, not signal", (status, code) => {
+    render(<CaptureDone state="queued" lastCode={code} lastStatus={status} />);
+    expect(
+      screen.getByText("The server could not take it yet. It will send by itself."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/when you have signal/)).not.toBeInTheDocument();
+  });
+
   it("keeps the signal wording for any other hold", () => {
     render(<CaptureDone state="queued" lastCode={null} lastStatus={null} />);
     expect(screen.getByText(/when you have signal/)).toBeInTheDocument();

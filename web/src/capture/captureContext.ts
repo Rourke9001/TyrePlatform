@@ -1,8 +1,9 @@
-import { onlineManager, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { apiGet } from "../api/client";
 import { retryQuery } from "../api/apiError";
 import { getDevTenantId } from "../api/devTenant";
+import { useActor } from "../auth/actorContext";
 import { tenantDayKey } from "../time/tenantTime";
 
 // Wire shape of GET /api/capture/vehicles/{id}. Every field exists because
@@ -117,20 +118,27 @@ export function fetchCaptureContext(
   return apiGet<CaptureContext>(`/api/capture/vehicles/${vehicleId}${query}`);
 }
 
-// staleTime Infinity, gcTime for the tab's life: FR-OFF-002 caches this for
-// the session, refreshed when a capture opens on a later day
-// (resetDayOldContexts), never a timer that could change a threshold
-// mid-walk-around. Options are a function,
-// not inlined, because a rig (useQueries) and a solo unit must produce the
-// same queryKey or the motive unit fetches twice. The key carries startedAt
-// because a read through a draft's window answers for that window, not now.
+// gcTime for the tab's life (FR-OFF-002), so no threshold drops mid-walk-
+// around. A context read at now is fresh for the tenant's day it was fetched
+// on, since its day counts are that day's (rule 6), and the library's own
+// mount, focus and reconnect refetches renew it after. A failed or offline
+// refetch keeps the copy (U179). A draft's windowed read is "static": it
+// answers for the window its submit will be judged over (U148) and never
+// moves under a walk-around. Options are a function, not inlined, because a
+// rig (useQueries) and a solo unit must produce the same queryKey or the
+// motive unit fetches twice.
 //
 // A windowed read is seeded from the entry this capture started on (FR-OFF-001,
 // U148): a remount keys on the draft's startedAt, which the first mount never
 // cached, and offline a query with no data does not fetch. The seed admits
 // nothing the first mount did not, and the submit is judged again over its own
 // window.
-export function captureContextQuery(vehicleId: string, startedAt?: string, seed?: QueryClient) {
+export function captureContextQuery(
+  vehicleId: string,
+  startedAt?: string,
+  seed?: QueryClient,
+  timeZone = "UTC",
+) {
   return {
     queryKey: ["capture-context", getDevTenantId() ?? "default", vehicleId, startedAt ?? null],
     queryFn: () => fetchCaptureContext(vehicleId, startedAt),
@@ -138,30 +146,20 @@ export function captureContextQuery(vehicleId: string, startedAt?: string, seed?
       startedAt === undefined || !seed
         ? undefined
         : () => seed.getQueryData<CaptureContext>(captureContextQuery(vehicleId).queryKey),
-    staleTime: Infinity,
+    staleTime:
+      startedAt !== undefined
+        ? ("static" as const)
+        : (query: { state: { dataUpdatedAt: number } }) =>
+            tenantDayKey(query.state.dataUpdatedAt, timeZone) === tenantDayKey(Date.now(), timeZone)
+              ? Infinity
+              : 0,
     gcTime: Infinity,
-    refetchOnWindowFocus: false,
     retry: retryQuery,
   };
 }
 
-// Rule 6: a context's day counts are the tenant's days on the day it was
-// fetched, so one fetched before the tenant's midnight is emptied for a
-// fresh fetch. Online only, since offline it is the only copy (FR-OFF-001);
-// a draft's windowed read stays as its submit will be judged (U148).
-export function resetDayOldContexts(client: QueryClient, timeZone: string, now = Date.now()) {
-  if (!onlineManager.isOnline()) return;
-  const today = tenantDayKey(now, timeZone);
-  void client.resetQueries({
-    queryKey: ["capture-context"],
-    predicate: (q) =>
-      q.queryKey[3] === null &&
-      q.state.dataUpdatedAt > 0 &&
-      tenantDayKey(q.state.dataUpdatedAt, timeZone) !== today,
-  });
-}
-
 export function useCaptureContext(vehicleId: string, startedAt?: string, enabled = true) {
   const client = useQueryClient();
-  return useQuery({ ...captureContextQuery(vehicleId, startedAt, client), enabled });
+  const timeZone = useActor()?.timezone ?? "UTC";
+  return useQuery({ ...captureContextQuery(vehicleId, startedAt, client, timeZone), enabled });
 }

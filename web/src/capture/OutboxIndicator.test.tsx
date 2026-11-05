@@ -120,6 +120,26 @@ describe("OutboxIndicator", () => {
     expect(await screen.findByText(/waiting over two days/i)).toBeInTheDocument();
   });
 
+  // The account, the token store or the server holds these, so after two
+  // days the line names that cause, not signal.
+  it.each([
+    [403, "tenant_inactive", "This company's account is not active. Contact your fleet office."],
+    [403, "not_provisioned", "Ask your fleet office to set up your account."],
+    [503, "auth_unavailable", "Sign-in is unavailable right now. Try again shortly."],
+    [500, null, "The server could not take it yet. It will send by itself."],
+  ])("names what holds a %i %s entry after two days", async (status, code, sentence) => {
+    await outbox().put({
+      ...entry("u1", "queued"),
+      queuedAt: Date.now() - 49 * 3_600_000,
+      lastStatus: status,
+      lastCode: code,
+    });
+    render(<OutboxIndicator />);
+
+    expect(await screen.findByText(`Waiting over two days. ${sentence}`)).toBeInTheDocument();
+    expect(screen.queryByText(/find signal/i)).toBeNull();
+  });
+
   // TYRE-167: the "needs the office" line stops being permanent. Two taps,
   // on the shell banner, only for a refused entry. A queued one shows no
   // such control.

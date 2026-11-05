@@ -138,6 +138,21 @@ describe("positionWarnings", () => {
     expect(w.find((x) => x.code === "FR-INS-031a")?.requiresConfirmation).toBe(true);
   });
 
+  // Bands are tenant configuration (rule 5), and app.inflation_compliance
+  // meets each edge exactly (000013). As floats, 930 against 1,000 is
+  // -7.000000000000001% and 1,161 against 900 is 28.999999999999996%.
+  it("meets the strict under edge as the database does", () => {
+    const at7 = { ...steer, targetKpa: 1000, criticalUnderPct: 7, warnUnderPct: 5 };
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 930 }, at7, config, metric);
+    expect(codes(w)).toEqual(["FR-INS-037"]);
+  });
+
+  it("meets the inclusive over edge as the database does", () => {
+    const at29 = { ...steer, targetKpa: 900, criticalOverPct: 29 };
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 1161 }, at29, config, metric);
+    expect(codes(w)).toEqual(["FR-INS-031a"]);
+  });
+
   // FR-CFG-013 as amended: SPARE carries no target. An unclassified spare
   // pressure is deliberate (BR-RPT-001, NFR-PRO-003). Inventing a band for
   // it would create a spare-pressure exception the SRS does not have.

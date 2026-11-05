@@ -25,7 +25,7 @@ describe("applyKey at whole-millimetre granularity", () => {
 
   // Settle rule: settle when another digit would exceed the ceiling. At
   // 1.0mm, 4-9 settle on the first press; 1-3 wait, since 10-35mm are real
-  // readings. A lone 0 settles too (below).
+  // readings.
   it("settles a first digit that cannot grow", () => {
     const r = applyKey(newEntryState(3), { type: "digit", digit: "7" }, whole);
     expect(r.state.treads[0]).toBe(7);
@@ -38,23 +38,22 @@ describe("applyKey at whole-millimetre granularity", () => {
     expect(r.settled).toBe(false);
   });
 
-  // TYRE-171: no tread reading starts with a zero, so a lone 0 is the whole
-  // answer, and the worst tread in the fleet costs no Next tap.
+  // U178: a 0 is also the slip off the 8 and off the half key (Keypad.tsx),
+  // so a lone 0 waits at every granularity, and a 0mm tread costs one Next.
   it.each([
     ["whole", whole],
     ["halves", halves],
-  ])("settles a lone 0 on a tread field at %s", (_, opts) => {
+    ["tenths", tenths],
+  ])("waits on a lone 0 at %s", (_, opts) => {
     const r = applyKey(newEntryState(3), { type: "digit", digit: "0" }, opts);
     expect(r.state.treads[0]).toBe(0);
-    expect(r.settled).toBe(true);
+    expect(r.settled).toBe(false);
   });
 
-  // U177: a driver reads 0.7 off a gauge as 0 then 7.
-  it("waits on a lone 0 at tenths, so 0 then 7 is 0.7", () => {
-    const r = applyKey(newEntryState(3), { type: "digit", digit: "0" }, tenths);
-    expect(r.settled).toBe(false);
-    const { state } = type(newEntryState(3), "07", tenths);
-    expect(state.treads).toEqual([0.7, null, null]);
+  // The digits after a slipped 0 absorb it, and a gauge's 0.7 is 0 then 7.
+  it("reads a 0 and the digits after it as one reading", () => {
+    expect(type(newEntryState(3), "011", whole).state.treads).toEqual([11, null, null]);
+    expect(type(newEntryState(3), "07", tenths).state.treads).toEqual([0.7, null, null]);
   });
 
   // An 8 then a 0 inside the hold restarts on the 0, which is a mis-tap on
@@ -74,21 +73,19 @@ describe("applyKey at whole-millimetre granularity", () => {
     const half = applyKey(twelve, { type: "half" }, halves);
     expect(half.settled).toBe(true);
     const r = applyKey(half.state, { type: "digit", digit: "0" }, halves);
+    expect(r.state.treads[0]).toBe(0);
     expect(r.settled).toBe(false);
   });
 
-  // The keypad leaves a field by next or a tap on another, and a 0 is the
-  // first key on the field either lands on, so a 0mm tread settles on every
-  // field, not only the first.
-  it.each([
-    ["next", { type: "next" } as const],
-    ["a tap", { type: "focus", field: 1 } as const],
-  ])("settles a lone 0 on the field %s moved to", (_, move) => {
-    const eight = applyKey(newEntryState(3), { type: "digit", digit: "8" }, whole);
-    const moved = applyKey(eight.state, move, whole).state;
-    const r = applyKey(moved, { type: "digit", digit: "0" }, whole);
-    expect(r.state.treads).toEqual([8, 0, null]);
-    expect(r.settled).toBe(true);
+  // U160's half after the keypad moves on, then the slip beside it: the 0
+  // waits on the next field for the digits that follow.
+  it("waits on a 0 typed after a half that reached back", () => {
+    const twelve = type(newEntryState(3), "12", halves).state;
+    const moved = applyKey(twelve, { type: "next" }, halves).state;
+    const half = applyKey(moved, { type: "half" }, halves).state;
+    const r = applyKey(half, { type: "digit", digit: "0" }, halves);
+    expect(r.state.treads).toEqual([12.5, 0, null]);
+    expect(r.settled).toBe(false);
   });
 
   it("settles once a second digit lands", () => {
@@ -146,13 +143,25 @@ describe("applyKey at whole-millimetre granularity", () => {
     expect(settled).toBe(true);
   });
 
-  // Guards the Math.min clamp in the next case: without it, advancing from
-  // the pressure field would push field to 4, one past the last valid index,
-  // and the next digit typed would write beyond the treads array.
+  // Advancing from the pressure field must not push field to 4, one past the
+  // last valid index, or the next digit typed would write beyond the treads.
   it("does not advance the field past pressure on next", () => {
-    const atPressure = { ...newEntryState(3), field: 3 };
+    const atPressure = { ...newEntryState(3), treads: [12, 12, 12], field: 3 };
     const r = applyKey(atPressure, { type: "next" }, whole);
     expect(r.state.field).toBe(3);
+  });
+
+  // The go key reads Next while a tread is still empty, so from pressure it
+  // goes to that tread. Staying put emptied the buffer, and 850, Next, 1, 2
+  // left 12 kPa with the tread still empty.
+  it("moves from pressure to the first empty tread, keeping the pressure", () => {
+    const unfinished = { ...newEntryState(3), treads: [12, null, 13], field: 3 };
+    const typed = type(unfinished, "850", whole).state;
+    const moved = applyKey(typed, { type: "next" }, whole).state;
+    expect(moved.field).toBe(1);
+    const after = type(moved, "12", whole).state;
+    expect(after.treads).toEqual([12, 12, 13]);
+    expect(after.pressureKpa).toBe(850);
   });
 });
 
@@ -173,8 +182,8 @@ describe("applyKey on the pressure field", () => {
     expect(settled).toBe(false);
   });
 
-  // TYRE-171's lone 0 is a tread rule only: 0 kPa is a flat a driver must
-  // see held on the field, not carried past by the keypad.
+  // 0 kPa is a flat a driver must see held on the field, not carried past by
+  // the keypad.
   it("does not settle a lone 0", () => {
     const { state, settled } = type(atPressure(), "0", whole);
     expect(state.pressureKpa).toBe(0);
@@ -269,15 +278,12 @@ describe("the half key straight after the keypad moves on", () => {
     expect(r.settled).toBe(false);
   });
 
-  // TYRE-171 with U160: a lone 0 settles, so the keypad moves on from it as
-  // it does from 13, and a half straight after makes it 0.5.
-  it("adds the half to a lone 0 the keypad moved on from", () => {
+  // A 0.5mm tread is 0 then the half, on the field the 0 waits on.
+  it("adds the half to a lone 0", () => {
     const zero = applyKey(newEntryState(3), { type: "digit", digit: "0" }, halves);
-    expect(zero.settled).toBe(true);
-    const moved = applyKey(zero.state, { type: "next" }, halves).state;
-    const r = applyKey(moved, { type: "half" }, halves);
+    const r = applyKey(zero.state, { type: "half" }, halves);
     expect(r.state.treads).toEqual([0.5, null, null]);
-    expect(r.state.field).toBe(1);
+    expect(r.settled).toBe(true);
   });
 
   it("adds it to the new cell once a digit lands there", () => {

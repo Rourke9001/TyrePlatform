@@ -1,10 +1,9 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
 import { ApiError } from "../api/apiError";
 import { bearerMode } from "../api/token";
-import { ACCESS_COPY, failureOf, useActor } from "../auth/actorContext";
+import { ACCESS_COPY, failureOf } from "../auth/actorContext";
 import { SignInButton } from "../auth/SignInButton";
 import { Button } from "../ui/Button";
 import { inertOutside } from "../ui/inertOutside";
@@ -16,7 +15,7 @@ import { CaptureStart } from "./CaptureStart";
 import { ConfirmDiscard } from "./ConfirmDiscard";
 import type { RecordedWarning } from "./draft";
 import { saveHeader } from "./draft";
-import { resetDayOldContexts, useCaptureContext } from "./captureContext";
+import { useCaptureContext } from "./captureContext";
 import { attemptSend, listOutbox, queueDraft } from "./outbox";
 import { absentCells, appVersion, capturedCells, deviceId } from "./payload";
 import { PositionSheet } from "./PositionSheet";
@@ -44,6 +43,64 @@ function refusalWords(error: unknown, what: string): string | null {
   return `You do not have permission to inspect ${what}. Ask your fleet office to check you are assigned to it.`;
 }
 
+// The four answers a capture read can get, for the motive and for the rig's
+// members alike: a refusal says who can change it; a signed-out driver signs
+// in; the token store's latch clears only on a page reload (apiError.ts); the
+// rest is signal. TYRE-465 makes this one table for every capture screen.
+function LoadFailure({
+  error,
+  refused,
+  loading,
+  saved,
+  reloadLabel,
+  onReload,
+}: {
+  error: unknown;
+  refused: string;
+  loading: string;
+  saved: boolean;
+  reloadLabel: string;
+  onReload: () => void;
+}) {
+  const failure = failureOf(error);
+  const refusal = refusalWords(error, refused);
+  const reason =
+    refusal ??
+    (failure === "signed-out"
+      ? `Sign in to load ${loading}.`
+      : failure === "unavailable"
+        ? ACCESS_COPY.unavailable.body
+        : `Could not load ${loading}. Find signal and try again.`);
+  let controls: ReactNode;
+  if (refusal !== null) controls = <BackToWork />;
+  else if (failure === "unavailable") {
+    controls = (
+      <Button variant="primary" size="glove" block onClick={() => window.location.reload()}>
+        Try again
+      </Button>
+    );
+  } else {
+    const signedOut = failure === "signed-out";
+    controls = (
+      <>
+        {signedOut && bearerMode() && <SignInButton label="Sign in" />}
+        <Button variant={signedOut ? "secondary" : "primary"} size="glove" block onClick={onReload}>
+          {reloadLabel}
+        </Button>
+      </>
+    );
+  }
+  return (
+    <section className="cap-screen">
+      <p role="alert" className="cap-alert cap-alert--stop">
+        {reason}
+        {saved && " Your readings are saved."}
+      </p>
+      {controls}
+    </section>
+  );
+}
+
 export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: string | null }) {
   // A cell, not a position id: two member units of the same axle
   // configuration share every position id, so an id alone opens the wrong
@@ -57,17 +114,11 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const [attachedIds, setAttachedIds] = useState<string[] | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // Frozen at mount, same reason as CaptureStart: severityOf runs once per
-  // cell per render, and a wear-rate comparison must not move with a
-  // re-render.
+  // Frozen at mount: severityOf runs once per cell per render, and a
+  // wear-rate comparison must not move with a re-render.
   const [openedAt] = useState(() => Date.now());
 
   const lifecycle = useDraftLifecycle(vehicleId, taskId, setActiveKey, setAttachedIds);
-  const client = useQueryClient();
-  const timeZone = useActor()?.timezone ?? "UTC";
-  // At mount, while the draft loads and the screen reads Loading, so no
-  // day-old count is read in between.
-  useEffect(() => resetDayOldContexts(client, timeZone), [client, timeZone]);
   const { draft, setDraft, resumed, held, screen, setScreen, storageFault } = lifecycle;
   // Read once the draft has loaded, so a resumed draft's units are keyed on
   // its own window and never asked of the server first at now (U148); the
@@ -83,7 +134,14 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     setAttachedIds,
     startedAt,
   );
-  const { confirmedIds, contexts, membersError, refetchMembers, toggleAttached } = rigComp;
+  const {
+    confirmedIds,
+    contexts,
+    membersError,
+    membersRefreshing,
+    refetchMembers,
+    toggleAttached,
+  } = rigComp;
 
   // The tenant's unit words, read once for every position's warnings.
   const labels = useUnitLabels();
@@ -172,7 +230,15 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         lastStatus={outcome.lastStatus}
       />
     );
-  } else if (!resumed || motive.isPending) {
+  } else if (
+    !resumed ||
+    motive.isPending ||
+    // A context from an earlier day is renewing (captureContext.ts): its
+    // counts are not shown, and Start does not seed a draft's window from it.
+    // A failed or paused renewal falls through to the copy.
+    (motive.isStale && motive.isFetching) ||
+    membersRefreshing
+  ) {
     body = <p className="cap-wait">Loading…</p>;
   } else if (lifecycle.otherDriverHeld) {
     body = (
@@ -204,39 +270,21 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         />
       </section>
     );
-  } else if (motive.isError || !motive.data) {
+  } else if (!motive.data) {
     // NFR-AVL-002: starting requires the server; every threshold and
     // warning depends on data that must have arrived. The storage-unavailable
     // alert is hoisted so its retry can sit beside this screen's own, each
     // naming its own action.
-    const signedOut = failureOf(motive.error) === "signed-out";
-    const refusal = refusalWords(motive.error, "this vehicle");
-    body =
-      refusal === null ? (
-        <section className="cap-screen">
-          <p role="alert" className="cap-alert cap-alert--stop">
-            {signedOut
-              ? "Sign in to load this vehicle."
-              : "Could not load this vehicle. Find signal and try again."}
-          </p>
-          {signedOut && bearerMode() && <SignInButton label="Sign in" />}
-          <Button
-            variant={signedOut ? "secondary" : "primary"}
-            size="glove"
-            block
-            onClick={() => void motive.refetch()}
-          >
-            Reload vehicle
-          </Button>
-        </section>
-      ) : (
-        <section className="cap-screen">
-          <p role="alert" className="cap-alert cap-alert--stop">
-            {refusal}
-          </p>
-          <BackToWork />
-        </section>
-      );
+    body = (
+      <LoadFailure
+        error={motive.error}
+        refused="this vehicle"
+        loading="this vehicle"
+        saved={false}
+        reloadLabel="Reload vehicle"
+        onReload={() => void motive.refetch()}
+      />
+    );
   } else if (screen === "start") {
     body = (
       <CaptureStart
@@ -248,35 +296,15 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
       />
     );
   } else if (membersError !== null) {
-    // The motive's three answers above, for the member units.
-    const signedOut = failureOf(membersError) === "signed-out";
-    const refusal = refusalWords(membersError, "a unit on this rig");
-    const reason =
-      refusal ??
-      (signedOut
-        ? "Sign in to load the rest of the rig."
-        : "Could not load the rest of the rig. Find signal and try again.");
     body = (
-      <section className="cap-screen">
-        <p role="alert" className="cap-alert cap-alert--stop">
-          {reason} Your readings are saved.
-        </p>
-        {refusal !== null ? (
-          <BackToWork />
-        ) : (
-          <>
-            {signedOut && bearerMode() && <SignInButton label="Sign in" />}
-            <Button
-              variant={signedOut ? "secondary" : "primary"}
-              size="glove"
-              block
-              onClick={refetchMembers}
-            >
-              Reload rig
-            </Button>
-          </>
-        )}
-      </section>
+      <LoadFailure
+        error={membersError}
+        refused="a unit on this rig"
+        loading="the rest of the rig"
+        saved
+        reloadLabel="Reload rig"
+        onReload={refetchMembers}
+      />
     );
   } else if (!contexts || !draft) {
     body = <p className="cap-wait">Loading…</p>;
@@ -381,7 +409,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
               : "This phone is not saving reliably. Keep the app open until this inspection has been sent."}
           </p>
           {storageFault === "unavailable" && (
-            // Named for what it retries. See the motive.isError branch above
+            // Named for what it retries. See the load-failure branch above
             // for why both retries need distinct labels.
             <Button variant="secondary" size="glove" onClick={lifecycle.retryStorage}>
               Recheck storage

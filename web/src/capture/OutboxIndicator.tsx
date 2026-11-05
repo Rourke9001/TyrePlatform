@@ -8,6 +8,7 @@ import {
   CLOCK_AHEAD_COPY,
   discardEntry,
   flushOutbox,
+  heldBy,
   isStale,
   startOutboxHeartbeat,
 } from "./outbox";
@@ -50,6 +51,17 @@ export function OutboxIndicator() {
   const waiting = entries.filter((e) => e.state !== "failed");
   const blocked = entries.filter((e) => e.state === "failed");
   const stale = waiting.filter((e) => isStale(e));
+  // FR-OFF-020's line names what a stale entry waits on: signal, or the cause
+  // heldBy gives. A 401 and TY021 have lines of their own below.
+  const staleOnSignal = stale.some((e) => heldBy(e.lastStatus, e.lastCode) === null);
+  const staleCauses = [
+    ...new Set(
+      stale
+        .filter((e) => e.lastStatus !== 401 && e.lastCode !== "TY021")
+        .map((e) => heldBy(e.lastStatus, e.lastCode))
+        .filter((cause): cause is string => cause !== null),
+    ),
+  ];
 
   return (
     <div className="cap-outbox">
@@ -99,11 +111,16 @@ export function OutboxIndicator() {
             Sign in to send {needSignIn}&nbsp;inspection{needSignIn === 1 ? "" : "s"}
           </span>
         )}
-        {stale.length > 0 && (
+        {staleOnSignal && (
           <span className="cap-outbox-line cap-outbox-line--stop" role="alert">
             Waiting over two days. Please find signal and sync.
           </span>
         )}
+        {staleCauses.map((cause) => (
+          <span key={cause} className="cap-outbox-line cap-outbox-line--stop" role="alert">
+            Waiting over two days. {cause}
+          </span>
+        ))}
       </div>
       {needSignIn > 0 && <SignInButton label="Sign in" />}
       {/* FR-OFF-010 */}
