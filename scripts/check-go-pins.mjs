@@ -23,9 +23,10 @@ const RELEVANT = [
 const relevant = (rel) => RELEVANT.some((re) => re.test(rel));
 
 const GO_LINE = /^(go|toolchain)\s+(?:go)?(\d+\.\d+)\S*\s*$/gm;
-// Every golang image reference, then the one form this check can compare, so
-// a tag that names no minor (golang:alpine, golang@sha256:...) is refused,
-// not skipped.
+// A golang image written with a tag or a digest (golang:..., golang@...),
+// then the one form this check can compare, so a tag that names no minor
+// (golang:alpine, golang@sha256:...) is refused, not skipped. A bare
+// `golang` with neither is not read (U184).
 const IMAGE_REF = /\bgolang[:@][^\s'"`,}\])]*/g;
 const IMAGE = /^golang:(\d+\.\d+)([\w.-]*)(?:@(sha256:[0-9a-f]{64}))?$/;
 const SETUP_GO = /\buses:\s*['"]?actions\/setup-go@/g;
@@ -35,10 +36,11 @@ const MINOR = /^(\d+\.\d+)(?:\.(?:\d+|x))?$/;
 
 const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 
-// Comments are read as nothing, once, before any match: a note naming an old
-// golang tag or a go-version is not a pin (the colour gate's rounds on #151
-// are why this is one pass, not a guard per pattern). Newlines stay, so a
-// reported line is still the file's.
+// A `#` at a line's start or after whitespace, and `//` in go.mod, start a
+// comment that is read as nothing before any match, so a note naming an old
+// golang tag or a go-version is not a pin. That is YAML's rule: a Make `#`
+// with no space before it is still read (U184). Newlines stay, so a reported
+// line is still the file's.
 const uncommented = (rel, text) =>
   /(^|\/)go\.mod$/.test(rel) ? text.replace(/\/\/.*$/gm, '') : text.replace(/(^|\s)#.*$/gm, '$1');
 

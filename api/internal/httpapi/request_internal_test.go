@@ -119,27 +119,77 @@ type probeSelf struct {
 	X int `json:"x"`
 }
 
-// The walk's own match is not encoding/json's in every shape, so a refusal
-// names the field the decoder failed on or none, never another one.
-func TestTypeErrorFieldNeverNamesAnotherField(t *testing.T) {
+// Fold-equal names of one type, which the type check cannot tell apart.
+type probeSameType struct {
+	A int `json:"Name"`
+	B int `json:"name"`
+}
+
+type probeSameShadowInner struct {
+	Y int `json:"y"`
+}
+
+type probeSameShadow struct {
+	probeSameShadowInner
+	Y int `json:"Y"`
+}
+
+// A map ends the walk, so no type is left to check.
+type probeMapPair struct {
+	A map[string]int    `json:"Name"`
+	B map[string]string `json:"name"`
+}
+
+// encoding/json reads a tagged embedded struct as a named field, whatever its
+// type's export.
+type probeUnexpInner struct {
+	Kpa int `json:"kpa"`
+}
+
+type probeUnexpAlone struct {
+	probeUnexpInner `json:"inner"`
+}
+
+// The decoder cannot set an embedded pointer to an unexported struct, and
+// reports the outer struct as the type it failed on.
+type probeUnexpPtr struct {
+	*probeUnexpInner
+}
+
+type probeUnexpPair struct {
+	probeUnexpInner `json:"inner"`
+	Other           probeUnexpInner `json:"INNER"`
+}
+
+// Shapes where the decoder's choice between fold-equal fields (an exact name
+// first, a shallower field first) differs from a first match in declaration
+// order. Each names the decoder's field or nothing.
+func TestTypeErrorFieldNamesNoOtherFieldInTheseShapes(t *testing.T) {
 	for _, tt := range []struct {
-		name string
-		into any
-		body string
-		want string
+		name  string
+		into  any
+		body  string
+		field string
+		named bool
 	}{
-		{"two names that fold equal", &probeCollide{}, `{"name":5}`, "name"},
-		{"an embedded field the decoder skips", &probeShadow{}, `{"x":true}`, "x"},
-		{"an exact name inside an embedded struct, first", &probeDeepFirst{}, `{"name":5}`, "name"},
-		{"an exact name inside an embedded struct, last", &probeDeepLast{}, `{"name":5}`, "name"},
-		{"a type that embeds itself", &probeSelf{probeSelf: &probeSelf{}}, `{"x":"s"}`, "x"},
+		{"two names that fold equal, of two types", &probeCollide{}, `{"name":5}`, "", false},
+		{"two names that fold equal, of one type", &probeSameType{}, `{"name":"s"}`, "", false},
+		{"an embedded field the decoder skips, of another type", &probeShadow{}, `{"x":true}`, "", false},
+		{"an embedded field the decoder skips, of the same type", &probeSameShadow{}, `{"Y":"x"}`, "", false},
+		{"an exact name inside an embedded struct, first", &probeDeepFirst{}, `{"name":5}`, "", false},
+		{"an exact name inside an embedded struct, last", &probeDeepLast{}, `{"name":5}`, "", false},
+		{"two maps whose names fold equal", &probeMapPair{}, `{"name":{"k":5}}`, "", false},
+		{"a tagged embedded struct of an unexported type", &probeUnexpAlone{}, `{"inner":{"kpa":"x"}}`, "inner.kpa", true},
+		{"a tagged unexported embed beside a fold-equal field", &probeUnexpPair{}, `{"inner":{"kpa":"x"}}`, "", false},
+		{"an embedded pointer to an unexported struct", &probeUnexpPtr{}, `{"kpa":5}`, "", false},
+		{"a type that embeds itself", &probeSelf{probeSelf: &probeSelf{}}, `{"x":"s"}`, "x", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			err := json.Unmarshal([]byte(tt.body), tt.into)
 			req.Error(t, err)
-			if field, named := typeErrorField(err, tt.into); named {
-				req.Equal(t, tt.want, field)
-			}
+			field, named := typeErrorField(err, tt.into)
+			req.Equal(t, tt.named, named)
+			req.Equal(t, tt.field, field)
 		})
 	}
 }
