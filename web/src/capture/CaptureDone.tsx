@@ -1,16 +1,16 @@
 import { Icon } from "../ui/Icon";
 import { CheckIcon } from "../ui/icons/Check";
 import { CriticalIcon } from "../ui/icons/Critical";
-import { heldBy } from "./outbox";
+import { heldBy, SERVER_HOLD_COPY } from "./outbox";
 import "./capture.css";
 
 // A hold signal cannot clear says what clears it instead of promising a
 // send (spec section 4, The indicator).
 function waitingOn(lastStatus: number | null, lastCode: string | null): string {
-  return (
-    heldBy(lastStatus, lastCode) ??
-    "It will send by itself when you have signal. You can close the app."
-  );
+  const held = heldBy(lastStatus, lastCode);
+  // Both holds that send by themselves say the driver may walk away.
+  if (held === SERVER_HOLD_COPY) return `${held} You can close the app.`;
+  return held ?? "It will send by itself when you have signal. You can close the app.";
 }
 
 // A plain anchor, not a router Link. Nothing on a screen that offers it needs

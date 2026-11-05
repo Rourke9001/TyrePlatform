@@ -124,7 +124,10 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   // its own window and never asked of the server first at now (U148); the
   // seed in captureContext.ts says what that key serves.
   const startedAt = lifecycle.resumedStartedAt ?? undefined;
-  const motive = useCaptureContext(vehicleId, startedAt, resumed);
+  // Only the start screen renews a copy: past Start, the walk-around and the
+  // review read one context through to Done (U179).
+  const renew = lifecycle.screen === "start";
+  const motive = useCaptureContext(vehicleId, startedAt, resumed, renew);
 
   const rigComp = useRigComposition(
     motive.data,
@@ -133,6 +136,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     attachedIds,
     setAttachedIds,
     startedAt,
+    renew,
   );
   const {
     confirmedIds,
@@ -233,11 +237,12 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   } else if (
     !resumed ||
     motive.isPending ||
-    // A context from an earlier day is renewing (captureContext.ts): its
-    // counts are not shown, and Start does not seed a draft's window from it.
-    // A failed or paused renewal falls through to the copy.
-    (motive.data !== undefined && motive.isStale && motive.isFetching) ||
-    membersRefreshing
+    // On the start screen, a context from an earlier day is renewing
+    // (captureContext.ts): its counts are not shown, and Start does not seed
+    // a draft's window from it. A failed or paused renewal falls through to
+    // the copy. No other screen renews, so none gives way to this.
+    (renew &&
+      ((motive.data !== undefined && motive.isStale && motive.isFetching) || membersRefreshing))
   ) {
     body = <p className="cap-wait">Loading…</p>;
   } else if (lifecycle.otherDriverHeld) {

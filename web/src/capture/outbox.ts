@@ -51,6 +51,8 @@ const table = () => db.table<OutboxEntry, string>("outbox");
 export const CLOCK_AHEAD_COPY =
   "This phone's clock is ahead, so the office could not accept it yet. It will send later. Check the time.";
 
+export const SERVER_HOLD_COPY = "The server could not take it yet. It will send by itself.";
+
 // What holds a queued entry when signal is not the cause, in the words the
 // done screen and the outbox band both use: a sign-in, the account, the
 // token store's latch, the phone's clock, or a server that answered. Null
@@ -61,7 +63,7 @@ export function heldBy(lastStatus: number | null, lastCode: string | null): stri
   if (lastCode === "tenant_inactive") return ACCESS_COPY["tenant-inactive"].body;
   if (lastCode === "not_provisioned") return ACCESS_COPY["not-set-up"].body;
   if (lastCode === "TY021") return CLOCK_AHEAD_COPY;
-  if (lastStatus !== null) return "The server could not take it yet. It will send by itself.";
+  if (lastStatus !== null) return SERVER_HOLD_COPY;
   return null;
 }
 
