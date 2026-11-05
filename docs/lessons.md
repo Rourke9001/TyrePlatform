@@ -30,6 +30,18 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-05 - `scrollWidth <= clientWidth` passes while a value spills past its tile's border (#167)
+
+**What happened:** `sheetFit.spec.ts` asserted no tile overflowed by
+comparing `scrollWidth` with `clientWidth`, and only on an empty sheet. A
+grouped "1,200" pressure sat 8px past the tile at 360px and 0.7px past it at
+390px. At 390 both widths read 84, since they round and count padding, so
+the check could not see a spill even with the value typed.
+
+**The rule:** to prove a value fits its box, type the widest value it can
+hold, then compare the value element's `getBoundingClientRect()` with the
+box's rect inset by its border. Never rely on `scrollWidth` alone.
+
 ## 2026-11-03 - A text-matching gate patched one finding at a time opens a new hole each round (#151, #162)
 
 **What happened:** #151's colour gate was a regex scanner fixed finding by
