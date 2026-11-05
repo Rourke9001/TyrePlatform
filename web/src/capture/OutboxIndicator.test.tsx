@@ -120,9 +120,16 @@ describe("OutboxIndicator", () => {
     expect(await screen.findByText(/waiting over two days/i)).toBeInTheDocument();
   });
 
-  // The account, the token store or the server holds these, so after two
-  // days the line names that cause, not signal.
+  // A sign-in, the phone's clock, the account, the token store or the server
+  // holds these, so after two days the line still warns, naming that cause,
+  // not signal.
   it.each([
+    [401, null, "Sign in to send it."],
+    [
+      422,
+      "TY021",
+      "This phone's clock is ahead, so the office could not accept it yet. It will send later. Check the time.",
+    ],
     [403, "tenant_inactive", "This company's account is not active. Contact your fleet office."],
     [403, "not_provisioned", "Ask your fleet office to set up your account."],
     [503, "auth_unavailable", "Sign-in is unavailable right now. Try again shortly."],

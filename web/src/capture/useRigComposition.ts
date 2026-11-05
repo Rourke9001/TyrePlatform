@@ -43,8 +43,11 @@ export function useRigComposition(
   // The first failure's error, so a refusal is told apart from lost signal.
   // A member with a copy has not failed: a failed renewal keeps it (U179).
   const membersError = memberQueries.find((q) => q.isError && q.data === undefined)?.error ?? null;
-  // A member's earlier-day copy is renewing, as the motive's can be.
-  const membersRefreshing = memberQueries.some((q) => q.isStale && q.isFetching);
+  // A member's earlier-day copy is renewing, as the motive's can be. A first
+  // load has no copy to hold back, so the start screen does not wait on it.
+  const membersRefreshing = memberQueries.some(
+    (q) => q.data !== undefined && q.isStale && q.isFetching,
+  );
   // A failed member is fetched again only by a mount, focus or reconnect.
   const refetchMembers = () => {
     for (const q of memberQueries) if (q.isError) void q.refetch();

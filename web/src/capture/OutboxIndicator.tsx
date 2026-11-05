@@ -52,12 +52,11 @@ export function OutboxIndicator() {
   const blocked = entries.filter((e) => e.state === "failed");
   const stale = waiting.filter((e) => isStale(e));
   // FR-OFF-020's line names what a stale entry waits on: signal, or the cause
-  // heldBy gives. A 401 and TY021 have lines of their own below.
+  // heldBy gives, each once.
   const staleOnSignal = stale.some((e) => heldBy(e.lastStatus, e.lastCode) === null);
   const staleCauses = [
     ...new Set(
       stale
-        .filter((e) => e.lastStatus !== 401 && e.lastCode !== "TY021")
         .map((e) => heldBy(e.lastStatus, e.lastCode))
         .filter((cause): cause is string => cause !== null),
     ),
