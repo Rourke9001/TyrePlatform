@@ -102,9 +102,9 @@ for (const phone of PHONES) {
     await pressure.click();
     for (const d of "1200") await page.getByRole("button", { name: d, exact: true }).click();
     await expect(pressure).toContainText("1,200");
-    const spill = await pressure.evaluate((tile) => {
-      const val = tile.querySelector(".tr-tread__val");
-      if (val === null) return "no value";
+    const spill = await pressure.getByText("1,200", { exact: true }).evaluate((val) => {
+      const tile = val.closest("button");
+      if (tile === null) return "no tile";
       const t = tile.getBoundingClientRect();
       const v = val.getBoundingClientRect();
       const border = parseFloat(getComputedStyle(tile).borderLeftWidth);

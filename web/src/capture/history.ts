@@ -68,12 +68,13 @@ export function historyWarnings(
 // would misread. Confirming beats typing six digits (sponsor Q6). Null
 // wherever an input is missing (NFR-PRO-003 prefers absence to invention);
 // the caller decides what an unconfirmed projection means.
-export function projectedOdometerKm(ctx: CaptureContext, now: Date): number | null {
-  if (ctx.lastOdometerKm === null || ctx.lastOdometerAt === null) return null;
+export function projectedOdometerKm(ctx: CaptureContext): number | null {
+  if (ctx.lastOdometerKm === null || ctx.lastOdometerAgeDays == null) return null;
   if (ctx.averageDailyKm === null) return null;
-  const days = daysBetween(new Date(ctx.lastOdometerAt), now);
-  if (days <= 0) return ctx.lastOdometerKm;
-  return Math.round(ctx.lastOdometerKm + ctx.averageDailyKm * days);
+  // The served whole days FR-INS-033 divides by, so an offer at a rate at or
+  // under the ceiling passes its own check.
+  if (ctx.lastOdometerAgeDays <= 0) return ctx.lastOdometerKm;
+  return Math.round(ctx.lastOdometerKm + ctx.averageDailyKm * ctx.lastOdometerAgeDays);
 }
 
 // FR-INS-032 is a rejection, not a warning: BR-INS-002 is unconditional and
@@ -97,20 +98,21 @@ export function odometerWarnings(
   ctx: CaptureContext,
   units: UnitLabels,
 ): Warning[] {
-  if (odometerKm === null || ctx.lastOdometerKm === null) return [];
-  if (ctx.lastOdometerAgeDays == null) return [];
-  // DR-020's trigger counts whole days, at least one, so the driver is
-  // asked about the reading the timeline would refuse (rule 6).
-  const days = Math.max(1, ctx.lastOdometerAgeDays);
+  const base = ctx.odometerBaseKm;
+  const days = ctx.odometerBaseAgeDays;
+  if (odometerKm === null || base == null || days == null) return [];
 
-  const perDay = (odometerKm - ctx.lastOdometerKm) / days;
+  // The trigger's pair in whole tenant days, so the driver is asked about
+  // the reading the timeline would refuse. They part for the hours UTC's
+  // date differs from the tenant's, until TYRE-244 dates the write.
+  const perDay = (odometerKm - base) / days;
   if (perDay <= ctx.config.odometerMaxDailyKm) return [];
 
   return [
     {
       code: "FR-INS-033",
       requiresConfirmation: true,
-      message: `That is about ${groupThousands(String(Math.round(perDay)))} ${units.distance} a day since the last reading. Check the digits.`,
+      message: `That is about ${groupThousands(String(Math.round(perDay)))} ${units.distance} a day since the reading ${formatTreadAge(days)}. Check the digits.`,
       enteredValue: String(odometerKm),
     },
   ];

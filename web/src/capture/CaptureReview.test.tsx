@@ -173,7 +173,12 @@ describe("CaptureReview", () => {
   it("groups the figure each flag carries", () => {
     const flagged: DraftPosition = {
       ...flaggedSpare("v1"),
-      warnings: [{ code: "FR-INS-031a", enteredValue: "1100", response: "CONFIRMED" }],
+      warnings: [
+        { code: "FR-INS-031a", enteredValue: "1100", response: "CONFIRMED" },
+        // groupThousands takes whole digits, so a fraction passes through as
+        // stored, here as a draft on the phone may hold one.
+        { code: "FR-INS-041", enteredValue: "3.3000000000000007", response: "ACKNOWLEDGED" },
+      ],
     };
     const draft: Draft = {
       clientUuid: "c1",
@@ -207,6 +212,7 @@ describe("CaptureReview", () => {
     const figure = (code: string) =>
       container.querySelector(`[data-warning-code="${code}"] .cap-flag-val`)?.textContent;
     expect(figure("FR-INS-031a")).toBe("1,100");
+    expect(figure("FR-INS-041")).toBe("3.3000000000000007");
     expect(figure("FR-INS-033")).toBe("999,999");
   });
 });

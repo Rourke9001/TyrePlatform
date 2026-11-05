@@ -63,15 +63,12 @@ export function CaptureStart({
   // the value clears it. Separate from accepted: one confirms WHAT, the
   // other confirms an implausible jump is real.
   const [plausible, setPlausible] = useState(false);
-  // Frozen at mount: this screen is open seconds, so the projection the
-  // driver confirms must not move when React re-renders.
-  const [openedAt] = useState(() => Date.now());
   const labels = useUnitLabels();
 
   // FR-INS-020's three clauses in one expression: typed is a correction,
   // tapped is acceptance, else the odometer is absent. Every check reads
   // this, so an unconfirmed projection gates and blocks nothing.
-  const projected = projectedOdometerKm(motive, new Date(openedAt));
+  const projected = projectedOdometerKm(motive);
   const value = typed !== "" ? parseInt(typed, 10) : accepted ? projected : null;
   const rejection = odometerRejection(value, motive, labels);
   const warnings = odometerWarnings(value, motive, labels);
@@ -199,7 +196,8 @@ export function CaptureStart({
               // driver is reading six digits off a dial, and appending to a
               // number they did not enter is how a transcription becomes a
               // hybrid of two readings.
-              if (k.type === "digit") {
+              // A digit past the seventh is dropped, so it leaves the tick.
+              if (k.type === "digit" && typed.length < ODOMETER_MAX_DIGITS) {
                 setAccepted(false);
                 setPlausible(false);
                 setTyped((o) => (o.length >= ODOMETER_MAX_DIGITS ? o : o + k.digit));

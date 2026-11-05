@@ -530,10 +530,9 @@ func TestCaptureContextCarriesPreviousReadingAge(t *testing.T) {
 	require.Positive(t, read, "the fixture's veh1 has read positions")
 }
 
-// TestCaptureContextServesTheLastOdometerReading pins what FR-INS-033 judges
-// against: the last odometer value AND the date it was taken, from which its
-// age in days is counted. Serving the value alone leaves the plausibility
-// warning with nothing to divide by.
+// TestCaptureContextServesTheLastOdometerReading pins the last odometer value
+// AND the date it was taken: FR-INS-032 refuses a reading below the value,
+// and the start screen names its age.
 //
 // The join that resolves them is a LEFT JOIN LATERAL taking one row ordered by
 // reading_date DESC, then odometer_km DESC, so two things need proving and
@@ -602,7 +601,7 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 
 	after := read(t)
 	require.NotNil(t, after.LastOdometerKm, "a planted odometer reading did not reach the capture context")
-	require.NotNil(t, after.LastOdometerAt, "FR-INS-020's projection has no start without the reading date")
+	require.NotNil(t, after.LastOdometerAt, "a planted odometer reading served no reading date")
 	require.Equal(t, int64(110000), *after.LastOdometerKm, "the older reading was served as the last one")
 
 	wantDate := time.Now().UTC().AddDate(0, 0, -5).Format("2006-01-02")
@@ -646,13 +645,68 @@ func TestCaptureContextServesTheHigherOfTwoReadingsOnOneDay(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 			var body struct {
 				LastOdometerKm *int64 `json:"lastOdometerKm"`
+				OdometerBaseKm *int64 `json:"odometerBaseKm"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 			require.NotNil(t, body.LastOdometerKm)
 			require.Equal(t, int64(125000), *body.LastOdometerKm,
 				"the lower of two readings on the last day was served as the last one")
+			require.NotNil(t, body.OdometerBaseKm)
+			require.Equal(t, int64(125000), *body.OdometerBaseKm,
+				"the lower of two readings on the base day was served as FR-INS-033's base")
 		})
 	}
+}
+
+// DR-020's trigger judges a reading against the last one dated before it
+// (000021), so a reading already dated today is not FR-INS-033's base: the
+// phone divides from yesterday's, as the trigger will once TYRE-244 dates
+// the write on the tenant's day. Both are dated from the tenant's own today,
+// so no Go clock is what the test measures.
+func TestCaptureContextServesTheOdometerBaseFromAnEarlierDay(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "odometer-base")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	read := func(t *testing.T) (base *int64, age *int) {
+		t.Helper()
+		rec := get(t, h, "/api/capture/vehicles/"+vehicleID.String(),
+			tenantID.String(), driverID.String())
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var body struct {
+			OdometerBaseKm      *int64 `json:"odometerBaseKm"`
+			OdometerBaseAgeDays *int   `json:"odometerBaseAgeDays"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		return body.OdometerBaseKm, body.OdometerBaseAgeDays
+	}
+
+	plant := func(t *testing.T, daysAgo int, km int64, source string) {
+		t.Helper()
+		_, err := admin.Exec(ctx,
+			`INSERT INTO app.vehicle_odometer_reading
+			   (tenant_id, vehicle_id, reading_date, odometer_km, source)
+			 SELECT id, $2, app.tenant_today(timezone) - $3::int, $4, $5
+			   FROM app.tenant WHERE id = $1`,
+			tenantID, vehicleID, daysAgo, km, source)
+		require.NoError(t, err)
+	}
+
+	// Today's reading alone has nothing before it to be judged against.
+	plant(t, 0, 100500, "FUEL_RECORD")
+	base, age := read(t)
+	require.Nil(t, base, "a reading dated today was served as FR-INS-033's base")
+	require.Nil(t, age, "no base, yet an age was served")
+
+	plant(t, 1, 100000, "MANUAL")
+	base, age = read(t)
+	require.NotNil(t, base, "yesterday's reading did not reach FR-INS-033's base")
+	require.Equal(t, int64(100000), *base, "today's reading was served as FR-INS-033's base")
+	require.NotNil(t, age)
+	require.Equal(t, 1, *age, "the base's age is counted in this fleet's own calendar")
 }
 
 // Rule 6 (TYRE-342): the age beside the last odometer reading is a count of

@@ -60,10 +60,12 @@ export function governingTread(treads: (number | null)[]): number | null {
 }
 
 // BR-ANL-007, a property of this inspection rather than of the tyre.
+// Rounded to tenths, the finest granularity (000011): a float subtraction
+// of tenths misses the >= boundary the dashboard's numeric spread meets.
 export function widthSpread(treads: (number | null)[]): number | null {
   if (treads.length === 0 || treads.some((t) => t === null)) return null;
   const t = treads as number[];
-  return Math.max(...t) - Math.min(...t);
+  return Math.round((Math.max(...t) - Math.min(...t)) * 10) / 10;
 }
 
 export function positionWarnings(
