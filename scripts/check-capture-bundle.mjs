@@ -128,7 +128,7 @@ function budgetFindings(got, budget) {
     } else if (value > budget[field]) {
       out.push(
         `${label} ${value} ${unit} exceeds the budget ${budget[field]} (${field}, recorded ${date}). ` +
-          `Put the new import behind React.lazy, or if the growth is the capture route's own, record it with ${flag} and say why in the PR.`,
+          `Put the new import behind React.lazy (never oidc-client-ts, U175), or if the growth is the capture route's own, record it with ${flag} and say why in the PR.`,
       );
     }
   }
@@ -247,7 +247,7 @@ if (process.argv.includes("--self-test")) {
       [],
     ],
     [
-      "lazy, as before U175",
+      "lazy",
       authLibraryFindings(
         lazy,
         "index.html",
@@ -288,7 +288,6 @@ if (process.argv.includes("--self-test")) {
       process.exit(1);
     }
   }
-  const cases = [];
   const bytes = (files) => (file) => Buffer.from(files[file] ?? "");
   const twice = {
     "index.html": {
@@ -471,8 +470,7 @@ if (process.argv.includes("--self-test")) {
   for (const [name, found] of budgetCases) {
     for (const f of found) console.log(`self-test (${name}): ${f}`);
   }
-  cases.push(...budgetCases);
-  for (const [name, found, want] of cases) {
+  for (const [name, found, want] of budgetCases) {
     if (found.length !== want) {
       console.error(
         `self-test: ${name}: expected ${want} finding(s), got ${JSON.stringify(found)}`,

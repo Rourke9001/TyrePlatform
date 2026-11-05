@@ -712,7 +712,9 @@ itself is not bounded: it resolves only when the page comes back, so a slow
 but working sign-in would read as a failure. `renew()` bounds the same
 fetch, which comes before the refresh POST and sends no token. The POST is
 not bounded here, since the store keeps one renewal in flight past its bound
-(Renewal).*
+(Renewal). `renew()` reads the stored user again once discovery answers:
+another tab's sign-out can remove it meanwhile, and the library, finding no
+refresh token, would try a hidden iframe on `/`.*
 
 The `UserManager` is configured as follows:
 
@@ -923,6 +925,12 @@ draft never sends by itself:
    an account picker instead of returning to `/`.
 
 **What sign-out cannot do.**
+
+*Amended 5 Nov 2026 (TYRE-381, PR #165's stage 5). A sign-out that cannot
+reach Entra leaves the Entra session open, so the phone's next "Sign in" may
+sign the same person straight back in. Phones are personally owned (U115),
+so that person is the phone's owner. The U104 undo is the case that needs
+the session ended, and The outbox and the driver stamp says so.*
 
 - It cannot revoke an access token the API has already accepted. That token
   lapses within 90 minutes.
