@@ -87,7 +87,11 @@ function Cell({ name, value, unitText, label, active, governing, pill, onClick }
       <span className="tr-tread__name" aria-hidden={hidden}>
         {name}
       </span>
-      <span className="tr-tread__val" aria-hidden={hidden}>
+      <span
+        className="tr-tread__val"
+        aria-hidden={hidden}
+        data-long={value.length > 4 ? "true" : undefined}
+      >
         {value === "" ? "–" : value}
       </span>
       {unitText ? (

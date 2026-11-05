@@ -167,4 +167,23 @@ describe("TreadReadings", () => {
     expect(container.firstElementChild).toHaveAttribute("data-testid", "treads");
     expect(container).toHaveTextContent("13");
   });
+
+  // U55 groups a 1200 pressure to five glyphs, and the CSS sets a value
+  // marked long at four glyphs' width (TYRE-220). jsdom applies no CSS, so
+  // sheetFit.spec.ts measures the fit.
+  it("marks a value of five glyphs long, and none shorter", () => {
+    const { container } = render(
+      <TreadReadings
+        readings={["13.5", "12"]}
+        governingIndex={null}
+        pressure={{ value: "1,200", caption: "Press." }}
+      />,
+    );
+    const vals = [...container.querySelectorAll(".tr-tread__val")];
+    expect(vals.map((v) => [v.textContent, v.getAttribute("data-long")])).toEqual([
+      ["13.5", null],
+      ["12", null],
+      ["1,200", "true"],
+    ]);
+  });
 });

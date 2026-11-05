@@ -43,11 +43,28 @@ describe("applyKey at whole-millimetre granularity", () => {
   it.each([
     ["whole", whole],
     ["halves", halves],
-    ["tenths", tenths],
   ])("settles a lone 0 on a tread field at %s", (_, opts) => {
     const r = applyKey(newEntryState(3), { type: "digit", digit: "0" }, opts);
     expect(r.state.treads[0]).toBe(0);
     expect(r.settled).toBe(true);
+  });
+
+  // U177: a driver reads 0.7 off a gauge as 0 then 7.
+  it("waits on a lone 0 at tenths, so 0 then 7 is 0.7", () => {
+    const r = applyKey(newEntryState(3), { type: "digit", digit: "0" }, tenths);
+    expect(r.settled).toBe(false);
+    const { state } = type(newEntryState(3), "07", tenths);
+    expect(state.treads).toEqual([0.7, null, null]);
+  });
+
+  // An 8 then a 0 inside the hold restarts on the 0, which is a mis-tap on
+  // the key under the 8, not a 0mm reading.
+  it("waits on a 0 the ceiling restarted on", () => {
+    const eight = applyKey(newEntryState(3), { type: "digit", digit: "8" }, whole);
+    expect(eight.settled).toBe(true);
+    const r = applyKey(eight.state, { type: "digit", digit: "0" }, whole);
+    expect(r.state.treads[0]).toBe(0);
+    expect(r.settled).toBe(false);
   });
 
   it("settles once a second digit lands", () => {

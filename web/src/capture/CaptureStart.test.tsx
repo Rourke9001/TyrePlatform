@@ -18,6 +18,7 @@ const motive: CaptureContext = {
   unitKind: "HORSE",
   lastOdometerKm: 412180,
   lastOdometerAt: "2026-08-19T06:00:00Z",
+  lastOdometerAgeDays: 8,
   averageDailyKm: 500,
   combination: null,
   positions: [],
@@ -87,6 +88,32 @@ describe("CaptureStart's odometer", () => {
 
     expect(screen.getByText(/a day since the last reading/)).toBeInTheDocument();
     expectNothingForbiddenSpoken(container, /check the digits/);
+  });
+
+  // FR-INS-033 records CONFIRMED against the value sent, so a tick given to
+  // one number must not carry over to the next. One Delete and a digit is
+  // TYRE-171's normal correction.
+  it("asks for a new tick after a Delete that keeps the warning up", async () => {
+    renderStart(vi.fn());
+    const user = await type("5121801");
+    await user.click(screen.getByRole("checkbox", { name: /tick to confirm/i }));
+    expect(screen.getByRole("button", { name: /start inspection/i })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(screen.getByRole("checkbox", { name: /tick to confirm/i })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: /start inspection/i })).toBeDisabled();
+  });
+
+  it("asks for a new tick after a digit that keeps the warning up", async () => {
+    renderStart(vi.fn());
+    const user = await type("512180");
+    await user.click(screen.getByRole("checkbox", { name: /tick to confirm/i }));
+
+    await type("0");
+
+    expect(screen.getByRole("checkbox", { name: /tick to confirm/i })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: /start inspection/i })).toBeDisabled();
   });
 
   // "CONFIRMED values are recorded to the odometer timeline": an untouched
@@ -167,7 +194,12 @@ describe("CaptureStart's odometer", () => {
   // inspection, so a unit added with an odometer on its record still has no
   // reading here, and the hint says which count is empty.
   it("says the count starts from inspections when none has read the odometer", () => {
-    renderStart(vi.fn(), { lastOdometerKm: null, lastOdometerAt: null, averageDailyKm: null });
+    renderStart(vi.fn(), {
+      lastOdometerKm: null,
+      lastOdometerAt: null,
+      lastOdometerAgeDays: null,
+      averageDailyKm: null,
+    });
     expect(
       screen.getByText("No odometer reading from an inspection yet. This one starts the count."),
     ).toBeInTheDocument();
@@ -198,7 +230,7 @@ describe("CaptureStart's odometer", () => {
   // An API older than the field sends no count, and the browser clock does
   // not stand in for one (rule 6).
   it("leaves the age off when the server sends no count", () => {
-    renderStart(vi.fn());
+    renderStart(vi.fn(), { lastOdometerAgeDays: undefined });
     expect(screen.getByText("Last reading 412,180 km")).toBeInTheDocument();
   });
 

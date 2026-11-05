@@ -95,12 +95,13 @@ export function odometerRejection(
 export function odometerWarnings(
   odometerKm: number | null,
   ctx: CaptureContext,
-  now: Date,
   units: UnitLabels,
 ): Warning[] {
-  if (odometerKm === null || ctx.lastOdometerKm === null || ctx.lastOdometerAt === null) return [];
-  const days = daysBetween(new Date(ctx.lastOdometerAt), now);
-  if (days <= 0) return [];
+  if (odometerKm === null || ctx.lastOdometerKm === null) return [];
+  if (ctx.lastOdometerAgeDays == null) return [];
+  // DR-020's trigger counts whole days, at least one, so the driver is
+  // asked about the reading the timeline would refuse (rule 6).
+  const days = Math.max(1, ctx.lastOdometerAgeDays);
 
   const perDay = (odometerKm - ctx.lastOdometerKm) / days;
   if (perDay <= ctx.config.odometerMaxDailyKm) return [];

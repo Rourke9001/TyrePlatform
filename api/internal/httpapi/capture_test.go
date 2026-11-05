@@ -530,17 +530,16 @@ func TestCaptureContextCarriesPreviousReadingAge(t *testing.T) {
 	require.Positive(t, read, "the fixture's veh1 has read positions")
 }
 
-// TestCaptureContextServesTheLastOdometerReading pins FR-INS-033's
-// denominator. The rule divides the tread lost since the previous reading by
-// the distance covered since it, so the capture context has to carry both the
-// last odometer value AND the date it was taken. Serving the value alone
-// leaves the plausibility warning with nothing to divide by.
+// TestCaptureContextServesTheLastOdometerReading pins what FR-INS-033 judges
+// against: the last odometer value AND the date it was taken, from which its
+// age in days is counted. Serving the value alone leaves the plausibility
+// warning with nothing to divide by.
 //
 // The join that resolves them is a LEFT JOIN LATERAL taking one row ordered by
-// reading_date DESC, so two things need proving and neither is visible from
-// the fixture: that an absent reading serves null rather than a zero, and that
-// "last" means the most recent by reading date rather than whichever row the
-// planner happened to reach first.
+// reading_date DESC, then odometer_km DESC, so two things need proving and
+// neither is visible from the fixture: that an absent reading serves null
+// rather than a zero, and that "last" means the most recent by reading date
+// rather than whichever row the planner happened to reach first.
 //
 // The same two rows settle FR-INS-020's pre-fill, which is why it is asserted
 // here rather than apart: the projection the driver confirms is this reading
@@ -603,7 +602,7 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 
 	after := read(t)
 	require.NotNil(t, after.LastOdometerKm, "a planted odometer reading did not reach the capture context")
-	require.NotNil(t, after.LastOdometerAt, "FR-INS-033 has no denominator without the reading date")
+	require.NotNil(t, after.LastOdometerAt, "FR-INS-020's projection has no start without the reading date")
 	require.Equal(t, int64(110000), *after.LastOdometerKm, "the older reading was served as the last one")
 
 	wantDate := time.Now().UTC().AddDate(0, 0, -5).Format("2006-01-02")
@@ -656,7 +655,7 @@ func TestCaptureContextServesTheHigherOfTwoReadingsOnOneDay(t *testing.T) {
 	}
 }
 
-// FR-TYR-017, rule 6: the age beside the last odometer reading is a count of
+// Rule 6 (TYRE-342): the age beside the last odometer reading is a count of
 // the fleet's own calendar days, as the tread's is. Kiritimati and Midway sit
 // 25 hours apart and never share a civil date, so a count taken on UTC's
 // calendar, or the runner's, misses for one of them at any hour.

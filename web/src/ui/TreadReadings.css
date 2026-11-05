@@ -67,12 +67,19 @@ button.tr-tread__cell {
 }
 
 .tr-tread__val {
+  --tr-val-size: 26px;
   font-family: var(--font-mono);
-  font-size: 26px;
+  font-size: var(--tr-val-size);
   line-height: 30px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* A cell holds four mono glyphs at full size (TYRE-220). A grouped pressure
+   ("1,200", U55) is five, so it is set at four glyphs' width. */
+.tr-tread__val[data-long="true"] {
+  font-size: calc(var(--tr-val-size) * 4 / 5);
 }
 
 .tr-tread__unit {
@@ -82,7 +89,7 @@ button.tr-tread__cell {
 }
 
 .tr-tread--dense .tr-tread__val {
-  font-size: 20px;
+  --tr-val-size: 20px;
   line-height: 26px;
 }
 
@@ -91,7 +98,7 @@ button.tr-tread__cell {
 }
 
 .tr-tread--lg .tr-tread__val {
-  font-size: 34px;
+  --tr-val-size: 34px;
   line-height: 38px;
 }
 

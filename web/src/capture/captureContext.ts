@@ -79,11 +79,12 @@ export interface CaptureContext {
   // (FR-INS-020) and distance is never apportioned to one (FR-INS-064).
   unitKind: string;
   lastOdometerKm: number | null;
-  // FR-INS-033 divides by the gap since this date; the value alone has no
-  // denominator.
+  // FR-INS-020's projection runs from this date; the value alone has no
+  // starting point.
   lastOdometerAt: string | null;
-  // FR-TYR-017: days since lastOdometerAt in the tenant's calendar (rule 6).
-  // Optional for the reason previousReadingAgeDays is.
+  // Days since lastOdometerAt in the tenant's calendar (rule 6, TYRE-342),
+  // and FR-INS-033's denominator. Optional for the reason
+  // previousReadingAgeDays is.
   lastOdometerAgeDays?: number | null;
   // FR-INS-020's pre-fill projects from the last reading at this rate. Null
   // when the timeline cannot support one (a first inspection, or two

@@ -167,6 +167,48 @@ describe("CaptureReview", () => {
     expect(container.querySelectorAll("[data-warning-code]")).toHaveLength(7);
     expectNothingForbiddenSpoken(container, /replacement point/);
   });
+
+  // U55 (TYRE-342): the figure beside a flag groups as the sheet's warning
+  // and the odometer readout do.
+  it("groups the figure each flag carries", () => {
+    const flagged: DraftPosition = {
+      ...flaggedSpare("v1"),
+      warnings: [{ code: "FR-INS-031a", enteredValue: "1100", response: "CONFIRMED" }],
+    };
+    const draft: Draft = {
+      clientUuid: "c1",
+      vehicleId: "v1",
+      fleetNumber: "BAC039SP",
+      combinationId: null,
+      observedMemberVehicleIds: ["v1"],
+      taskId: null,
+      startedAt: new Date().toISOString(),
+      odometerKm: 999999,
+      comment: null,
+      defectReport: null,
+      positions: { [cellKey("v1", "spare")]: flagged },
+      warnings: [{ code: "FR-INS-033", enteredValue: "999999", response: "CONFIRMED" }],
+      absentSpares: [],
+      driverSubject: "oid-driver-1",
+      legacy: false,
+    };
+
+    const { container } = render(
+      <CaptureReview
+        contexts={[unit("v1", "BAC039SP")]}
+        draft={draft}
+        doneCells={new Set([cellKey("v1", "spare")])}
+        absentCells={new Set()}
+        onBack={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    const figure = (code: string) =>
+      container.querySelector(`[data-warning-code="${code}"] .cap-flag-val`)?.textContent;
+    expect(figure("FR-INS-031a")).toBe("1,100");
+    expect(figure("FR-INS-033")).toBe("999,999");
+  });
 });
 
 // TYRE-171: a draft held on the phone can be resumed days later (ADR-0009),
