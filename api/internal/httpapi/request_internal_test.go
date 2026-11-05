@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -140,8 +142,8 @@ type probeMapPair struct {
 	B map[string]string `json:"name"`
 }
 
-// encoding/json reads a tagged embedded struct as a named field, whatever its
-// type's export.
+// encoding/json reads a tagged embedded struct as a named field, whether or
+// not its type is exported.
 type probeUnexpInner struct {
 	Kpa int `json:"kpa"`
 }
@@ -161,9 +163,20 @@ type probeUnexpPair struct {
 	Other           probeUnexpInner `json:"INNER"`
 }
 
-// Shapes where the decoder's choice between fold-equal fields (an exact name
-// first, a shallower field first) differs from a first match in declaration
-// order. Each names the decoder's field or nothing.
+// encoding/json skips a field only when its whole tag is "-"; "-," names it
+// "-".
+type probeDashComma struct {
+	//lint:ignore SA5008 the tag is the shape under test
+	D int `json:"-,"`
+}
+
+// One name and one type at two depths: the decoder takes the outer field.
+type probeSameNameShadow struct {
+	probeSameShadowInner
+	Y int `json:"y"`
+}
+
+// Each of these shapes names the field the decoder failed on, or nothing.
 func TestTypeErrorFieldNamesNoOtherFieldInTheseShapes(t *testing.T) {
 	for _, tt := range []struct {
 		name  string
@@ -176,6 +189,7 @@ func TestTypeErrorFieldNamesNoOtherFieldInTheseShapes(t *testing.T) {
 		{"two names that fold equal, of one type", &probeSameType{}, `{"name":"s"}`, "", false},
 		{"an embedded field the decoder skips, of another type", &probeShadow{}, `{"x":true}`, "", false},
 		{"an embedded field the decoder skips, of the same type", &probeSameShadow{}, `{"Y":"x"}`, "", false},
+		{"an embedded field the decoder skips, of the same name and type", &probeSameNameShadow{}, `{"y":"x"}`, "", false},
 		{"an exact name inside an embedded struct, first", &probeDeepFirst{}, `{"name":5}`, "", false},
 		{"an exact name inside an embedded struct, last", &probeDeepLast{}, `{"name":5}`, "", false},
 		{"two maps whose names fold equal", &probeMapPair{}, `{"name":{"k":5}}`, "", false},
@@ -183,6 +197,7 @@ func TestTypeErrorFieldNamesNoOtherFieldInTheseShapes(t *testing.T) {
 		{"a tagged unexported embed beside a fold-equal field", &probeUnexpPair{}, `{"inner":{"kpa":"x"}}`, "", false},
 		{"an embedded pointer to an unexported struct", &probeUnexpPtr{}, `{"kpa":5}`, "", false},
 		{"a type that embeds itself", &probeSelf{probeSelf: &probeSelf{}}, `{"x":"s"}`, "x", true},
+		{"a field tagged -,", &probeDashComma{}, `{"-":"s"}`, "-", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			err := json.Unmarshal([]byte(tt.body), tt.into)
@@ -202,4 +217,34 @@ func TestTypeErrorFieldStopsOnANonIndexSliceSegment(t *testing.T) {
 	err := &json.UnmarshalTypeError{Field: "a", Type: reflect.TypeOf(0)}
 	_, named := typeErrorField(err, &probeLoop{})
 	req.False(t, named)
+}
+
+// A number the field cannot hold is still a number, so the refusal does not
+// call it the wrong type; a string or a number sent to another kind is.
+func TestDecodeJSONSaysWhenANumberDoesNotFit(t *testing.T) {
+	for _, tt := range []struct {
+		body string
+		want string
+	}{
+		{`{"odometer":1e400}`, "odometer is not a number this field can hold"},
+		{`{"odometer":99999999999999999999}`, "odometer is not a number this field can hold"},
+		{`{"odometer":1.5}`, "odometer is not a number this field can hold"},
+		{`{"odometer":"1500"}`, "odometer is the wrong type"},
+		{`{"moves":[{"treadMm":5}]}`, "moves.treadMm is the wrong type"},
+	} {
+		t.Run(tt.body, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			var into probeBody
+			req.False(t, decodeJSON(rec, r, &into))
+			req.Equal(t, http.StatusBadRequest, rec.Code)
+			var body struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			}
+			req.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			req.Equal(t, "malformed_json", body.Code)
+			req.Equal(t, tt.want, body.Message)
+		})
+	}
 }
