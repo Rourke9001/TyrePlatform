@@ -1155,6 +1155,106 @@ describe("a vehicle loaded on an earlier day", () => {
       vi.useRealTimers();
     }
   });
+
+  const focus = () =>
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+  const reads = (api: { mock: { calls: unknown[][] } }) =>
+    api.mock.calls.filter(([url, init]) => {
+      const method = (init as { method?: string } | undefined)?.method;
+      return (method === undefined || method === "GET") && String(url).includes("/vehicles/v1");
+    }).length;
+
+  // Past Start the walk-around reads one context through to Done: a renewal
+  // would put Loading over the open sheet and split the reading it holds.
+  it("keeps a fresh capture's walk-around through a focus once the day has turned", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const user = newUser();
+      const api = stubApi(201, [{ ...context, lastOdometerAgeDays: 2 }]);
+      renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+        client: cachedAt(Date.now()),
+      });
+      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+      await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
+      await user.click(screen.getByRole("button", { name: "1" }));
+      const before = reads(api);
+      // A renewal that went out would stay open, as on weak signal.
+      api.mockImplementation(() => new Promise<never>((resolve) => void resolve));
+
+      vi.setSystemTime(Date.now() + 86_400_000);
+      focus();
+      await act(() => new Promise((r) => setTimeout(r, 20)));
+      await user.click(screen.getByRole("button", { name: "3" }));
+
+      expect(screen.queryByText("Loading…")).toBeNull();
+      expect(screen.getByLabelText("Tread reading 1 of 3")).toHaveTextContent("13");
+      expect(reads(api)).toBe(before);
+    } finally {
+      focusManager.setFocused(undefined);
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the walk-around on the copy after a failed start-screen renewal", async () => {
+    try {
+      const user = newUser();
+      const api = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+      vi.stubGlobal("fetch", api);
+      renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+        client: cachedAt(Date.now() - 86_400_000),
+      });
+      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+      await screen.findAllByRole("button", { name: /^Position 1,/ });
+      const before = reads(api);
+      api.mockImplementation(() => new Promise<never>((resolve) => void resolve));
+
+      focus();
+      await act(() => new Promise((r) => setTimeout(r, 20)));
+
+      expect(screen.queryByText("Loading…")).toBeNull();
+      expect(reads(api)).toBe(before);
+    } finally {
+      focusManager.setFocused(undefined);
+    }
+  });
+
+  // A renewal with a copy in hand tries once: every retry holds the start
+  // screen on Loading, up to 10s each on a phone with bars and no data.
+  it("tries a renewal once when a copy is in hand", async () => {
+    const api = vi.fn(() => Promise.reject(new TypeError("Failed to fetch")));
+    vi.stubGlobal("fetch", api);
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+      client: cachedAt(Date.now() - 86_400_000),
+    });
+
+    expect(await screen.findByText("Last reading 412,180 km, 1 day ago")).toBeInTheDocument();
+    expect(api).toHaveBeenCalledTimes(1);
+  });
+
+  // U182: a draft's window is held once loaded, and a read with nothing
+  // loaded tries again when signal returns.
+  it("loads a resumed draft's failed read when signal returns", async () => {
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: new Date(Date.now() - 3_600_000).toISOString(),
+    });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    renderFlow();
+    expect(await screen.findByRole("button", { name: "Reload vehicle" })).toBeInTheDocument();
+
+    stubApi();
+    act(() => {
+      onlineManager.setOnline(false);
+      onlineManager.setOnline(true);
+    });
+
+    expect(await screen.findAllByRole("button", { name: /^Position 1,/ })).not.toHaveLength(0);
+  });
 });
 
 describe("a held 401 inside capture", () => {

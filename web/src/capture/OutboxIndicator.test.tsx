@@ -7,6 +7,7 @@ import { me } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { db } from "./draft";
 import type { OutboxEntry, OutboxState } from "./outbox";
+import { CLOCK_AHEAD_COPY } from "./outbox";
 import { OutboxIndicator } from "./OutboxIndicator";
 import type { SubmitPayload } from "./payload";
 
@@ -120,16 +121,9 @@ describe("OutboxIndicator", () => {
     expect(await screen.findByText(/waiting over two days/i)).toBeInTheDocument();
   });
 
-  // A sign-in, the phone's clock, the account, the token store or the server
-  // holds these, so after two days the line still warns, naming that cause,
-  // not signal.
+  // The account, the token store or the server holds these, so after two
+  // days the line warns, naming that cause, not signal.
   it.each([
-    [401, null, "Sign in to send it."],
-    [
-      422,
-      "TY021",
-      "This phone's clock is ahead, so the office could not accept it yet. It will send later. Check the time.",
-    ],
     [403, "tenant_inactive", "This company's account is not active. Contact your fleet office."],
     [403, "not_provisioned", "Ask your fleet office to set up your account."],
     [503, "auth_unavailable", "Sign-in is unavailable right now. Try again shortly."],
@@ -145,6 +139,23 @@ describe("OutboxIndicator", () => {
 
     expect(await screen.findByText(`Waiting over two days. ${sentence}`)).toBeInTheDocument();
     expect(screen.queryByText(/find signal/i)).toBeNull();
+  });
+
+  // The clock has a line of its own, so a stale TY021 entry prefixes that
+  // line rather than repeating it.
+  it("prefixes the clock line for a stale TY021 entry, once", async () => {
+    await outbox().put({
+      ...entry("u1", "queued"),
+      queuedAt: Date.now() - 49 * 3_600_000,
+      lastStatus: 422,
+      lastCode: "TY021",
+    });
+    render(<OutboxIndicator />);
+
+    expect(
+      await screen.findByText(`Waiting over two days. ${CLOCK_AHEAD_COPY}`),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/clock is ahead/)).toHaveLength(1);
   });
 
   // TYRE-167: the "needs the office" line stops being permanent. Two taps,
@@ -300,6 +311,40 @@ describe("the sign-in line", () => {
   });
   afterEach(() => {
     window.localStorage.clear();
+  });
+
+  // A stale entry this driver can sign in for prefixes the sign-in line.
+  it("prefixes the sign-in line for this driver's stale entry, once", async () => {
+    await outbox().put({
+      ...entry("u1", "queued"),
+      queuedAt: Date.now() - 49 * 3_600_000,
+      lastStatus: 401,
+    });
+    render(<OutboxIndicator />);
+
+    expect(
+      await screen.findByText("Waiting over two days. Sign in to send 1 inspection"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Sign in to send it/)).toBeNull();
+  });
+
+  // Another driver's held entry waits for them (U104), so this driver is not
+  // told to sign in for it.
+  it("names another driver for their stale entry", async () => {
+    window.localStorage.setItem("tyre.auth.subject", "oid-driver-2");
+    await outbox().put({
+      ...entry("u1", "queued"),
+      queuedAt: Date.now() - 49 * 3_600_000,
+      lastStatus: 401,
+    });
+    render(<OutboxIndicator />);
+
+    expect(
+      await screen.findByText(
+        "Waiting over two days. Another driver needs to sign in here to send it.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Sign in to send/)).toBeNull();
   });
 
   it("asks this driver to sign in to send what a 401 is holding", async () => {

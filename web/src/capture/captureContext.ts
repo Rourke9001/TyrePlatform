@@ -120,11 +120,13 @@ export function fetchCaptureContext(
 
 // gcTime for the tab's life (FR-OFF-002), so no threshold drops mid-walk-
 // around. A context read at now is fresh for the tenant's day it was fetched
-// on, since its day counts are that day's (rule 6), and the library's own
-// mount, focus and reconnect refetches renew it after. A failed or offline
-// refetch keeps the copy (U179). A draft's windowed read is "static": it
-// answers for the window its submit will be judged over (U148) and never
-// moves under a walk-around. Options are a function, not inlined, because a
+// on, since its day counts are that day's (rule 6). A copy is renewed only
+// while renew holds, the start screen's, so once Start is tapped the
+// walk-around and the review read one context through to Done (U179). A
+// read with no copy is fetched again by a mount, focus or reconnect anywhere.
+// A failed or offline renewal keeps the copy. A draft's windowed read never
+// goes stale once loaded, since it answers for the window its submit will be
+// judged over (U148, U182). Options are a function, not inlined, because a
 // rig (useQueries) and a solo unit must produce the same queryKey or the
 // motive unit fetches twice.
 //
@@ -138,9 +140,12 @@ export function captureContextQuery(
   startedAt?: string,
   seed?: QueryClient,
   timeZone = "UTC",
+  renew = true,
 ) {
+  const queryKey = ["capture-context", getDevTenantId() ?? "default", vehicleId, startedAt ?? null];
+  const refetch = (query: { state: { data: unknown } }) => renew || query.state.data === undefined;
   return {
-    queryKey: ["capture-context", getDevTenantId() ?? "default", vehicleId, startedAt ?? null],
+    queryKey,
     queryFn: () => fetchCaptureContext(vehicleId, startedAt),
     initialData:
       startedAt === undefined || !seed
@@ -148,18 +153,32 @@ export function captureContextQuery(
         : () => seed.getQueryData<CaptureContext>(captureContextQuery(vehicleId).queryKey),
     staleTime:
       startedAt !== undefined
-        ? ("static" as const)
+        ? Infinity
         : (query: { state: { dataUpdatedAt: number } }) =>
             tenantDayKey(query.state.dataUpdatedAt, timeZone) === tenantDayKey(Date.now(), timeZone)
               ? Infinity
               : 0,
     gcTime: Infinity,
-    retry: retryQuery,
+    refetchOnMount: refetch,
+    refetchOnWindowFocus: refetch,
+    refetchOnReconnect: refetch,
+    // A renewal with a copy in hand tries once: the copy is what the start
+    // screen falls back to, and each retry holds it on Loading.
+    retry: (failures: number, error: unknown) =>
+      seed?.getQueryData(queryKey) === undefined && retryQuery(failures, error),
   };
 }
 
-export function useCaptureContext(vehicleId: string, startedAt?: string, enabled = true) {
+export function useCaptureContext(
+  vehicleId: string,
+  startedAt?: string,
+  enabled = true,
+  renew = true,
+) {
   const client = useQueryClient();
   const timeZone = useActor()?.timezone ?? "UTC";
-  return useQuery({ ...captureContextQuery(vehicleId, startedAt, client, timeZone), enabled });
+  return useQuery({
+    ...captureContextQuery(vehicleId, startedAt, client, timeZone, renew),
+    enabled,
+  });
 }

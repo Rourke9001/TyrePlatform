@@ -45,7 +45,9 @@ describe("CaptureDone", () => {
   ])("says the server holds a %i %s, not signal", (status, code) => {
     render(<CaptureDone state="queued" lastCode={code} lastStatus={status} />);
     expect(
-      screen.getByText("The server could not take it yet. It will send by itself."),
+      screen.getByText(
+        "The server could not take it yet. It will send by itself. You can close the app.",
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/when you have signal/)).not.toBeInTheDocument();
   });

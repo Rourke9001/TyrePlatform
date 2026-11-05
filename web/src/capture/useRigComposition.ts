@@ -16,6 +16,7 @@ export function useRigComposition(
   attachedIds: string[] | null,
   setAttachedIds: Dispatch<SetStateAction<string[] | null>>,
   startedAt?: string,
+  renew = true,
 ) {
   // FR-INS-062's default: seeded with EVERY member id, motive included (its
   // checkbox is disabled), or the driver's own truck renders as not-here.
@@ -34,7 +35,7 @@ export function useRigComposition(
   const client = useQueryClient();
   const timeZone = useActor()?.timezone ?? "UTC";
   const memberQueries = useQueries({
-    queries: memberIds.map((id) => captureContextQuery(id, startedAt, client, timeZone)),
+    queries: memberIds.map((id) => captureContextQuery(id, startedAt, client, timeZone, renew)),
   });
   const loaded = memberQueries
     .map((q) => q.data)

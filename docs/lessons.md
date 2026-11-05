@@ -41,9 +41,9 @@ app's own offer could trip its warning, and the served count went stale in
 a tab kept overnight. Round 2 found all three, and two more that round 1's
 grouping and lone-0 guards let in. Round 2's fix read the trigger's inputs
 first, as this entry's first rule said, and round 3 still found the
-projection offering today's reading as itself. The design audit
-(`.superpowers/sdd/2026-11-05-design-audit-capture/report.md`, section 2)
-traced every odometer one to a second implementation, not a careless one.
+projection offering today's reading as itself. The design audit of #167
+(its section 2 is on TYRE-244, c14143) traced every odometer one to a
+second implementation, not a careless one.
 
 **The rule (replaces this entry's first, which taught the next copy):**
 when a client or Go check must agree with a SQL rule's verdict, SQL
