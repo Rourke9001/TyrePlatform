@@ -67,6 +67,27 @@ function discoveryAnswers() {
   );
 }
 
+// Discovery waits until the test answers it.
+function discoveryHeld(): () => void {
+  let answer = () => undefined as void;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = () =>
+            resolve(
+              new Response(JSON.stringify(DISCOVERY), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              }),
+            );
+        }),
+    ),
+  );
+  return () => answer();
+}
+
 // The library's stored user, as a sign-in leaves it: its ID token names the
 // driver, and its refresh token can renew the session.
 function storeUser(expiresInSeconds: number) {
@@ -152,7 +173,7 @@ it("signOut removes the stored user when discovery cannot be fetched at all", as
 
 // A fresh page's first renewal fetches discovery before the refresh POST,
 // and the store keeps a renewal in flight until it settles (token.ts), so a
-// stalled discovery held every later send until a reload.
+// discovery that never settles would hold every later send.
 it("renew rejects once the bound passes on a stalled discovery, before any token is sent", async () => {
   storeUser(-60);
   discoveryBodyStalls();
@@ -164,6 +185,25 @@ it("renew rejects once the bound passes on a stalled discovery, before any token
   expect(fetch).toHaveBeenCalledWith(DISCOVERY_URL, expect.anything());
   // Still there: a discovery that fails says nothing about the session.
   expect(window.localStorage.getItem(USER_KEY)).not.toBeNull();
+});
+
+// Another tab's sign-out removes the shared stored user while this tab's
+// renewal waits on discovery. signinSilent reads the user itself, and with no
+// refresh token it would try a hidden iframe on "/" (spec section 4, The
+// auth chunk).
+it("renew answers null, with no iframe, when the stored user goes during discovery", async () => {
+  storeUser(-60);
+  const answer = discoveryHeld();
+
+  const renewing = createAuth(SETTINGS, navigator).renew();
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+  window.localStorage.removeItem(USER_KEY);
+  answer();
+
+  expect(await afterTheBound(renewing)).toBe("resolved");
+  await expect(renewing).resolves.toBeNull();
+  expect(document.querySelector("iframe")).toBeNull();
+  expect(fetch).toHaveBeenCalledTimes(1);
 });
 
 // The redirect resolves only when the page comes back (pageshow), so it is

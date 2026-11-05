@@ -105,6 +105,16 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
   // (TYRE-381). What arrives late is cached for the next call.
   const discovered = () => bounded(manager.metadataService.getMetadata(), "sign-in discovery");
 
+  // Without a refresh token the library falls back to a hidden iframe on
+  // silent_redirect_uri, which defaults to redirect_uri, "/". A session that
+  // cannot renew is over, and its ID token names the person (spec section 6).
+  async function refreshable(): Promise<boolean> {
+    const user = await manager.getUser();
+    if (user?.refresh_token) return true;
+    if (user) await manager.removeUser();
+    return false;
+  }
+
   return {
     async signIn(returnTo) {
       await discovered();
@@ -123,19 +133,14 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
       }
     },
     async renew() {
-      const user = await manager.getUser();
-      // Without a refresh token the library falls back to a hidden iframe on
-      // silent_redirect_uri, which defaults to redirect_uri, "/".
-      if (!user?.refresh_token) {
-        // A session that cannot renew is over, and its ID token names the
-        // person (spec section 6).
-        if (user) await manager.removeUser();
-        return null;
-      }
+      if (!(await refreshable())) return null;
       // Before the refresh token is sent, so bounding this cannot spend it
       // twice (spec section 4, The auth chunk). Its timeout is a plain
       // Error, which goes through as offline.
       await discovered();
+      // Again: another tab's sign-out can remove the shared user during
+      // discovery, and signinSilent reads it for itself.
+      if (!(await refreshable())) return null;
       let renewed: User | null;
       try {
         // The settings' timeout does not reach the refresh request
