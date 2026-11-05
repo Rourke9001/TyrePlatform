@@ -199,7 +199,8 @@ func unknownJSONField(err error) (string, bool) {
 // From Go 1.27 the decoder's path carries the caller's map keys, slice indexes
 // and key spelling (TYRE-379), so the name is rebuilt by walking that path
 // through into's type, and it stops at a map, whose key is caller text. A
-// path the walk cannot resolve names nothing.
+// segment more than one field could answer, or a path the walk cannot
+// resolve, names nothing, and the refusal is the generic one.
 func typeErrorField(err error, into any) (string, bool) {
 	var typeErr *json.UnmarshalTypeError
 	if !errors.As(err, &typeErr) || typeErr.Field == "" {
@@ -209,10 +210,10 @@ func typeErrorField(err error, into any) (string, bool) {
 	if !ok || len(names) == 0 {
 		return "", false
 	}
-	// jsonField's match is not the decoder's in every shape, so a walk that
-	// ends on another type than the one the decoder failed on names nothing,
-	// and the refusal is the generic one rather than another field's.
-	if leaf != nil && typeErr.Type != nil && deref(leaf) != deref(typeErr.Type) {
+	// A backstop for a shape the count cannot see, such as an embedded
+	// pointer to an unexported struct, which the decoder reports as the
+	// outer struct's type.
+	if leaf != nil && typeErr.Type != nil && leaf != deref(typeErr.Type) {
 		return "", false
 	}
 	return strings.Join(names, "."), true
@@ -240,7 +241,7 @@ func tagPath(t reflect.Type, segments []string) ([]string, reflect.Type, bool) {
 		}
 		return tagPath(t.Elem(), segments[1:])
 	case reflect.Struct:
-		name, field, ok := jsonField(t, segments[0], map[reflect.Type]bool{})
+		name, field, ok := jsonField(t, segments[0])
 		if !ok {
 			return nil, nil, false
 		}
@@ -266,15 +267,31 @@ func isIndex(segment string) bool {
 	return err == nil
 }
 
-// jsonField answers the first field, in declaration order, whose name folds
-// equal to segment, entering an untagged embedded struct where it sits, and
-// the tag's spelling rather than the caller's. The decoder's own rule differs
-// (an exact name anywhere in the flattened set wins, and a shallower field
-// beats an embedded one), which is why typeErrorField checks the type the
-// walk ends on. seen stops a type that embeds itself.
-func jsonField(t reflect.Type, segment string, seen map[reflect.Type]bool) (string, reflect.Type, bool) {
-	if seen[t] {
+type jsonMatch struct {
+	name string
+	typ  reflect.Type
+}
+
+// jsonField answers the one field whose name folds equal to segment, counted
+// through untagged embedded structs, by its tag's spelling rather than the
+// caller's. Two such fields answer nothing: the decoder chooses between them
+// (an exact name first, then the shallower field), and that choice is not
+// reproduced here.
+func jsonField(t reflect.Type, segment string) (string, reflect.Type, bool) {
+	var found []jsonMatch
+	foldMatches(t, segment, map[reflect.Type]bool{}, &found)
+	if len(found) != 1 {
 		return "", nil, false
+	}
+	return found[0].name, found[0].typ, true
+}
+
+// foldMatches reads the fields encoding/json reads: an exported field, and a
+// tagged embedded struct of any type's export. seen stops a type that embeds
+// itself.
+func foldMatches(t reflect.Type, segment string, seen map[reflect.Type]bool, found *[]jsonMatch) {
+	if seen[t] {
+		return
 	}
 	seen[t] = true
 	for i := range t.NumField() {
@@ -283,26 +300,21 @@ func jsonField(t reflect.Type, segment string, seen map[reflect.Type]bool) (stri
 		if name == "-" {
 			continue
 		}
-		if f.Anonymous && name == "" {
-			embedded := deref(f.Type)
-			if embedded.Kind() == reflect.Struct {
-				if n, ft, ok := jsonField(embedded, segment, seen); ok {
-					return n, ft, true
-				}
-				continue
-			}
+		embeddedStruct := f.Anonymous && deref(f.Type).Kind() == reflect.Struct
+		if embeddedStruct && name == "" {
+			foldMatches(deref(f.Type), segment, seen, found)
+			continue
 		}
-		if !f.IsExported() {
+		if !f.IsExported() && !embeddedStruct {
 			continue
 		}
 		if name == "" {
 			name = f.Name
 		}
 		if strings.EqualFold(name, segment) {
-			return name, f.Type, true
+			*found = append(*found, jsonMatch{name, f.Type})
 		}
 	}
-	return "", nil, false
 }
 
 // refuseInvalid answers a validation failure and reports whether it did, so a
