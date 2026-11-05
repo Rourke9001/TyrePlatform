@@ -907,15 +907,17 @@ describe("sign-in inside capture", () => {
 // says what happened and who can change it, and offers no reload. Only a
 // fault that signal can clear keeps the signal line and its button.
 describe("a vehicle that does not load", () => {
+  // A real Response: the client reads a refusal's body as text (TYRE-389).
   function answer(status: number, code: string) {
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
-        Promise.resolve({
-          ok: false,
-          status,
-          json: () => Promise.resolve({ code, message: "x" }),
-        }),
+        Promise.resolve(
+          new Response(JSON.stringify({ code, message: "x" }), {
+            status,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       ),
     );
   }
