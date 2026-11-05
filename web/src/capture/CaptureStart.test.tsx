@@ -87,7 +87,7 @@ describe("CaptureStart's odometer", () => {
     const { container } = renderStart(vi.fn());
     await type("999999");
 
-    expect(screen.getByText(/a day since the reading 8 days ago/)).toBeInTheDocument();
+    expect(screen.getByText(/a day since the 412,180 km reading 8 days ago/)).toBeInTheDocument();
     expectNothingForbiddenSpoken(container, /check the digits/);
   });
 
@@ -216,6 +216,14 @@ describe("CaptureStart's odometer", () => {
   // the last reading, which is the value that must never arrive pre-filled.
   it("starts empty when the unit has no rate to project at", () => {
     renderStart(vi.fn(), { averageDailyKm: null });
+    expect(screen.getByText(/000,000/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /confirm/i })).toBeNull();
+  });
+
+  // A second inspection the same day: projecting over no days would offer the
+  // morning's reading itself, so the field starts empty instead.
+  it("starts empty when the last reading was taken today", () => {
+    renderStart(vi.fn(), { lastOdometerAgeDays: 0 });
     expect(screen.getByText(/000,000/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /confirm/i })).toBeNull();
   });

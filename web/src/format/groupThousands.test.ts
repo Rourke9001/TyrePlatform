@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { groupThousands } from "./groupThousands";
+import { groupThousands, groupWhole } from "./groupThousands";
 
 describe("groupThousands", () => {
   it("writes a comma between each three digits from the right (U55)", () => {
@@ -15,5 +15,13 @@ describe("groupThousands", () => {
   // The capture readout shows a placeholder of zeros before the first key.
   it("groups leading zeros like any other digit", () => {
     expect(groupThousands("000000")).toBe("000,000");
+  });
+});
+
+describe("groupWhole", () => {
+  it("groups the whole part and leaves the fraction as written", () => {
+    expect(groupWhole("1100")).toBe("1,100");
+    expect(groupWhole("3.3")).toBe("3.3");
+    expect(groupWhole("1234.5678")).toBe("1,234.5678");
   });
 });

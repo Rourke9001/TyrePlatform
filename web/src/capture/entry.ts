@@ -36,10 +36,9 @@ export type EntryKey =
 
 export interface EntryResult {
   state: EntryState;
-  // True when no further digit could change this field's value, or a 0 is
-  // the first key on a tread field at whole or half mm (TYRE-171, U177), so
-  // the caller may advance without waiting for a tap. The caller owns the
-  // timing; a reducer that scheduled its own would not be testable.
+  // True when no further digit could change this field's value, so the caller
+  // may advance without waiting for a tap. The caller owns the timing; a
+  // reducer that scheduled its own would not be testable.
   settled: boolean;
 }
 
@@ -56,15 +55,13 @@ export function newEntryState(treadReadingCount: number): EntryState {
 
 const isPressure = (state: EntryState, opts: EntryOptions) => state.field >= opts.treadReadingCount;
 
-const isTenths = (opts: EntryOptions) => opts.granularityMm === 0.1;
-
 // At 0.1mm the last digit typed is the tenth, so the buffer is read as an
 // integer number of tenths. At 1.0 and 0.5 the buffer is whole millimetres and
 // the half arrives on its own key. There is no decimal point on this keypad.
 function valueOf(buffer: string, state: EntryState, opts: EntryOptions): number {
   const n = parseInt(buffer, 10);
   if (isPressure(state, opts)) return n;
-  return isTenths(opts) ? n / 10 : n;
+  return opts.granularityMm === 0.1 ? n / 10 : n;
 }
 
 const ceilingFor = (state: EntryState, opts: EntryOptions) =>
@@ -93,17 +90,24 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
         settled: false,
       };
 
-    case "next":
+    case "next": {
+      // Pressure is the last field, so from it Next goes to a tread still
+      // empty, where the go key's "Next" is sending the driver. Staying put
+      // would empty the buffer under a value the next digits then replace.
+      const empty = state.treads.findIndex((t) => t === null);
+      const field = isPressure(state, opts) ? (empty < 0 ? state.field : empty) : state.field + 1;
+      if (field === state.field) return { state, settled: false };
       return {
         state: {
           ...state,
-          field: Math.min(state.field + 1, opts.treadReadingCount),
+          field,
           buffer: "",
           advancedFrom: state.touched && !isPressure(state, opts) ? state.field : null,
           touched: false,
         },
         settled: false,
       };
+    }
 
     case "delete":
       return { state: write(state, "", opts), settled: false };
@@ -142,16 +146,12 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
       // more likely than an intention to enter 39mm.
       const buffer = valueOf(grown, state, opts) > ceiling ? key.digit : grown;
       const next = write(state, buffer, opts);
-      // Could another digit still change this answer? Appending "0" is the
-      // smallest possible growth, so if even that overshoots, nothing can.
-      const overshoots = valueOf(buffer + "0", state, opts) > ceiling;
-      // TYRE-171: no tread reading starts with a zero, so a 0 as the first
-      // key on a field is a 0mm tread. Not a 0 after a digit or a half, which
-      // is a slip on a neighbouring key, nor one at tenths, where 0 then 7 is
-      // 0.7 (U177). Pressure waits on 0 kPa.
-      const loneZeroTread =
-        !state.touched && buffer === "0" && !isTenths(opts) && !isPressure(state, opts);
-      return { state: next, settled: overshoots || loneZeroTread };
+      // The whole auto-advance rule, in one line: could another digit still
+      // change this answer? Appending "0" is the smallest possible growth, so
+      // if even that overshoots, nothing can. A lone 0 waits too, unlike the
+      // prototype's: it is also the slip off the 8 and the half key (U178).
+      const settled = valueOf(buffer + "0", state, opts) > ceiling;
+      return { state: next, settled };
     }
   }
 }

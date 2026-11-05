@@ -82,7 +82,7 @@ export function PositionSheet({
   const warnings = useMemo(
     () => [
       ...positionWarnings(entry, rig.position, ctx.config, labels),
-      // Frozen at open, like CaptureFlow/CaptureStart/CaptureReview:
+      // Frozen at open, like CaptureFlow/CaptureReview:
       // FR-INS-035's rate has elapsed time as its denominator, and a
       // render-time read would drift from the diagram's.
       ...historyWarnings(entry, rig.position, ctx, new Date(openedAt)),

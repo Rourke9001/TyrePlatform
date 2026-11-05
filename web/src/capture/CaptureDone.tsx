@@ -1,21 +1,16 @@
-import { ACCESS_COPY } from "../auth/actorContext";
 import { Icon } from "../ui/Icon";
 import { CheckIcon } from "../ui/icons/Check";
 import { CriticalIcon } from "../ui/icons/Critical";
-import { CLOCK_AHEAD_COPY } from "./outbox";
+import { heldBy } from "./outbox";
 import "./capture.css";
 
-// A 401 waits for a sign-in. A latched store, a held 403 and a phone clock
-// ahead of the server's do not clear with signal, so they say what their
-// access screen or the outbox band says instead of promising a send (spec
-// section 4, The indicator).
+// A hold signal cannot clear says what clears it instead of promising a
+// send (spec section 4, The indicator).
 function waitingOn(lastStatus: number | null, lastCode: string | null): string {
-  if (lastStatus === 401) return "Sign in to send it.";
-  if (lastCode === "auth_unavailable") return ACCESS_COPY.unavailable.body;
-  if (lastCode === "tenant_inactive") return ACCESS_COPY["tenant-inactive"].body;
-  if (lastCode === "not_provisioned") return ACCESS_COPY["not-set-up"].body;
-  if (lastCode === "TY021") return CLOCK_AHEAD_COPY;
-  return "It will send by itself when you have signal. You can close the app.";
+  return (
+    heldBy(lastStatus, lastCode) ??
+    "It will send by itself when you have signal. You can close the app."
+  );
 }
 
 // A plain anchor, not a router Link. Nothing on a screen that offers it needs

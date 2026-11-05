@@ -1,6 +1,7 @@
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import type { Dispatch, SetStateAction } from "react";
 
+import { useActor } from "../auth/actorContext";
 import type { CaptureContext } from "./captureContext";
 import { captureContextQuery } from "./captureContext";
 
@@ -31,16 +32,20 @@ export function useRigComposition(
   const memberIds = memberOrder(motive, confirmedIds, vehicleId);
   // The motive's own window, so its query and its member query share a key.
   const client = useQueryClient();
+  const timeZone = useActor()?.timezone ?? "UTC";
   const memberQueries = useQueries({
-    queries: memberIds.map((id) => captureContextQuery(id, startedAt, client)),
+    queries: memberIds.map((id) => captureContextQuery(id, startedAt, client, timeZone)),
   });
   const loaded = memberQueries
     .map((q) => q.data)
     .filter((c): c is CaptureContext => c !== undefined);
   const contexts = loaded.length === memberIds.length && memberIds.length > 0 ? loaded : null;
   // The first failure's error, so a refusal is told apart from lost signal.
-  const membersError = memberQueries.find((q) => q.isError)?.error ?? null;
-  // A failed member is not fetched again on its own (captureContextQuery).
+  // A member with a copy has not failed: a failed renewal keeps it (U179).
+  const membersError = memberQueries.find((q) => q.isError && q.data === undefined)?.error ?? null;
+  // A member's earlier-day copy is renewing, as the motive's can be.
+  const membersRefreshing = memberQueries.some((q) => q.isStale && q.isFetching);
+  // A failed member is fetched again only by a mount, focus or reconnect.
   const refetchMembers = () => {
     for (const q of memberQueries) if (q.isError) void q.refetch();
   };
@@ -52,7 +57,15 @@ export function useRigComposition(
     });
   }
 
-  return { confirmedIds, seededIds, contexts, membersError, refetchMembers, toggleAttached };
+  return {
+    confirmedIds,
+    seededIds,
+    contexts,
+    membersError,
+    membersRefreshing,
+    refetchMembers,
+    toggleAttached,
+  };
 }
 
 // Walk order, which is the combination's own sequence. The projection has to

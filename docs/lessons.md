@@ -30,7 +30,7 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
-## 2026-11-05 - A review's fix text, applied as written, brought in five of the next round's six bugs (#167)
+## 2026-11-05 - A client copy of a SQL rule drifted in every review round, however carefully its inputs were read (#167)
 
 **What happened:** #167's stage 5 round 1 prescribed dividing FR-INS-033 by
 `max(1, lastOdometerAgeDays)` "as DR-020's trigger does". The trigger's
@@ -39,13 +39,21 @@ on an earlier day (000021), never today's. The same fix moved the warning to
 whole days and left the FR-INS-020 projection on the browser clock, so the
 app's own offer could trip its warning, and the served count went stale in
 a tab kept overnight. Round 2 found all three, and two more that round 1's
-grouping and lone-0 guards let in.
+grouping and lone-0 guards let in. Round 2's fix read the trigger's inputs
+first, as this entry's first rule said, and round 3 still found the
+projection offering today's reading as itself. The design audit
+(`.superpowers/sdd/2026-11-05-design-audit-capture/report.md`, section 2)
+traced every odometer one to a second implementation, not a careless one.
 
-**The rule:** when a fix claims to match another implementation, read that
-implementation's inputs (which rows, which day, which clock) before writing
-the code, not its formula alone. When a fix changes how one consumer reads a
-value, list every other consumer of that value and make them agree in the
-same commit.
+**The rule (replaces this entry's first, which taught the next copy):**
+when a client or Go check must agree with a SQL rule's verdict, SQL
+computes the bounds and the date they hold for and serves them with the
+read; the client compares the typed number with served numbers. A second
+implementation is allowed only for a threshold compare (CLAUDE.md, Testing;
+`warnings.ts`). A copy of row selection or calendar arithmetic is the
+drift, however carefully its inputs were read (ADR-0022, Revisit when).
+When review rounds keep landing on one mechanism, run `/design-audit` on it
+before the next fix round.
 
 ## 2026-11-05 - `scrollWidth <= clientWidth` passes while a value spills past its tile's border (#167)
 

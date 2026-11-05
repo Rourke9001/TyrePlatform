@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from "react";
 
-import { groupThousands } from "../format/groupThousands";
+import { groupThousands, groupWhole } from "../format/groupThousands";
 import { Button } from "../ui/Button";
 import { ListRow } from "../ui/ListRow";
 import { TextArea } from "../ui/TextArea";
@@ -24,13 +24,6 @@ const WARNING_NAME: Record<WarningCode, string> = {
   "FR-INS-037": "Pressure off target",
   "FR-INS-041": "Uneven wear across the tyre",
 };
-
-// U55 groups the whole part only; groupThousands leaves a fraction to us.
-function groupWhole(value: string): string {
-  const point = value.indexOf(".");
-  if (point < 0) return groupThousands(value);
-  return groupThousands(value.slice(0, point)) + value.slice(point);
-}
 
 // NFR-USE-001's budget, frozen at review-open rather than ticking (a
 // summary, not a stopwatch). Elapsed time here; the acceptance median is

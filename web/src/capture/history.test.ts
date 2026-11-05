@@ -226,7 +226,7 @@ describe("odometerWarnings", () => {
     expect(w[0].enteredValue).toBe("512180");
     // 100000 km over six days is 16666.7 a day, rounded and grouped (U55).
     expect(w[0].message).toBe(
-      "That is about 16,667 km a day since the reading 6 days ago. Check the digits.",
+      "That is about 16,667 km a day since the 412,180 km reading 6 days ago. Check the digits.",
     );
   });
 
@@ -278,31 +278,27 @@ describe("odometerWarnings", () => {
       odometerBaseAgeDays: 1,
     };
     const w = odometerWarnings(413980, today, metric);
+    // The screen shows only today's reading, so the message names the one
+    // it divides from.
     expect(w[0]?.message).toBe(
-      "That is about 1,800 km a day since the reading 1 day ago. Check the digits.",
+      "That is about 1,800 km a day since the 412,180 km reading 1 day ago. Check the digits.",
     );
   });
 });
 
 describe("projectedOdometerKm", () => {
   // FR-INS-020: the last reading carried forward at the unit's rate over the
-  // count FR-INS-033 divides by, so an offer at or under the ceiling passes
-  // its own check.
-  it("projects over the served day count, so its offer raises no warning", () => {
-    const yesterday = {
-      ...ctx,
-      lastOdometerAgeDays: 1,
-      odometerBaseAgeDays: 1,
-      averageDailyKm: 900,
-    };
-    const offer = projectedOdometerKm(yesterday);
-    expect(offer).toBe(413080);
-    expect(odometerWarnings(offer, yesterday, metric)).toEqual([]);
+  // count FR-INS-033 divides by.
+  it("projects over the served day count", () => {
+    const yesterday = { ...ctx, lastOdometerAgeDays: 1, averageDailyKm: 900 };
+    expect(projectedOdometerKm(yesterday)).toBe(413080);
   });
 
-  it("offers the last reading on the day it was taken", () => {
-    expect(projectedOdometerKm({ ...ctx, lastOdometerAgeDays: 0, averageDailyKm: 900 })).toBe(
-      412180,
+  // A reading already taken today would be offered as itself, the one value
+  // FR-INS-020 never pre-fills, so the field starts empty.
+  it.each([0, -1])("offers nothing at a day count of %s", (age) => {
+    expect(projectedOdometerKm({ ...ctx, lastOdometerAgeDays: age, averageDailyKm: 900 })).toBe(
+      null,
     );
   });
 
@@ -322,7 +318,7 @@ describe("distance labels", () => {
   });
   it("odometerWarnings names the tenant's unit", () => {
     expect(odometerWarnings(512180, ctx, xkm)[0]?.message).toBe(
-      "That is about 16,667 XKM a day since the reading 6 days ago. Check the digits.",
+      "That is about 16,667 XKM a day since the 412,180 XKM reading 6 days ago. Check the digits.",
     );
   });
 });

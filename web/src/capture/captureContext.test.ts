@@ -160,13 +160,16 @@ describe("captureContextQuery retry", () => {
   });
 });
 
-// FR-OFF-002/003 (TYRE-129): the context is held for the session and
-// refreshed only on demand. A gcTime regression is silent, since the cache
-// drops the thresholds mid-inspection and offline nothing refetches them
-// (FR-OFF-001). Read from the cache the hook writes, not from the options
-// object, so a caller that overrides one is caught as well.
-describe("useCaptureContext's cached options", () => {
-  it("holds the context for the session and never refetches on focus", async () => {
+// FR-OFF-002 (TYRE-129, U179): the context is held for the tab's life, fresh
+// for the tenant's day it was fetched on, and a draft's windowed read never
+// goes stale. A gcTime regression is silent, since the cache drops the
+// thresholds mid-inspection and offline nothing refetches them (FR-OFF-001).
+// Read from the hook's result, so a caller that overrides an option is
+// caught as well. No actor here, so the tenant's day is UTC's.
+describe("useCaptureContext's cache", () => {
+  afterEach(() => vi.useRealTimers());
+
+  async function mount(startedAt?: string) {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve(body) }),
@@ -174,18 +177,41 @@ describe("useCaptureContext's cached options", () => {
     const client = testQueryClient();
     const wrapper = ({ children }: { children: ReactNode }) =>
       createElement(QueryClientProvider, { client }, children);
+    const hook = renderHook(() => useCaptureContext(body.vehicleId, startedAt), { wrapper });
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    return { client, ...hook };
+  }
 
-    const { result } = renderHook(() => useCaptureContext(body.vehicleId), { wrapper });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
+  it("holds the context for the tab's life", async () => {
+    const { client } = await mount();
     const query = client
       .getQueryCache()
       .find({ queryKey: captureContextQuery(body.vehicleId).queryKey, exact: true });
-    expect(query?.options).toMatchObject({
-      staleTime: Infinity,
-      gcTime: Infinity,
-      refetchOnWindowFocus: false,
-    });
+    expect(query?.options.gcTime).toBe(Infinity);
+  });
+
+  it("is fresh for the day it was fetched on and stale on the next", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-27T06:00:00Z"));
+    const { result, rerender } = await mount();
+
+    vi.setSystemTime(new Date("2026-08-27T23:30:00Z"));
+    rerender();
+    expect(result.current.isStale).toBe(false);
+
+    vi.setSystemTime(new Date("2026-08-28T00:30:00Z"));
+    rerender();
+    expect(result.current.isStale).toBe(true);
+  });
+
+  it("never goes stale through a draft's window", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-27T06:00:00Z"));
+    const { result, rerender } = await mount("2026-08-27T05:00:00Z");
+
+    vi.setSystemTime(new Date("2026-08-29T06:00:00Z"));
+    rerender();
+    expect(result.current.isStale).toBe(false);
   });
 });
 

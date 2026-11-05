@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
-import { onlineManager } from "@tanstack/react-query";
+import { act, screen, waitFor, within } from "@testing-library/react";
+import { focusManager, onlineManager } from "@tanstack/react-query";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
@@ -972,8 +972,8 @@ describe("a vehicle that does not load", () => {
     expect(screen.getByRole("button", { name: "Reload rig" })).toBeInTheDocument();
   });
 
-  // A failed query is not fetched again on its own (staleTime Infinity, no
-  // refetch on focus), so the screen that says try again offers the try.
+  // A failed query is fetched again only by a mount, focus or reconnect, so
+  // the screen that says try again offers the try.
   it("reloads a rig member that failed with a 500", async () => {
     const user = newUser();
     const fetch = answer(500, "internal", rigMotive);
@@ -1006,6 +1006,33 @@ describe("a vehicle that does not load", () => {
       "Could not load this vehicle. Find signal and try again.",
     );
     expect(screen.getByRole("button", { name: "Reload vehicle" })).toBeInTheDocument();
+  });
+
+  // A 503 auth_unavailable is the token store's latch, which only a page
+  // reload clears (apiError.ts), so a Reload that refetches into it is no way
+  // out, and signal is not the cause.
+  it("says sign-in is unavailable, with a page reload, for a latched store", async () => {
+    answer(503, "auth_unavailable");
+    renderFlow();
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Sign-in is unavailable right now. Try again shortly.",
+    );
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reload vehicle" })).toBeNull();
+  });
+
+  it("says the same for a rig member", async () => {
+    answer(503, "auth_unavailable", rigMotive);
+    renderFlow();
+
+    await newUser().click(await screen.findByRole("button", { name: /start inspection/i }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Sign-in is unavailable right now. Try again shortly. Your readings are saved.",
+    );
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reload rig" })).toBeNull();
   });
 });
 
@@ -1055,6 +1082,61 @@ describe("a vehicle loaded on an earlier day", () => {
       expect(await screen.findByText("Last reading 412,180 km, 1 day ago")).toBeInTheDocument();
     } finally {
       onlineManager.setOnline(true);
+    }
+  });
+
+  // U179 (TYRE-334): a renewal that fails keeps the copy, so the start
+  // screen shows it rather than "Could not load". A phone with bars and no
+  // data reads as online.
+  it("keeps the earlier day's copy when the renewal fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+      client: cachedAt(Date.now() - 86_400_000),
+    });
+
+    expect(await screen.findByText("Last reading 412,180 km, 1 day ago")).toBeInTheDocument();
+    expect(screen.queryByText(/Could not load/)).toBeNull();
+  });
+
+  // A resumed draft keys on its own window, seeded from the copy (U148),
+  // which nothing may empty while signal is weak.
+  it("carries a resumed draft on the copy when the fetch fails", async () => {
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: new Date(Date.now() - 86_400_000).toISOString(),
+    });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+      client: cachedAt(Date.now() - 86_400_000),
+    });
+
+    expect(await screen.findAllByRole("button", { name: /^Position 1,/ })).not.toHaveLength(0);
+    expect(screen.queryByText(/Could not load/)).toBeNull();
+  });
+
+  // A start screen left open overnight renews on the next focus, which an
+  // unlocked phone fires, not only when a capture opens.
+  it("is loaded again on focus once the day has turned", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      stubApi(201, [{ ...context, lastOdometerAgeDays: 2 }]);
+      renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+        client: cachedAt(Date.now()),
+      });
+      expect(await screen.findByText("Last reading 412,180 km, 1 day ago")).toBeInTheDocument();
+
+      vi.setSystemTime(Date.now() + 86_400_000);
+      act(() => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+      });
+
+      expect(await screen.findByText("Last reading 412,180 km, 2 days ago")).toBeInTheDocument();
+    } finally {
+      focusManager.setFocused(undefined);
+      vi.useRealTimers();
     }
   });
 });
