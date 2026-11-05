@@ -929,8 +929,9 @@ draft never sends by itself:
 *Amended 5 Nov 2026 (TYRE-381, PR #165's stage 5). A sign-out that cannot
 reach Entra leaves the Entra session open, so the phone's next "Sign in" may
 sign the same person straight back in. Phones are personally owned (U115),
-so that person is the phone's owner. The U104 undo is the case that needs
-the session ended, and The outbox and the driver stamp says so.*
+so that person is usually the phone's owner; ADR-0016's decision 8 accepts
+the rare borrowed phone. The U104 undo is the case that needs the session
+ended, and The outbox and the driver stamp says so.*
 
 - It cannot revoke an access token the API has already accepted. That token
   lapses within 90 minutes.
