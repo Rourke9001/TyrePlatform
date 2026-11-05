@@ -79,6 +79,12 @@ describe("widthSpread", () => {
   it("is max minus min (BR-ANL-007)", () => {
     expect(widthSpread([15, 11, 15])).toBe(4);
   });
+
+  // 0.1mm is a tenant setting (000011), and a float subtraction of tenths
+  // leaves 15.3 - 12 at 3.3000000000000007.
+  it("is exact at tenths", () => {
+    expect(widthSpread([15.3, 12, 13])).toBe(3.3);
+  });
 });
 
 describe("positionWarnings", () => {
@@ -105,6 +111,14 @@ describe("positionWarnings", () => {
     const spread = w.find((x) => x.code === "FR-INS-041");
     expect(spread).toBeDefined();
     expect(spread?.promptPhoto).toBe(true);
+  });
+
+  // 4.6 - 0.6 is 3.9999999999999996 as floats: under the boundary the
+  // dashboard's numeric spread meets (000045), and stored that way.
+  it("warns at the configured spread at tenths", () => {
+    const tenths = { ...config, treadGranularityMm: 0.1 };
+    const w = positionWarnings({ treads: [4.6, 0.6, 2], pressureKpa: 800 }, steer, tenths, metric);
+    expect(w.find((x) => x.code === "FR-INS-041")?.enteredValue).toBe("4");
   });
 
   // FR-INS-037: outside the warn band at 10% of an 800kPa target is <720 or

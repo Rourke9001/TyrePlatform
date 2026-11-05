@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "../api/apiError";
 import { bearerMode } from "../api/token";
-import { ACCESS_COPY, failureOf } from "../auth/actorContext";
+import { ACCESS_COPY, failureOf, useActor } from "../auth/actorContext";
 import { SignInButton } from "../auth/SignInButton";
 import { Button } from "../ui/Button";
 import { inertOutside } from "../ui/inertOutside";
@@ -15,7 +16,7 @@ import { CaptureStart } from "./CaptureStart";
 import { ConfirmDiscard } from "./ConfirmDiscard";
 import type { RecordedWarning } from "./draft";
 import { saveHeader } from "./draft";
-import { useCaptureContext } from "./captureContext";
+import { resetDayOldContexts, useCaptureContext } from "./captureContext";
 import { attemptSend, listOutbox, queueDraft } from "./outbox";
 import { absentCells, appVersion, capturedCells, deviceId } from "./payload";
 import { PositionSheet } from "./PositionSheet";
@@ -62,6 +63,11 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const [openedAt] = useState(() => Date.now());
 
   const lifecycle = useDraftLifecycle(vehicleId, taskId, setActiveKey, setAttachedIds);
+  const client = useQueryClient();
+  const timeZone = useActor()?.timezone ?? "UTC";
+  // At mount, while the draft loads and the screen reads Loading, so no
+  // day-old count is read in between.
+  useEffect(() => resetDayOldContexts(client, timeZone), [client, timeZone]);
   const { draft, setDraft, resumed, held, screen, setScreen, storageFault } = lifecycle;
   // Read once the draft has loaded, so a resumed draft's units are keyed on
   // its own window and never asked of the server first at now (U148); the
@@ -77,7 +83,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     setAttachedIds,
     startedAt,
   );
-  const { confirmedIds, contexts, membersError, toggleAttached } = rigComp;
+  const { confirmedIds, contexts, membersError, refetchMembers, toggleAttached } = rigComp;
 
   // The tenant's unit words, read once for every position's warnings.
   const labels = useUnitLabels();
@@ -242,15 +248,34 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
       />
     );
   } else if (membersError !== null) {
-    // TYRE-329 for the member units: a refusal says who can change it.
+    // The motive's three answers above, for the member units.
+    const signedOut = failureOf(membersError) === "signed-out";
     const refusal = refusalWords(membersError, "a unit on this rig");
+    const reason =
+      refusal ??
+      (signedOut
+        ? "Sign in to load the rest of the rig."
+        : "Could not load the rest of the rig. Find signal and try again.");
     body = (
       <section className="cap-screen">
         <p role="alert" className="cap-alert cap-alert--stop">
-          {refusal ?? "Could not load the rest of the rig. Find signal and try again."} Your
-          readings are saved.
+          {reason} Your readings are saved.
         </p>
-        {refusal !== null && <BackToWork />}
+        {refusal !== null ? (
+          <BackToWork />
+        ) : (
+          <>
+            {signedOut && bearerMode() && <SignInButton label="Sign in" />}
+            <Button
+              variant={signedOut ? "secondary" : "primary"}
+              size="glove"
+              block
+              onClick={refetchMembers}
+            >
+              Reload rig
+            </Button>
+          </>
+        )}
       </section>
     );
   } else if (!contexts || !draft) {

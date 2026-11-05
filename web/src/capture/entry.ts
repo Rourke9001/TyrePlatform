@@ -36,10 +36,10 @@ export type EntryKey =
 
 export interface EntryResult {
   state: EntryState;
-  // True when no further digit could change this field's value, or the field
-  // holds a lone 0mm tread (TYRE-171), so the caller may advance without
-  // waiting for a tap. The caller owns the timing; a reducer that scheduled
-  // its own would not be testable.
+  // True when no further digit could change this field's value, or a 0 is
+  // the first key on a tread field at whole or half mm (TYRE-171, U177), so
+  // the caller may advance without waiting for a tap. The caller owns the
+  // timing; a reducer that scheduled its own would not be testable.
   settled: boolean;
 }
 
@@ -56,13 +56,15 @@ export function newEntryState(treadReadingCount: number): EntryState {
 
 const isPressure = (state: EntryState, opts: EntryOptions) => state.field >= opts.treadReadingCount;
 
+const isTenths = (opts: EntryOptions) => opts.granularityMm === 0.1;
+
 // At 0.1mm the last digit typed is the tenth, so the buffer is read as an
 // integer number of tenths. At 1.0 and 0.5 the buffer is whole millimetres and
 // the half arrives on its own key. There is no decimal point on this keypad.
 function valueOf(buffer: string, state: EntryState, opts: EntryOptions): number {
   const n = parseInt(buffer, 10);
   if (isPressure(state, opts)) return n;
-  return opts.granularityMm === 0.1 ? n / 10 : n;
+  return isTenths(opts) ? n / 10 : n;
 }
 
 const ceilingFor = (state: EntryState, opts: EntryOptions) =>
@@ -143,14 +145,12 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
       // Could another digit still change this answer? Appending "0" is the
       // smallest possible growth, so if even that overshoots, nothing can.
       const overshoots = valueOf(buffer + "0", state, opts) > ceiling;
-      // TYRE-171: no tread reading starts with a zero, so a 0 on an empty
-      // field is a 0mm tread. Not a 0 the ceiling restarted on, nor one at
-      // tenths, where 0 then 7 is 0.7 (U177). Pressure waits on 0 kPa.
+      // TYRE-171: no tread reading starts with a zero, so a 0 as the first
+      // key on a field is a 0mm tread. Not a 0 after a digit or a half, which
+      // is a slip on a neighbouring key, nor one at tenths, where 0 then 7 is
+      // 0.7 (U177). Pressure waits on 0 kPa.
       const loneZeroTread =
-        state.buffer === "" &&
-        buffer === "0" &&
-        opts.granularityMm >= 0.5 &&
-        !isPressure(state, opts);
+        !state.touched && buffer === "0" && !isTenths(opts) && !isPressure(state, opts);
       return { state: next, settled: overshoots || loneZeroTread };
     }
   }

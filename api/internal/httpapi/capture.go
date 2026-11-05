@@ -83,21 +83,21 @@ type captureContextBody struct {
 	// FR-INS-020: a trailer-only inspection has no odometer field at all, and
 	// the client cannot infer that from an absent reading, because no unit
 	// has one until the first inspection writes it.
-	UnitKind       string `json:"unitKind"`
-	LastOdometerKm *int64 `json:"lastOdometerKm"`
-	// FR-INS-020's projection runs from this date; the value alone has no
-	// starting point.
+	UnitKind       string     `json:"unitKind"`
+	LastOdometerKm *int64     `json:"lastOdometerKm"`
 	LastOdometerAt *time.Time `json:"lastOdometerAt"`
 	// Days since LastOdometerAt in the tenant's calendar (rule 6, TYRE-342),
-	// and FR-INS-033's denominator, as DR-020's trigger counts whole days;
-	// nil when LastOdometerAt is.
+	// counted here so no phone clock sets it; nil when LastOdometerAt is.
 	LastOdometerAgeDays *int `json:"lastOdometerAgeDays"`
+	// FR-INS-033's base: the reading DR-020's trigger judges against, the
+	// last one on a day before the tenant's today (000021), and its age.
+	// Nil when no reading predates today.
+	OdometerBaseKm      *int64 `json:"odometerBaseKm"`
+	OdometerBaseAgeDays *int   `json:"odometerBaseAgeDays"`
 	// FR-INS-020's pre-fill is a PROJECTION: the last known reading carried
-	// forward by this unit's average daily distance. It is not the last
-	// reading itself, which is what stops one tap recording last inspection's
-	// number as this one's. The rate travels rather than the projected value because
-	// the days elapsed are only known when the driver opens the screen, and
-	// FR-OFF-001 may have taken the signal away hours earlier.
+	// forward by this unit's average daily distance over LastOdometerAgeDays.
+	// It is not the last reading itself, which is what stops one tap
+	// recording last inspection's number as this one's.
 	AverageDailyKm *float64          `json:"averageDailyKm"`
 	Positions      []capturePosition `json:"positions"`
 	// Null unless this vehicle heads a current combination. A trailer asked
@@ -185,6 +185,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	err := tx.QueryRow(ctx, `
 		SELECT v.id, v.fleet_number, v.registration, v.unit_kind::text,
 		       o.odometer_km, o.reading_date, app.tenant_today(tn.timezone) - o.reading_date,
+		       b.odometer_km, app.tenant_today(tn.timezone) - b.reading_date,
 		       avg_km.km
 		  FROM `+from+`
 		  JOIN app.tenant tn ON tn.id = v.tenant_id
@@ -196,6 +197,13 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		        WHERE vo.vehicle_id = v.id
 		        ORDER BY vo.reading_date DESC, vo.odometer_km DESC LIMIT 1) o ON true
 		  LEFT JOIN LATERAL (
+		       -- The trigger's prev once TYRE-244 dates the write on the
+		       -- tenant's day; until then the write is dated on UTC's.
+		       SELECT vo.odometer_km, vo.reading_date
+		         FROM app.vehicle_odometer_reading vo
+		        WHERE vo.vehicle_id = v.id AND vo.reading_date < app.tenant_today(tn.timezone)
+		        ORDER BY vo.reading_date DESC, vo.odometer_km DESC LIMIT 1) b ON true
+		  LEFT JOIN LATERAL (
 		       SELECT round((max(vo.odometer_km) - min(vo.odometer_km))::numeric
 		                  / NULLIF(max(vo.reading_date) - min(vo.reading_date), 0), 2) AS km
 		         FROM app.vehicle_odometer_reading vo
@@ -203,7 +211,8 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		          AND vo.reading_date > (now() AT TIME ZONE 'UTC')::date - 90) avg_km ON true
 		 WHERE v.id = $1`+where, args...).
 		Scan(&out.VehicleID, &out.FleetNumber, &out.Registration, &out.UnitKind,
-			&out.LastOdometerKm, &out.LastOdometerAt, &out.LastOdometerAgeDays, &out.AverageDailyKm)
+			&out.LastOdometerKm, &out.LastOdometerAt, &out.LastOdometerAgeDays,
+			&out.OdometerBaseKm, &out.OdometerBaseAgeDays, &out.AverageDailyKm)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errForbidden
 	}

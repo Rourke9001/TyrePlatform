@@ -1,8 +1,9 @@
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { onlineManager, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { apiGet } from "../api/client";
 import { retryQuery } from "../api/apiError";
 import { getDevTenantId } from "../api/devTenant";
+import { tenantDayKey } from "../time/tenantTime";
 
 // Wire shape of GET /api/capture/vehicles/{id}. Every field exists because
 // FR-OFF-001 takes connectivity away after this call returns: a missing
@@ -79,13 +80,16 @@ export interface CaptureContext {
   // (FR-INS-020) and distance is never apportioned to one (FR-INS-064).
   unitKind: string;
   lastOdometerKm: number | null;
-  // FR-INS-020's projection runs from this date; the value alone has no
-  // starting point.
   lastOdometerAt: string | null;
   // Days since lastOdometerAt in the tenant's calendar (rule 6, TYRE-342),
-  // and FR-INS-033's denominator. Optional for the reason
-  // previousReadingAgeDays is.
+  // counted by the server so no phone clock sets it. FR-INS-020 projects
+  // over it. Optional for the reason previousReadingAgeDays is.
   lastOdometerAgeDays?: number | null;
+  // FR-INS-033's base: the last reading on a day before the tenant's today,
+  // which DR-020's trigger judges against (000021), and its age, so at least
+  // one day. Null when no reading predates today; optional as above.
+  odometerBaseKm?: number | null;
+  odometerBaseAgeDays?: number | null;
   // FR-INS-020's pre-fill projects from the last reading at this rate. Null
   // when the timeline cannot support one (a first inspection, or two
   // readings the same day); see history.projectedOdometerKm.
@@ -114,8 +118,9 @@ export function fetchCaptureContext(
 }
 
 // staleTime Infinity, gcTime for the tab's life: FR-OFF-002 caches this for
-// the session, refreshed by FR-OFF-003 on app-open/demand, never a timer
-// that could change a threshold mid-walk-around. Options are a function,
+// the session, refreshed when a capture opens on a later day
+// (resetDayOldContexts), never a timer that could change a threshold
+// mid-walk-around. Options are a function,
 // not inlined, because a rig (useQueries) and a solo unit must produce the
 // same queryKey or the motive unit fetches twice. The key carries startedAt
 // because a read through a draft's window answers for that window, not now.
@@ -138,6 +143,22 @@ export function captureContextQuery(vehicleId: string, startedAt?: string, seed?
     refetchOnWindowFocus: false,
     retry: retryQuery,
   };
+}
+
+// Rule 6: a context's day counts are the tenant's days on the day it was
+// fetched, so one fetched before the tenant's midnight is emptied for a
+// fresh fetch. Online only, since offline it is the only copy (FR-OFF-001);
+// a draft's windowed read stays as its submit will be judged (U148).
+export function resetDayOldContexts(client: QueryClient, timeZone: string, now = Date.now()) {
+  if (!onlineManager.isOnline()) return;
+  const today = tenantDayKey(now, timeZone);
+  void client.resetQueries({
+    queryKey: ["capture-context"],
+    predicate: (q) =>
+      q.queryKey[3] === null &&
+      q.state.dataUpdatedAt > 0 &&
+      tenantDayKey(q.state.dataUpdatedAt, timeZone) !== today,
+  });
 }
 
 export function useCaptureContext(vehicleId: string, startedAt?: string, enabled = true) {

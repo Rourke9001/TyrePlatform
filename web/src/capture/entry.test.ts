@@ -67,8 +67,19 @@ describe("applyKey at whole-millimetre granularity", () => {
     expect(r.settled).toBe(false);
   });
 
-  // The keypad leaves a field by next or a tap on another, and both empty
-  // the buffer, so a 0mm tread settles on every field, not only the first.
+  // The half key sits beside 0 (Keypad.tsx), so 12, half, then 0 inside the
+  // hold is the same slip, not a 0mm reading.
+  it("waits on a 0 typed after a half", () => {
+    const twelve = type(newEntryState(3), "12", halves).state;
+    const half = applyKey(twelve, { type: "half" }, halves);
+    expect(half.settled).toBe(true);
+    const r = applyKey(half.state, { type: "digit", digit: "0" }, halves);
+    expect(r.settled).toBe(false);
+  });
+
+  // The keypad leaves a field by next or a tap on another, and a 0 is the
+  // first key on the field either lands on, so a 0mm tread settles on every
+  // field, not only the first.
   it.each([
     ["next", { type: "next" } as const],
     ["a tap", { type: "focus", field: 1 } as const],

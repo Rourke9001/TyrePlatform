@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { CaptureContext, CapturePosition } from "./captureContext";
-import { historyWarnings, odometerRejection, odometerWarnings } from "./history";
+import {
+  historyWarnings,
+  odometerRejection,
+  odometerWarnings,
+  projectedOdometerKm,
+} from "./history";
 import { unitLabels } from "../units/units";
 
 const NOW = new Date("2026-08-25T06:00:00Z");
@@ -39,6 +44,9 @@ const ctx: CaptureContext = {
   lastOdometerKm: 412180,
   lastOdometerAt: "2026-08-19T06:00:00Z", // six days before NOW
   lastOdometerAgeDays: 6,
+  // From an earlier day, so the last reading is FR-INS-033's base too.
+  odometerBaseKm: 412180,
+  odometerBaseAgeDays: 6,
   averageDailyKm: null,
   combination: null,
   positions: [position],
@@ -218,7 +226,7 @@ describe("odometerWarnings", () => {
     expect(w[0].enteredValue).toBe("512180");
     // 100000 km over six days is 16666.7 a day, rounded and grouped (U55).
     expect(w[0].message).toBe(
-      "That is about 16,667 km a day since the last reading. Check the digits.",
+      "That is about 16,667 km a day since the reading 6 days ago. Check the digits.",
     );
   });
 
@@ -238,40 +246,69 @@ describe("odometerWarnings", () => {
     expect(codes(w)).toContain("FR-INS-033");
   });
 
-  it("says nothing when there is no previous reading to divide by", () => {
-    const fresh = { ...ctx, lastOdometerKm: null, lastOdometerAt: null };
+  it("says nothing when there is no earlier reading to divide from", () => {
+    const fresh = { ...ctx, odometerBaseKm: null, odometerBaseAgeDays: null };
     expect(odometerWarnings(999999, fresh, metric)).toEqual([]);
   });
 
-  // An API older than lastOdometerAgeDays sends no count, and the browser
-  // clock does not stand in for the tenant's days (rule 6).
-  it("says nothing when the server sends no day count", () => {
-    const unaged = { ...ctx, lastOdometerAgeDays: undefined };
+  // An API older than the base sends none, and the browser clock does not
+  // stand in for the tenant's days (rule 6).
+  it("says nothing when the server sends no base", () => {
+    const unaged = { ...ctx, odometerBaseKm: undefined, odometerBaseAgeDays: undefined };
     expect(odometerWarnings(999999, unaged, metric)).toEqual([]);
   });
 
-  // DR-020's trigger divides by whole days between reading dates. At 20:00
-  // SAST the day after a reading, the browser clock says 1.75 days, which
-  // took 2,000 km to 1,143 a day: no warning, then a TY002 refusal.
-  it("divides by the served day count, not the browser clock", () => {
-    const yesterday = { ...ctx, lastOdometerAt: "2026-08-23T22:00:00Z", lastOdometerAgeDays: 1 };
+  // DR-020's trigger divides by whole days between reading dates, so 2,000 km
+  // since a reading yesterday is 2,000 a day.
+  it("divides by the served day count", () => {
+    const yesterday = { ...ctx, odometerBaseAgeDays: 1 };
     expect(codes(odometerWarnings(ctx.lastOdometerKm! + 2000, yesterday, metric))).toEqual([
       "FR-INS-033",
     ]);
   });
 
-  // The trigger's GREATEST(1, ...): a second reading the same day, or one
-  // dated past today, is judged over one day.
-  it.each([
-    ["the same day", 0],
-    ["a day dated past today", -1],
-  ])("counts %s as one day", (_, ageDays) => {
-    const ageCtx = { ...ctx, lastOdometerAgeDays: ageDays };
-    const ceiling = ctx.config.odometerMaxDailyKm;
-    expect(odometerWarnings(ctx.lastOdometerKm! + ceiling, ageCtx, metric)).toEqual([]);
-    expect(codes(odometerWarnings(ctx.lastOdometerKm! + ceiling + 1, ageCtx, metric))).toEqual([
-      "FR-INS-033",
-    ]);
+  // The trigger judges against the last reading on an earlier day (000021),
+  // so a fuel record already dated today is not the one it divides from:
+  // 1,800 km since yesterday's reading, not 1,300 since today's.
+  it("divides from the last reading on an earlier day", () => {
+    const today = {
+      ...ctx,
+      lastOdometerKm: 412680,
+      lastOdometerAgeDays: 0,
+      odometerBaseAgeDays: 1,
+    };
+    const w = odometerWarnings(413980, today, metric);
+    expect(w[0]?.message).toBe(
+      "That is about 1,800 km a day since the reading 1 day ago. Check the digits.",
+    );
+  });
+});
+
+describe("projectedOdometerKm", () => {
+  // FR-INS-020: the last reading carried forward at the unit's rate over the
+  // count FR-INS-033 divides by, so an offer at or under the ceiling passes
+  // its own check.
+  it("projects over the served day count, so its offer raises no warning", () => {
+    const yesterday = {
+      ...ctx,
+      lastOdometerAgeDays: 1,
+      odometerBaseAgeDays: 1,
+      averageDailyKm: 900,
+    };
+    const offer = projectedOdometerKm(yesterday);
+    expect(offer).toBe(413080);
+    expect(odometerWarnings(offer, yesterday, metric)).toEqual([]);
+  });
+
+  it("offers the last reading on the day it was taken", () => {
+    expect(projectedOdometerKm({ ...ctx, lastOdometerAgeDays: 0, averageDailyKm: 900 })).toBe(
+      412180,
+    );
+  });
+
+  it("offers nothing without a served day count", () => {
+    const unaged = { ...ctx, lastOdometerAgeDays: undefined, averageDailyKm: 900 };
+    expect(projectedOdometerKm(unaged)).toBeNull();
   });
 });
 
@@ -285,7 +322,7 @@ describe("distance labels", () => {
   });
   it("odometerWarnings names the tenant's unit", () => {
     expect(odometerWarnings(512180, ctx, xkm)[0]?.message).toBe(
-      "That is about 16,667 XKM a day since the last reading. Check the digits.",
+      "That is about 16,667 XKM a day since the reading 6 days ago. Check the digits.",
     );
   });
 });

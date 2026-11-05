@@ -8,9 +8,8 @@ import { me } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import type { CaptureContext } from "./captureContext";
 
-// FR-INS-020's three pre-fill inputs; frozen clock because 8 days at
-// 500km/day projects 412180 to 416180, and a wall-clock read would move
-// the expected value under the test.
+// FR-INS-020's three pre-fill inputs: 8 days at 500km/day projects 412180
+// to 416180. The reading is from an earlier day, so it is FR-INS-033's base.
 const motive: CaptureContext = {
   vehicleId: "v1",
   fleetNumber: "BAC039SP",
@@ -19,6 +18,8 @@ const motive: CaptureContext = {
   lastOdometerKm: 412180,
   lastOdometerAt: "2026-08-19T06:00:00Z",
   lastOdometerAgeDays: 8,
+  odometerBaseKm: 412180,
+  odometerBaseAgeDays: 8,
   averageDailyKm: 500,
   combination: null,
   positions: [],
@@ -86,7 +87,7 @@ describe("CaptureStart's odometer", () => {
     const { container } = renderStart(vi.fn());
     await type("999999");
 
-    expect(screen.getByText(/a day since the last reading/)).toBeInTheDocument();
+    expect(screen.getByText(/a day since the reading 8 days ago/)).toBeInTheDocument();
     expectNothingForbiddenSpoken(container, /check the digits/);
   });
 
@@ -114,6 +115,18 @@ describe("CaptureStart's odometer", () => {
 
     expect(screen.getByRole("checkbox", { name: /tick to confirm/i })).not.toBeChecked();
     expect(screen.getByRole("button", { name: /start inspection/i })).toBeDisabled();
+  });
+
+  // A digit past the seventh is dropped, so the value ticked is still the
+  // one on screen.
+  it("keeps the tick on a digit past the seventh", async () => {
+    renderStart(vi.fn());
+    const user = await type("5121801");
+    await user.click(screen.getByRole("checkbox", { name: /tick to confirm/i }));
+
+    await type("9");
+
+    expect(screen.getByRole("checkbox", { name: /tick to confirm/i })).toBeChecked();
   });
 
   // "CONFIRMED values are recorded to the odometer timeline": an untouched
@@ -179,6 +192,23 @@ describe("CaptureStart's odometer", () => {
     await type("7");
     await user.click(screen.getByRole("button", { name: /start inspection/i }));
     expect(onStart.mock.calls[0][0].odometerKm).toBe(413507);
+  });
+
+  // The offer counts the days FR-INS-033 divides by, so a unit averaging
+  // under the ceiling is never asked to tick its own projection.
+  it("offers a projection its own check passes, late on the day after", async () => {
+    vi.setSystemTime(new Date("2026-08-24T20:00:00Z"));
+    renderStart(vi.fn(), {
+      lastOdometerAt: "2026-08-23",
+      lastOdometerAgeDays: 1,
+      odometerBaseAgeDays: 1,
+      averageDailyKm: 900,
+    });
+    const user = setup();
+
+    await user.click(screen.getByRole("button", { name: /confirm 413,080 km/i }));
+
+    expect(screen.queryByText(/a day since/)).toBeNull();
   });
 
   // A projection needs a rate as well as a reading. Without one there is

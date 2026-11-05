@@ -8,6 +8,7 @@ import { renderWithActor, testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureFlow } from "./CaptureFlow";
 import type { CaptureContext } from "./captureContext";
+import { captureContextQuery } from "./captureContext";
 import { clearDraft, db, loadDraft, markSpareAbsent, startDraft } from "./draft";
 import { listOutbox } from "./outbox";
 
@@ -908,18 +909,23 @@ describe("sign-in inside capture", () => {
 // fault that signal can clear keeps the signal line and its button.
 describe("a vehicle that does not load", () => {
   // A real Response: the client reads a refusal's body as text (TYRE-389).
-  function answer(status: number, code: string) {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          new Response(JSON.stringify({ code, message: "x" }), {
-            status,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
+  const json = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  // Every GET fails with this status, or, given a motive, every GET but v1's.
+  function answer(status: number, code: string, motive?: CaptureContext) {
+    const fetch = vi.fn((url: string) =>
+      Promise.resolve(
+        motive !== undefined && url.split("?")[0].endsWith("/v1")
+          ? json(200, motive)
+          : json(status, { code, message: "x" }),
       ),
     );
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
   }
 
   it.each([
@@ -939,24 +945,10 @@ describe("a vehicle that does not load", () => {
     expect(screen.getByRole("link", { name: "My inspections" })).toHaveAttribute("href", "/my");
   });
 
-  // The rig's member units load after Start, so a trip that ends or a
-  // tenant deactivated in between refuses one of them alone.
+  // The member units load on the start screen, whose own branch comes
+  // first, so one that fails is told after Start, beside the saved draft.
   it("says why a rig member's 403 refuses it, not signal", async () => {
-    const json = (status: number, body: unknown) =>
-      new Response(JSON.stringify(body), {
-        status,
-        headers: { "Content-Type": "application/json" },
-      });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((url: string) =>
-        Promise.resolve(
-          url.split("?")[0].endsWith("/v1")
-            ? json(200, rigMotive)
-            : json(403, { code: "forbidden", message: "x" }),
-        ),
-      ),
-    );
+    answer(403, "forbidden", rigMotive);
     renderFlow();
 
     await newUser().click(await screen.findByRole("button", { name: /start inspection/i }));
@@ -966,6 +958,38 @@ describe("a vehicle that does not load", () => {
     );
     expect(screen.queryByText(/Find signal/)).toBeNull();
     expect(screen.getByRole("link", { name: "My inspections" })).toHaveAttribute("href", "/my");
+  });
+
+  it("says to sign in, not to find signal, when a rig member answers 401", async () => {
+    answer(401, "unauthorized", rigMotive);
+    renderFlow();
+
+    await newUser().click(await screen.findByRole("button", { name: /start inspection/i }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Sign in to load the rest of the rig. Your readings are saved.",
+    );
+    expect(screen.getByRole("button", { name: "Reload rig" })).toBeInTheDocument();
+  });
+
+  // A failed query is not fetched again on its own (staleTime Infinity, no
+  // refetch on focus), so the screen that says try again offers the try.
+  it("reloads a rig member that failed with a 500", async () => {
+    const user = newUser();
+    const fetch = answer(500, "internal", rigMotive);
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Could not load the rest of the rig. Find signal and try again. Your readings are saved.",
+    );
+
+    fetch.mockImplementation((url: string) =>
+      Promise.resolve(json(200, url.split("?")[0].endsWith("/v1") ? rigMotive : trailer)),
+    );
+    await user.click(screen.getByRole("button", { name: "Reload rig" }));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
   it.each([
@@ -982,6 +1006,56 @@ describe("a vehicle that does not load", () => {
       "Could not load this vehicle. Find signal and try again.",
     );
     expect(screen.getByRole("button", { name: "Reload vehicle" })).toBeInTheDocument();
+  });
+});
+
+// Rule 6: a context's day counts are the tenant's days on the day it was
+// fetched, and the cache keeps it for the tab's life (captureContextQuery).
+describe("a vehicle loaded on an earlier day", () => {
+  const cachedAt = (updatedAt: number) => {
+    const client = testQueryClient();
+    client.setQueryData(
+      captureContextQuery("v1").queryKey,
+      { ...context, lastOdometerAgeDays: 1 },
+      { updatedAt },
+    );
+    return client;
+  };
+  const askedForV1 = (api: ReturnType<typeof stubApi>) =>
+    api.mock.calls.some(([url]) => url.split("?")[0].endsWith("/vehicles/v1"));
+
+  it("is loaded again when a capture opens on a later day", async () => {
+    const api = stubApi(201, [{ ...context, lastOdometerAgeDays: 2 }]);
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+      client: cachedAt(Date.now() - 86_400_000),
+    });
+
+    expect(await screen.findByText("Last reading 412,180 km, 2 days ago")).toBeInTheDocument();
+    expect(askedForV1(api)).toBe(true);
+  });
+
+  it("is read from the cache on the day it was loaded", async () => {
+    const api = stubApi(201, [{ ...context, lastOdometerAgeDays: 2 }]);
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+      client: cachedAt(Date.now()),
+    });
+
+    expect(await screen.findByText("Last reading 412,180 km, 1 day ago")).toBeInTheDocument();
+    expect(askedForV1(api)).toBe(false);
+  });
+
+  // FR-OFF-001: offline it is the only copy there is.
+  it("is kept offline", async () => {
+    stubApi(201, [{ ...context, lastOdometerAgeDays: 2 }]);
+    onlineManager.setOnline(false);
+    try {
+      renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+        client: cachedAt(Date.now() - 86_400_000),
+      });
+      expect(await screen.findByText("Last reading 412,180 km, 1 day ago")).toBeInTheDocument();
+    } finally {
+      onlineManager.setOnline(true);
+    }
   });
 });
 
