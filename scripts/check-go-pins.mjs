@@ -23,13 +23,24 @@ const RELEVANT = [
 const relevant = (rel) => RELEVANT.some((re) => re.test(rel));
 
 const GO_LINE = /^(go|toolchain)\s+(?:go)?(\d+\.\d+)\S*\s*$/gm;
-const IMAGE = /\bgolang:(\d+\.\d+)([\w.-]*)(?:@(sha256:[0-9a-f]{64}))?/g;
+// Every golang image reference, then the one form this check can compare, so
+// a tag that names no minor (golang:alpine, golang@sha256:...) is refused,
+// not skipped.
+const IMAGE_REF = /\bgolang[:@][^\s'"`,}\])]*/g;
+const IMAGE = /^golang:(\d+\.\d+)([\w.-]*)(?:@(sha256:[0-9a-f]{64}))?$/;
 const SETUP_GO = /\buses:\s*['"]?actions\/setup-go@/g;
 // Block or flow style, so `with: { go-version: '1.27' }` is read too.
 const GO_VERSION = /(?<![\w-])go-version:\s*['"]?([^'"\s,}#]*)/g;
 const MINOR = /^(\d+\.\d+)(?:\.(?:\d+|x))?$/;
 
 const lineOf = (text, index) => text.slice(0, index).split('\n').length;
+
+// Comments are read as nothing, once, before any match: a note naming an old
+// golang tag or a go-version is not a pin (the colour gate's rounds on #151
+// are why this is one pass, not a guard per pattern). Newlines stay, so a
+// reported line is still the file's.
+const uncommented = (rel, text) =>
+  /(^|\/)go\.mod$/.test(rel) ? text.replace(/\/\/.*$/gm, '') : text.replace(/(^|\s)#.*$/gm, '$1');
 
 function check(files) {
   const pins = [];
@@ -39,7 +50,8 @@ function check(files) {
   let goImage = false;
   let buildStage = false;
   let setupGo = 0;
-  for (const [rel, text] of files) {
+  for (const [rel, raw] of files) {
+    const text = uncommented(rel, raw);
     const at = (index) => `${rel}:${lineOf(text, index)}`;
     if (/(^|\/)go\.mod$/.test(rel)) {
       for (const m of text.matchAll(GO_LINE)) {
@@ -48,7 +60,13 @@ function check(files) {
       }
       continue;
     }
-    for (const m of text.matchAll(IMAGE)) {
+    for (const ref of text.matchAll(IMAGE_REF)) {
+      const m = IMAGE.exec(ref[0]);
+      if (!m) {
+        problems.push(`${at(ref.index)}: golang image '${ref[0]}' names no Go minor this check can compare`);
+        continue;
+      }
+      m.index = ref.index;
       const tag = m[1] + m[2];
       pins.push({ where: at(m.index), what: `golang:${tag}`, minor: m[1] });
       const before = text.slice(text.lastIndexOf('\n', m.index) + 1, m.index);
@@ -144,6 +162,15 @@ if (args.includes('--self-test')) {
     ['no GO_IMAGE', { Makefile: '# GO_IMAGE ?= golang:1.27-alpine\n' }, 'GO_IMAGE'],
     ['no golang build stage', { 'api/Dockerfile': 'FROM alpine:3\n' }, 'no Dockerfile'],
     ['no go.mod', { 'api/go.mod': null }, 'no go line'],
+    ['a golang image names no minor', { Makefile: 'GO_IMAGE ?= golang:alpine\n' }, 'names no Go minor'],
+    ['a golang image is pinned by digest alone', { 'api/Dockerfile': `FROM golang@${D1} AS build\n` }, 'names no Go minor'],
+    [
+      'a comment names another golang tag',
+      { Makefile: `# moved from golang:1.24-alpine\nGO_IMAGE ?= golang:1.27-alpine@${D1}\n` },
+      null,
+    ],
+    ['a workflow comment holds a go-version', { '.github/workflows/ci.yml': `${ci("'1.27'", "'1.27'")}\n# go-version: '1.26'\n` }, null],
+    ["go.mod's go line carries a comment", { 'api/go.mod': 'module x\n\ngo 1.27 // keep\n' }, null],
   ];
   const failures = [];
   for (const [name, over, expect] of cases) {

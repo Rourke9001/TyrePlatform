@@ -198,41 +198,67 @@ func unknownJSONField(err error) (string, bool) {
 // package's json tags only, so no caller text reaches the refusal (ADR-0012).
 // From Go 1.27 the decoder's path carries the caller's map keys, slice indexes
 // and key spelling (TYRE-379), so the name is rebuilt by walking that path
-// through into's type, and it stops at a map, whose key is caller text.
+// through into's type, and it stops at a map, whose key is caller text. A
+// path the walk cannot resolve names nothing.
 func typeErrorField(err error, into any) (string, bool) {
 	var typeErr *json.UnmarshalTypeError
 	if !errors.As(err, &typeErr) || typeErr.Field == "" {
 		return "", false
 	}
-	names := tagPath(reflect.TypeOf(into), strings.Split(typeErr.Field, "."))
-	if len(names) == 0 {
+	names, leaf, ok := tagPath(reflect.TypeOf(into), strings.Split(typeErr.Field, "."))
+	if !ok || len(names) == 0 {
+		return "", false
+	}
+	// jsonField's match is not the decoder's in every shape, so a walk that
+	// ends on another type than the one the decoder failed on names nothing,
+	// and the refusal is the generic one rather than another field's.
+	if leaf != nil && typeErr.Type != nil && deref(leaf) != deref(typeErr.Type) {
 		return "", false
 	}
 	return strings.Join(names, "."), true
 }
 
-func tagPath(t reflect.Type, segments []string) []string {
+// tagPath answers the tag names along segments and the type the walk ends
+// on. A map stops the walk with no type to check, since what follows it in
+// the path is the caller's key.
+func tagPath(t reflect.Type, segments []string) ([]string, reflect.Type, bool) {
+	t = deref(t)
+	if t == nil {
+		return nil, nil, false
+	}
+	if len(segments) == 0 {
+		return nil, t, true
+	}
+	switch t.Kind() {
+	case reflect.Map:
+		return nil, nil, true
+	case reflect.Slice, reflect.Array:
+		// Go 1.27 writes every element's index into the path, so a segment
+		// that is not one resolves nothing.
+		if !isIndex(segments[0]) {
+			return nil, nil, false
+		}
+		return tagPath(t.Elem(), segments[1:])
+	case reflect.Struct:
+		name, field, ok := jsonField(t, segments[0], map[reflect.Type]bool{})
+		if !ok {
+			return nil, nil, false
+		}
+		rest, leaf, ok := tagPath(field, segments[1:])
+		if !ok {
+			return nil, nil, false
+		}
+		return append([]string{name}, rest...), leaf, true
+	default:
+		return nil, nil, false
+	}
+}
+
+func deref(t reflect.Type) reflect.Type {
 	for t != nil && t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
-	if t == nil || len(segments) == 0 {
-		return nil
-	}
-	switch t.Kind() {
-	case reflect.Slice, reflect.Array:
-		if isIndex(segments[0]) {
-			return tagPath(t.Elem(), segments[1:])
-		}
-		return tagPath(t.Elem(), segments)
-	case reflect.Struct:
-		name, field, ok := jsonField(t, segments[0])
-		if !ok {
-			return nil
-		}
-		return append([]string{name}, tagPath(field, segments[1:])...)
-	default:
-		return nil
-	}
+	return t
 }
 
 func isIndex(segment string) bool {
@@ -240,10 +266,17 @@ func isIndex(segment string) bool {
 	return err == nil
 }
 
-// jsonField finds the field encoding/json would decode segment into, matched
-// as it matches keys (case-insensitively, through embedded structs), and
-// answers the tag's spelling rather than the caller's.
-func jsonField(t reflect.Type, segment string) (string, reflect.Type, bool) {
+// jsonField answers the first field, in declaration order, whose name folds
+// equal to segment, entering an untagged embedded struct where it sits, and
+// the tag's spelling rather than the caller's. The decoder's own rule differs
+// (an exact name anywhere in the flattened set wins, and a shallower field
+// beats an embedded one), which is why typeErrorField checks the type the
+// walk ends on. seen stops a type that embeds itself.
+func jsonField(t reflect.Type, segment string, seen map[reflect.Type]bool) (string, reflect.Type, bool) {
+	if seen[t] {
+		return "", nil, false
+	}
+	seen[t] = true
 	for i := range t.NumField() {
 		f := t.Field(i)
 		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
@@ -251,12 +284,9 @@ func jsonField(t reflect.Type, segment string) (string, reflect.Type, bool) {
 			continue
 		}
 		if f.Anonymous && name == "" {
-			embedded := f.Type
-			if embedded.Kind() == reflect.Pointer {
-				embedded = embedded.Elem()
-			}
+			embedded := deref(f.Type)
 			if embedded.Kind() == reflect.Struct {
-				if n, ft, ok := jsonField(embedded, segment); ok {
+				if n, ft, ok := jsonField(embedded, segment, seen); ok {
 					return n, ft, true
 				}
 				continue
