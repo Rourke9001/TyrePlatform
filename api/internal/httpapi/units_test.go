@@ -921,8 +921,8 @@ func TestPatchUnitRefusesConfigurationID(t *testing.T) {
 	// The bodies this decoder refuses for their shape rather than their keys.
 	// A body this surface cannot read is malformed rather than invalid, because
 	// nothing in it is a field the caller got wrong. Why each of these needs a
-	// second Decode rather than dec.More() is decodeJSONStrict's own note
-	// (admin.go).
+	// check after the first Decode, and why that is not dec.More(), is in
+	// decodeJSONStrict's own notes (request.go).
 	for _, tc := range []struct{ name, body string }{
 		{"a second value after the first", `{"description":"first"}{"configurationId":"smuggled"}`},
 		{"a literal null", `null`},

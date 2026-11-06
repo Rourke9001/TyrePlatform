@@ -31,6 +31,7 @@ type probeBody struct {
 	Nested    probeInner            `json:"nested"`
 	Ptr       *probeInner           `json:"ptr"`
 	ByKey     map[string]probeInner `json:"byKey"`
+	Addr      uintptr               `json:"addr"`
 	Untagged  int
 }
 
@@ -60,18 +61,27 @@ func TestTypeErrorFieldNamesOnlyTags(t *testing.T) {
 			var into probeBody
 			err := json.Unmarshal([]byte(tt.body), &into)
 			req.Error(t, err)
-			field, named := typeErrorField(err, &into)
+			field, named := typeErrorField(typeErrorOf(t, err), &into)
 			req.True(t, named)
 			req.Equal(t, tt.want, field)
 		})
 	}
 }
 
-func TestTypeErrorFieldLeavesOtherErrorsUnnamed(t *testing.T) {
+// typeErrorOf unwraps err the way typeErrorMessage does before it calls
+// typeErrorField.
+func typeErrorOf(t *testing.T, err error) *json.UnmarshalTypeError {
+	t.Helper()
+	var typeErr *json.UnmarshalTypeError
+	req.ErrorAs(t, err, &typeErr)
+	return typeErr
+}
+
+func TestTypeErrorMessageLeavesOtherErrorsUnnamed(t *testing.T) {
 	var into probeBody
 	err := json.Unmarshal([]byte(`{"odometer":`), &into)
 	req.Error(t, err)
-	_, named := typeErrorField(err, &into)
+	_, named := typeErrorMessage(err, &into)
 	req.False(t, named)
 }
 
@@ -202,7 +212,7 @@ func TestTypeErrorFieldNamesNoOtherFieldInTheseShapes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := json.Unmarshal([]byte(tt.body), tt.into)
 			req.Error(t, err)
-			field, named := typeErrorField(err, tt.into)
+			field, named := typeErrorField(typeErrorOf(t, err), tt.into)
 			req.Equal(t, tt.named, named)
 			req.Equal(t, tt.field, field)
 		})
@@ -219,18 +229,26 @@ func TestTypeErrorFieldStopsOnANonIndexSliceSegment(t *testing.T) {
 	req.False(t, named)
 }
 
-// A number the field cannot hold is still a number, so the refusal does not
-// call it the wrong type; a string or a number sent to another kind is.
+// A number the field's type refuses, past its range or in a form the type does
+// not take, is still a number, so the refusal does not call it a value of the
+// wrong type (ADR-0012). Both wordings say what the field holds, which reads
+// true of a map or a slice as well as a scalar.
 func TestDecodeJSONSaysWhenANumberDoesNotFit(t *testing.T) {
 	for _, tt := range []struct {
 		body string
 		want string
 	}{
-		{`{"odometer":1e400}`, "odometer is not a number this field can hold"},
-		{`{"odometer":99999999999999999999}`, "odometer is not a number this field can hold"},
-		{`{"odometer":1.5}`, "odometer is not a number this field can hold"},
-		{`{"odometer":"1500"}`, "odometer is the wrong type"},
-		{`{"moves":[{"treadMm":5}]}`, "moves.treadMm is the wrong type"},
+		{`{"odometer":1e400}`, "odometer holds a number this field does not accept"},
+		{`{"odometer":99999999999999999999}`, "odometer holds a number this field does not accept"},
+		{`{"odometer":1.5}`, "odometer holds a number this field does not accept"},
+		{`{"odometer":"1500"}`, "odometer holds a value of the wrong type"},
+		{`{"moves":[{"treadMm":5}]}`, "moves.treadMm holds a value of the wrong type"},
+		{`{"odometer":1e3}`, "odometer holds a number this field does not accept"},
+		{`{"odometer":5.0}`, "odometer holds a number this field does not accept"},
+		{`{"odometers":{"FL":1.5}}`, "odometers holds a number this field does not accept"},
+		{`{"addr":-1}`, "addr holds a number this field does not accept"},
+		{`{"odometers":{"FL":"1500"}}`, "odometers holds a value of the wrong type"},
+		{`{"moves":"x"}`, "moves holds a value of the wrong type"},
 	} {
 		t.Run(tt.body, func(t *testing.T) {
 			rec := httptest.NewRecorder()
@@ -245,6 +263,23 @@ func TestDecodeJSONSaysWhenANumberDoesNotFit(t *testing.T) {
 			req.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 			req.Equal(t, "malformed_json", body.Code)
 			req.Equal(t, tt.want, body.Message)
+		})
+	}
+}
+
+// The unit PATCH's decoder answers a value it cannot store with the generic
+// refusal and names no field, which malformed_json's registry meaning says.
+func TestDecodeJSONStrictNamesNoFieldForAValueItCannotStore(t *testing.T) {
+	for _, body := range []string{`{"odometer":"1500"}`, `{"odometer":1.5}`} {
+		t.Run(body, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPatch, "/", strings.NewReader(body))
+			var into probeBody
+			req.False(t, decodeJSONStrict(rec, r, &into))
+			req.Equal(t, http.StatusBadRequest, rec.Code)
+			var refusal errorBody
+			req.NoError(t, json.Unmarshal(rec.Body.Bytes(), &refusal))
+			req.Equal(t, errorBody{Code: "malformed_json", Message: "malformed json"}, refusal)
 		})
 	}
 }
