@@ -1093,14 +1093,14 @@ func TestRotateRefusesContradictoryAndMalformedFields(t *testing.T) {
 			body:   swap(`,"odometer":"1500"`),
 			status: http.StatusBadRequest,
 			code:   "malformed_json",
-			exact:  "odometer is the wrong type",
+			exact:  "odometer holds a value of the wrong type",
 		},
 		{
 			name:   "a reading that is not a number",
 			body:   swap(fmt.Sprintf(`,"odometers":{%q:"1500"}`, horse)),
 			status: http.StatusBadRequest,
 			code:   "malformed_json",
-			exact:  "odometers is the wrong type",
+			exact:  "odometers holds a value of the wrong type",
 		},
 		{
 			// In SQL the destination is cast before any refusal can name it,

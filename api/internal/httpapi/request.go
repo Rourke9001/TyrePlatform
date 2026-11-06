@@ -159,16 +159,19 @@ func decodeJSONStrict(w http.ResponseWriter, r *http.Request, into any) bool {
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 		return false
 	}
-	// A literal null and a value after the first are both refused: Decode
-	// alone accepts either and this decoder must not be laxer than
-	// json.Unmarshal (TYRE-72). Confirmed by asking for a second Decode's
-	// io.EOF, not dec.More(), which reports whether another *element*
-	// follows within an array or object and so answers false on a body that
-	// merely ends `}}` or `}]`.
+	// A literal null is refused although json.Unmarshal accepts one. It
+	// fills the target with nothing, so the unit PATCH, the one caller, would
+	// run it as an edit naming no field (TYRE-94).
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 		return false
 	}
+	// Anything but whitespace after the first value is refused, because
+	// Decode alone stops before it and this decoder must not be laxer than
+	// json.Unmarshal (TYRE-72). A second Decode must answer io.EOF. dec.More()
+	// would not do, since it reports whether another *element* follows within
+	// an array or object and so answers false on a body that merely ends `}}`
+	// or `}]`.
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 		return false
@@ -195,26 +198,37 @@ func unknownJSONField(err error) (string, bool) {
 }
 
 // typeErrorMessage words a refusal for a value the field could not take, or
-// answers false when typeErrorField cannot name the field.
+// answers false when err is not a type error or typeErrorField cannot name
+// the field. Each message says what the field holds, not what it is, because
+// the name stops at a map and leaves out a slice's index, so the value may
+// sit inside the named field (ADR-0012). Three shapes get one of these
+// messages for text, though text is the kind they take: a field tagged
+// ,string given text it cannot parse, a []byte given text that is not
+// base64, and a numeric-keyed map's key that will not parse. No request type
+// has any of them.
 func typeErrorMessage(err error, into any) (string, bool) {
-	field, named := typeErrorField(err, into)
+	var typeErr *json.UnmarshalTypeError
+	if !errors.As(err, &typeErr) {
+		return "", false
+	}
+	field, named := typeErrorField(typeErr, into)
 	if !named {
 		return "", false
 	}
-	// A number the field cannot hold (too large, past float64's range, or a
-	// fraction for an integer) is still a number, so it is not called the
-	// wrong type, which would send the caller to fix the wrong thing.
-	var typeErr *json.UnmarshalTypeError
-	if errors.As(err, &typeErr) && strings.HasPrefix(typeErr.Value, "number ") && isNumber(deref(typeErr.Type)) {
-		return field + " is not a number this field can hold", true
+	// A number past its type's range, or with a minus sign on an unsigned
+	// kind or an exponent or decimal point on an integer kind, is still a
+	// number, and calling it a value of the wrong type would send the caller
+	// to fix the wrong thing (ADR-0012).
+	if strings.HasPrefix(typeErr.Value, "number ") && isNumber(deref(typeErr.Type)) {
+		return field + " holds a number this field does not accept", true
 	}
-	return field + " is the wrong type", true
+	return field + " holds a value of the wrong type", true
 }
 
 func isNumber(t reflect.Type) bool {
 	switch t.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
 		reflect.Float32, reflect.Float64:
 		return true
 	default:
@@ -222,16 +236,15 @@ func isNumber(t reflect.Type) bool {
 	}
 }
 
-// typeErrorField names the field whose value had the wrong type, in this
-// package's json tags only, so no caller text reaches the refusal (ADR-0012).
-// From Go 1.27 the decoder's path carries the caller's map keys, slice indexes
-// and key spelling (TYRE-379), so the name is rebuilt by walking that path
-// through into's type, and it stops at a map, whose key is caller text. A
-// segment more than one field could answer, or a path the walk cannot
+// typeErrorField names the field whose value the decoder could not store, in
+// this package's json tags only, so no caller text reaches the refusal
+// (ADR-0012). From Go 1.27 the decoder's path carries the caller's map keys,
+// slice indexes and key spelling (TYRE-379), so the name is rebuilt by walking
+// that path through into's type, and it stops at a map, whose key is caller
+// text. A segment more than one field could answer, or a path the walk cannot
 // resolve, names nothing, and the refusal is the generic one.
-func typeErrorField(err error, into any) (string, bool) {
-	var typeErr *json.UnmarshalTypeError
-	if !errors.As(err, &typeErr) || typeErr.Field == "" {
+func typeErrorField(typeErr *json.UnmarshalTypeError, into any) (string, bool) {
+	if typeErr.Field == "" {
 		return "", false
 	}
 	names, leaf, ok := tagPath(reflect.TypeOf(into), strings.Split(typeErr.Field, "."))

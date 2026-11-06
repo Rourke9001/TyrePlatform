@@ -48,6 +48,20 @@ after Start and replacing that context.
 makes a general claim, test it on inputs outside the reviewer's examples,
 or narrow the claim.
 
+## 2026-11-06 - Go 1.27 compiles encoding/json from its v2 files, so decode.go is not the decoder (TYRE-379, #166)
+
+**What happened:** a stage 5 review agent on #166 cited `decode.go` and
+`encode.go` for Go 1.27 behaviour and raised a bug that does not exist on
+the decoder that runs. In the pinned image (Go 1.27.3) `JSONv2` is on by
+default (`internal/buildcfg/exp.go`), both files carry
+`//go:build !goexperiment.jsonv2`, and `go list` lists only the `v2_*.go`
+files.
+
+**The rule:** Go 1.27 builds encoding/json from its v2 files (`JSONv2` on
+by default). Read `v2_inject.go` and `v2/` for decoder behaviour, never
+`decode.go` or `encode.go`, and confirm with
+`go list -f '{{.GoFiles}}' encoding/json`.
+
 ## 2026-11-05 - A client copy of a SQL rule drifted in every review round, however carefully its inputs were read (#167)
 
 **What happened:** #167's stage 5 round 1 prescribed dividing FR-INS-033 by
