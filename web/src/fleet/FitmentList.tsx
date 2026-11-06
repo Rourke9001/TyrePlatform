@@ -3,6 +3,7 @@ import { Link } from "react-router";
 
 import { getDevTenantId } from "../api/devTenant";
 import { fetchOpenFitments, type FleetFitment } from "../api/units";
+import { formatCount } from "../format/numbers";
 import { useTenantDate } from "../time/tenantTime";
 import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
@@ -67,7 +68,7 @@ export function FitmentList() {
                     <td data-mono="true">{f.displayCode}</td>
                     <td data-nowrap="true">{asDate(f.fittedAt)}</td>
                     <td data-align="right" data-mono="true">
-                      {f.daysFitted}
+                      {formatCount(f.daysFitted)}
                     </td>
                   </tr>
                 ))}

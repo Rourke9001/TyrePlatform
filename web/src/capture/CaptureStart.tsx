@@ -8,6 +8,7 @@ import { odometerRejection, odometerWarnings, projectedOdometerKm } from "./hist
 import type { RecordedWarning } from "./draft";
 import { entryKey } from "./keypadKey";
 import { groupThousands } from "../format/groupThousands";
+import { formatTreadAge } from "../format/treadAge";
 import { useUnitLabels } from "../units/units";
 import "./capture.css";
 
@@ -58,22 +59,19 @@ export function CaptureStart({
   // nobody read (NFR-PRO-003).
   const [accepted, setAccepted] = useState(false);
   // FR-INS-033: warn and REQUIRE confirmation. A pre-checked box satisfies
-  // the control without the driver acting on it. Separate from accepted:
-  // one confirms WHAT, the other confirms an implausible jump is real.
+  // the control without the driver acting on it, so every key that changes
+  // the value clears it. Separate from accepted: one confirms WHAT, the
+  // other confirms an implausible jump is real.
   const [plausible, setPlausible] = useState(false);
-  // Frozen at mount: this screen is open seconds and nothing on it is
-  // finer than day granularity, so the clock must not depend on when React
-  // re-renders (FR-INS-033's denominator included).
-  const [openedAt] = useState(() => Date.now());
   const labels = useUnitLabels();
 
   // FR-INS-020's three clauses in one expression: typed is a correction,
   // tapped is acceptance, else the odometer is absent. Every check reads
   // this, so an unconfirmed projection gates and blocks nothing.
-  const projected = projectedOdometerKm(motive, new Date(openedAt));
+  const projected = projectedOdometerKm(motive);
   const value = typed !== "" ? parseInt(typed, 10) : accepted ? projected : null;
   const rejection = odometerRejection(value, motive, labels);
-  const warnings = odometerWarnings(value, motive, new Date(openedAt), labels);
+  const warnings = odometerWarnings(value, motive, labels);
   // What the readout shows: the driver's digits, else the projection offered
   // for confirmation, else nothing. Dimmed until it is the recorded value, so
   // a provisional number never looks like an entered one (NFR-USE-005).
@@ -160,12 +158,17 @@ export function CaptureStart({
             {groupThousands(shown === "" ? "000000" : shown)}
             <span className="cap-odo-unit">{labels.distance}</span>
           </p>
+          {/* TYRE-171: only a submitted inspection writes the odometer
+              timeline, so a unit's own recorded odometer is not a reading
+              here. */}
           <p className="cap-hint">
             {motive.lastOdometerKm === null
-              ? "No reading on record yet. This one starts the count."
+              ? "No odometer reading from an inspection yet. This one starts the count."
               : `Last reading ${groupThousands(String(motive.lastOdometerKm))} ${labels.distance}`}
-            {motive.lastOdometerAt
-              ? `, ${Math.round((openedAt - Date.parse(motive.lastOdometerAt)) / 86_400_000)} days ago`
+            {/* The age words every other reading's age uses: grouped (U55),
+                and one day is "1 day" (TYRE-342). */}
+            {motive.lastOdometerAgeDays != null
+              ? `, ${formatTreadAge(motive.lastOdometerAgeDays)}`
               : ""}
           </p>
           {/* The confirm half of "confirm or correct" (FR-INS-020): one tap,
@@ -178,7 +181,7 @@ export function CaptureStart({
           )}
           {value === null && projected !== null && (
             <p className="cap-hint">
-              Worked out from that reading and this unit&rsquo;s usual daily distance. Check it
+              Worked out from that reading and this unit&apos;s usual daily distance. Check it
               against the dash. Confirm it, type the real number, or skip it.
             </p>
           )}
@@ -193,13 +196,18 @@ export function CaptureStart({
               // driver is reading six digits off a dial, and appending to a
               // number they did not enter is how a transcription becomes a
               // hybrid of two readings.
-              if (k.type === "digit") {
+              // A digit past the seventh is dropped, so it leaves the tick.
+              if (k.type === "digit" && typed.length < ODOMETER_MAX_DIGITS) {
                 setAccepted(false);
+                setPlausible(false);
                 setTyped((o) => (o.length >= ODOMETER_MAX_DIGITS ? o : o + k.digit));
               }
+              // TYRE-171: one character, so a mis-tap in a seven-digit field
+              // is not a full re-type (NFR-USE-006).
               if (k.type === "delete") {
                 setAccepted(false);
-                setTyped("");
+                setPlausible(false);
+                setTyped((t) => t.slice(0, -1));
               }
               // The go key is the largest control on the keypad. Leaving it
               // inert here would train a driver to distrust it on the entry

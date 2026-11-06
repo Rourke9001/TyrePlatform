@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 
-import { bearerMode } from "../api/token";
-import { failureOf } from "../auth/actorContext";
+import { ApiError } from "../api/apiError";
+import { bearerMode, stampSubject } from "../api/token";
+import { ACCESS_COPY, failureOf } from "../auth/actorContext";
 import { SignInButton } from "../auth/SignInButton";
 import { Button } from "../ui/Button";
 import { inertOutside } from "../ui/inertOutside";
@@ -15,7 +16,7 @@ import { ConfirmDiscard } from "./ConfirmDiscard";
 import type { RecordedWarning } from "./draft";
 import { saveHeader } from "./draft";
 import { useCaptureContext } from "./captureContext";
-import { attemptSend, listOutbox, queueDraft } from "./outbox";
+import { attemptSend, listOutbox, mayCarry, queueDraft } from "./outbox";
 import { absentCells, appVersion, capturedCells, deviceId } from "./payload";
 import { PositionSheet } from "./PositionSheet";
 import { deriveProgress } from "./rig";
@@ -29,6 +30,76 @@ interface Outcome {
   state: "sent" | "queued" | "failed";
   lastCode: string | null;
   lastStatus: number | null;
+  stampHeld: boolean;
+}
+
+// NFR-USE-005: a 403 answers the same on every reload, so it says who can
+// change it (TYRE-329). On this read a 403 "forbidden" is a vehicle outside
+// the driver's capture set (ADR-0006), not the unset account failureOf
+// takes it for on GET /api/me.
+function refusalWords(error: unknown, what: string): string | null {
+  if (!(error instanceof ApiError) || error.status !== 403) return null;
+  if (error.code === "tenant_inactive") return ACCESS_COPY["tenant-inactive"].body;
+  if (error.code === "not_provisioned") return ACCESS_COPY["not-set-up"].body;
+  return `You do not have permission to inspect ${what}. Ask your fleet office to check you are assigned to it.`;
+}
+
+// The four answers a capture read can get, for the motive and for the rig's
+// members alike: a refusal says who can change it; a signed-out driver signs
+// in; the token store's latch clears only on a page reload (apiError.ts); the
+// rest is signal. TYRE-465 makes this one table for every capture screen.
+function LoadFailure({
+  error,
+  refused,
+  loading,
+  saved,
+  reloadLabel,
+  onReload,
+}: {
+  error: unknown;
+  refused: string;
+  loading: string;
+  saved: boolean;
+  reloadLabel: string;
+  onReload: () => void;
+}) {
+  const failure = failureOf(error);
+  const refusal = refusalWords(error, refused);
+  const reason =
+    refusal ??
+    (failure === "signed-out"
+      ? `Sign in to load ${loading}.`
+      : failure === "unavailable"
+        ? ACCESS_COPY.unavailable.body
+        : `Could not load ${loading}. Find signal and try again.`);
+  let controls: ReactNode;
+  if (refusal !== null) controls = <BackToWork />;
+  else if (failure === "unavailable") {
+    controls = (
+      <Button variant="primary" size="glove" block onClick={() => window.location.reload()}>
+        Try again
+      </Button>
+    );
+  } else {
+    const signedOut = failure === "signed-out";
+    controls = (
+      <>
+        {signedOut && bearerMode() && <SignInButton label="Sign in" />}
+        <Button variant={signedOut ? "secondary" : "primary"} size="glove" block onClick={onReload}>
+          {reloadLabel}
+        </Button>
+      </>
+    );
+  }
+  return (
+    <section className="cap-screen">
+      <p role="alert" className="cap-alert cap-alert--stop">
+        {reason}
+        {saved && " Your readings are saved."}
+      </p>
+      {controls}
+    </section>
+  );
 }
 
 export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: string | null }) {
@@ -44,9 +115,8 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const [attachedIds, setAttachedIds] = useState<string[] | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // Frozen at mount, same reason as CaptureStart: severityOf runs once per
-  // cell per render, and a wear-rate comparison must not move with a
-  // re-render.
+  // Frozen at mount: severityOf runs once per cell per render, and a
+  // wear-rate comparison must not move with a re-render.
   const [openedAt] = useState(() => Date.now());
 
   const lifecycle = useDraftLifecycle(vehicleId, taskId, setActiveKey, setAttachedIds);
@@ -57,6 +127,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const startedAt = lifecycle.resumedStartedAt ?? undefined;
   const motive = useCaptureContext(vehicleId, startedAt, resumed);
 
+  // U186: past the start screen, the walk-around and the review read held contexts.
   const rigComp = useRigComposition(
     motive.data,
     vehicleId,
@@ -64,8 +135,20 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     attachedIds,
     setAttachedIds,
     startedAt,
+    screen !== "start",
+    draft?.startedAt,
+    draft?.combinationId,
   );
-  const { confirmedIds, contexts, membersFailed, toggleAttached } = rigComp;
+  const {
+    confirmedIds,
+    contexts,
+    heldMotive,
+    membersError,
+    membersRefreshing,
+    refetchMembers,
+    toggleAttached,
+  } = rigComp;
+  const shownMotive = heldMotive ?? motive.data;
 
   // The tenant's unit words, read once for every position's warnings.
   const labels = useUnitLabels();
@@ -91,6 +174,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     const ctx = motive.data;
     if (!ctx) return;
     setAttachedIds(init.observedMemberVehicleIds);
+    rigComp.hold();
     void lifecycle.startDraftAndAdvance(ctx, init);
   }
 
@@ -127,11 +211,12 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         const still = (await listOutbox()).find((e) => e.clientUuid === entry.clientUuid);
         setOutcome(
           still === undefined
-            ? { state: "sent", lastCode: null, lastStatus: null }
+            ? { state: "sent", lastCode: null, lastStatus: null, stampHeld: false }
             : {
                 state: still.state === "failed" ? "failed" : "queued",
                 lastCode: still.lastCode ?? null,
                 lastStatus: still.lastStatus,
+                stampHeld: !mayCarry(still, stampSubject()),
               },
         );
         setDraft(null);
@@ -152,9 +237,17 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         state={outcome.state}
         lastCode={outcome.lastCode}
         lastStatus={outcome.lastStatus}
+        stampHeld={outcome.stampHeld}
       />
     );
-  } else if (!resumed || motive.isPending) {
+  } else if (
+    !resumed ||
+    // A held motive does not wait on its query (U186).
+    (heldMotive === undefined && motive.isPending) ||
+    // Only the start screen waits on a stale copy that is fetching (U179, U186).
+    (screen === "start" &&
+      ((motive.data !== undefined && motive.isStale && motive.isFetching) || membersRefreshing))
+  ) {
     body = <p className="cap-wait">Loading…</p>;
   } else if (lifecycle.otherDriverHeld) {
     body = (
@@ -186,47 +279,41 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         />
       </section>
     );
-  } else if (motive.isError || !motive.data) {
+  } else if (!shownMotive) {
     // NFR-AVL-002: starting requires the server; every threshold and
     // warning depends on data that must have arrived. The storage-unavailable
     // alert is hoisted so its retry can sit beside this screen's own, each
     // naming its own action.
-    const signedOut = failureOf(motive.error) === "signed-out";
     body = (
-      <section className="cap-screen">
-        <p role="alert" className="cap-alert cap-alert--stop">
-          {signedOut
-            ? "Sign in to load this vehicle."
-            : "Could not load this vehicle. Find signal and try again."}
-        </p>
-        {signedOut && bearerMode() && <SignInButton label="Sign in" />}
-        <Button
-          variant={signedOut ? "secondary" : "primary"}
-          size="glove"
-          block
-          onClick={() => void motive.refetch()}
-        >
-          Reload vehicle
-        </Button>
-      </section>
+      <LoadFailure
+        error={motive.error}
+        refused="this vehicle"
+        loading="this vehicle"
+        saved={false}
+        reloadLabel="Reload vehicle"
+        onReload={() => void motive.refetch()}
+      />
     );
   } else if (screen === "start") {
     body = (
       <CaptureStart
-        motive={motive.data}
+        motive={shownMotive}
         storageBlocked={storageFault === "unavailable"}
         attachedIds={confirmedIds ?? [vehicleId]}
         onToggleAttached={toggleAttached}
         onStart={handleStart}
       />
     );
-  } else if (membersFailed) {
+  } else if (membersError !== null) {
     body = (
-      <section className="cap-screen">
-        <p role="alert" className="cap-alert cap-alert--stop">
-          Could not load the rest of the rig. Find signal and try again. Your readings are saved.
-        </p>
-      </section>
+      <LoadFailure
+        error={membersError}
+        refused="a unit on this rig"
+        loading="the rest of the rig"
+        saved
+        reloadLabel="Reload rig"
+        onReload={refetchMembers}
+      />
     );
   } else if (!contexts || !draft) {
     body = <p className="cap-wait">Loading…</p>;
@@ -331,7 +418,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
               : "This phone is not saving reliably. Keep the app open until this inspection has been sent."}
           </p>
           {storageFault === "unavailable" && (
-            // Named for what it retries. See the motive.isError branch above
+            // Named for what it retries. See the load-failure branch above
             // for why both retries need distinct labels.
             <Button variant="secondary" size="glove" onClick={lifecycle.retryStorage}>
               Recheck storage

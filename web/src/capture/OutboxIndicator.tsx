@@ -1,11 +1,22 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
+import { stampSubject } from "../api/token";
 import { SignInButton } from "../auth/SignInButton";
 import { Button } from "../ui/Button";
 
 import { ConfirmDiscard } from "./ConfirmDiscard";
-import { discardEntry, flushOutbox, isStale, startOutboxHeartbeat } from "./outbox";
-import { useOutbox, useSignInToSend } from "./useOutbox";
+import type { OutboxEntry } from "./outbox";
+import {
+  CLOCK_AHEAD_COPY,
+  discardEntry,
+  flushOutbox,
+  heldBy,
+  isStale,
+  mayCarry,
+  STAMP_HOLD_COPY,
+  startOutboxHeartbeat,
+} from "./outbox";
+import { holdsForSignIn, useOutbox, useSignInToSend } from "./useOutbox";
 import "./outbox.css";
 
 // Mounted in the app shell rather than inside capture: a driver who has walked
@@ -13,6 +24,14 @@ import "./outbox.css";
 export function OutboxIndicator() {
   const entries = useOutbox();
   const needSignIn = useSignInToSend(entries);
+  // TYRE-218: the entry whose removal IndexedDB refused. It stays in the
+  // queue, so without a line the tap reads as ignored (NFR-USE-005).
+  const [removeFailed, setRemoveFailed] = useState<string | null>(null);
+
+  function remove(clientUuid: string) {
+    setRemoveFailed(null);
+    discardEntry(clientUuid).catch(() => setRemoveFailed(clientUuid));
+  }
 
   useEffect(() => {
     // FR-OFF-009: on app-open, and whenever connectivity returns while the
@@ -36,6 +55,23 @@ export function OutboxIndicator() {
   const waiting = entries.filter((e) => e.state !== "failed");
   const blocked = entries.filter((e) => e.state === "failed");
   const stale = waiting.filter((e) => isStale(e));
+  // FR-OFF-020 warns of a stale entry once, naming what it waits on. The
+  // clock line and the band's sign-in line prefix the warning for the entries
+  // they cover. Any other stale entry gets a line per cause.
+  const me = stampSubject();
+  // U104: sendEntry sends nothing mayCarry refuses, so an entry `me` may not
+  // carry waits on its stamped driver's sign-in, whatever hold it last met.
+  const onClock = (e: OutboxEntry) => e.lastCode === "TY021" && mayCarry(e, me);
+  const signsIn = (e: OutboxEntry) => needSignIn > 0 && holdsForSignIn(e, me);
+  const causeOf = (e: OutboxEntry) =>
+    mayCarry(e, me) ? heldBy(e.lastStatus, e.lastCode) : STAMP_HOLD_COPY;
+  const staleClock = stale.some(onClock);
+  const staleSignIn = stale.some(signsIn);
+  const others = stale.filter((e) => !onClock(e) && !signsIn(e));
+  const staleOnSignal = others.some((e) => causeOf(e) === null);
+  const staleCauses = [
+    ...new Set(others.map(causeOf).filter((cause): cause is string => cause !== null)),
+  ];
 
   return (
     <div className="cap-outbox">
@@ -68,27 +104,38 @@ export function OutboxIndicator() {
               question="Remove this inspection from the phone?"
               consequence="The office must already have these readings; nothing will be sent."
               confirm="Remove"
-              onConfirm={() => void discardEntry(e.clientUuid)}
+              onConfirm={() => remove(e.clientUuid)}
             />
+            {removeFailed === e.clientUuid && (
+              <span role="alert">Could not remove it. Try again.</span>
+            )}
           </div>
         ))}
-        {waiting.some((e) => e.lastCode === "TY021") && (
+        {waiting.some(onClock) && (
           <span className="cap-outbox-line cap-outbox-line--stop" role="alert">
-            {/* TYRE-215: the one refusal the driver can fix without the office. */}
-            This phone&apos;s clock is ahead, so the office could not accept it yet. It will send
-            later. Check the time.
+            {staleClock && "Waiting over two days. "}
+            {CLOCK_AHEAD_COPY}
           </span>
         )}
         {needSignIn > 0 && (
-          <span className="cap-outbox-line">
+          <span
+            className={staleSignIn ? "cap-outbox-line cap-outbox-line--stop" : "cap-outbox-line"}
+            role={staleSignIn ? "alert" : undefined}
+          >
+            {staleSignIn && "Waiting over two days. "}
             Sign in to send {needSignIn}&nbsp;inspection{needSignIn === 1 ? "" : "s"}
           </span>
         )}
-        {stale.length > 0 && (
+        {staleOnSignal && (
           <span className="cap-outbox-line cap-outbox-line--stop" role="alert">
             Waiting over two days. Please find signal and sync.
           </span>
         )}
+        {staleCauses.map((cause) => (
+          <span key={cause} className="cap-outbox-line cap-outbox-line--stop" role="alert">
+            Waiting over two days. {cause}
+          </span>
+        ))}
       </div>
       {needSignIn > 0 && <SignInButton label="Sign in" />}
       {/* FR-OFF-010 */}

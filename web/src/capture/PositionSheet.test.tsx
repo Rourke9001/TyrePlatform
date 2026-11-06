@@ -105,8 +105,8 @@ async function enter(user: UserEvent, treads: string[], pressure: string) {
   for (let i = 0; i < treads.length; i++) {
     await user.click(screen.getByRole("button", { name: treads[i] }));
     await advance(250);
-    // A settling digit (4-9 empty) auto-advances on the timer; a
-    // non-settling one (0-3) needs the Next click. aria-current says which
+    // A settling digit (0 or 4-9 empty) auto-advances on the timer; a
+    // non-settling one (1-3) needs the Next click. aria-current says which
     // case ran.
     const stillOnField = screen.getByLabelText(`Tread reading ${i + 1} of ${treads.length}`);
     if (stillOnField.getAttribute("aria-current") === "true") {
@@ -333,10 +333,10 @@ describe("PositionSheet", () => {
     expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
   });
 
-  // FR-INS-029a: the driver never sees the words inner, outer or centre. The
-  // prototype's Outer/Centre/Inner labels are not carried over (decision D-A).
-  // Swept with the one shared list (test/spoken.ts), which carries CR-010's
-  // compliance words with them.
+  // FR-INS-029a: the tread fields never carry the words inner, outer or
+  // centre. The prototype's Outer/Centre/Inner labels are not carried over
+  // (decision D-A). Swept with test/spoken.ts, which checks CR-010's
+  // compliance words across the whole sheet.
   it("never speaks a forbidden word on an untouched sheet", () => {
     const { container } = render(<PositionSheet {...props({})} />);
     expectNothingForbiddenSpoken(container, /tread reading 1 of 3/);
@@ -847,5 +847,28 @@ describe("the pressure field's unit", () => {
       </ActorContext.Provider>,
     );
     expect(screen.getByText("XKPA")).toBeInTheDocument();
+  });
+});
+
+// U55 with owner ruling B8 (TYRE-342): the pressure cell is also the live
+// keypad display, and it groups thousands as the driver types.
+describe("the pressure field's grouping", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows a four-digit pressure with a comma while it is typed", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<PositionSheet {...props({})} />);
+
+    await user.click(screen.getByLabelText("Pressure"));
+    for (const d of "1100") {
+      await user.click(screen.getByRole("button", { name: d }));
+    }
+
+    expect(within(screen.getByLabelText("Pressure")).getByText("1,100")).toBeVisible();
   });
 });

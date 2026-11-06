@@ -94,6 +94,23 @@ for (const phone of PHONES) {
     expect(go.y).toBeGreaterThanOrEqual(0);
     expect(go.x + go.width).toBeLessThanOrEqual(phone.width);
     expect(go.y + go.height).toBeLessThanOrEqual(phone.height);
+
+    // The widest value a tile holds: FR-INS-031's 1200 kPa ceiling, grouped
+    // to "1,200" (U55). scrollWidth misses a spill under a pixel, so the
+    // value's box is held inside the tile's border.
+    const pressure = page.getByRole("button", { name: "Pressure", exact: true });
+    await pressure.click();
+    for (const d of "1200") await page.getByRole("button", { name: d, exact: true }).click();
+    await expect(pressure).toContainText("1,200");
+    const spill = await pressure.getByText("1,200", { exact: true }).evaluate((val) => {
+      const tile = val.closest("button");
+      if (tile === null) return "no tile";
+      const t = tile.getBoundingClientRect();
+      const v = val.getBoundingClientRect();
+      const border = parseFloat(getComputedStyle(tile).borderLeftWidth);
+      return v.left >= t.left + border && v.right <= t.right - border ? null : "spills";
+    });
+    expect(spill, "1,200 inside the pressure tile").toBeNull();
   });
 }
 

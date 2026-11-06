@@ -90,17 +90,24 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
         settled: false,
       };
 
-    case "next":
+    case "next": {
+      // Pressure is the last field, so from it Next goes to a tread still
+      // empty, where the go key's "Next" is sending the driver. Staying put
+      // would empty the buffer under a value the next digits then replace.
+      const empty = state.treads.findIndex((t) => t === null);
+      const field = isPressure(state, opts) ? (empty < 0 ? state.field : empty) : state.field + 1;
+      if (field === state.field) return { state, settled: false };
       return {
         state: {
           ...state,
-          field: Math.min(state.field + 1, opts.treadReadingCount),
+          field,
           buffer: "",
           advancedFrom: state.touched && !isPressure(state, opts) ? state.field : null,
           touched: false,
         },
         settled: false,
       };
+    }
 
     case "delete":
       return { state: write(state, "", opts), settled: false };
@@ -141,7 +148,8 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
       const next = write(state, buffer, opts);
       // The whole auto-advance rule, in one line: could another digit still
       // change this answer? Appending "0" is the smallest possible growth, so
-      // if even that overshoots, nothing can.
+      // if even that overshoots, nothing can. A lone 0 waits too, unlike the
+      // prototype's: it is also the slip off the 8 and the half key (U178).
       const settled = valueOf(buffer + "0", state, opts) > ceiling;
       return { state: next, settled };
     }

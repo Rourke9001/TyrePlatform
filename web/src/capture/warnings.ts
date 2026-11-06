@@ -1,4 +1,5 @@
 import type { CaptureConfig, CapturePosition } from "./captureContext";
+import { groupThousands } from "../format/groupThousands";
 import type { UnitLabels } from "../units/units";
 
 // The code IS the requirement id, travelling to app.inspection_warning
@@ -59,10 +60,12 @@ export function governingTread(treads: (number | null)[]): number | null {
 }
 
 // BR-ANL-007, a property of this inspection rather than of the tyre.
+// Rounded to tenths, the finest granularity (000011): a float subtraction
+// of tenths misses the >= boundary the dashboard's numeric spread meets.
 export function widthSpread(treads: (number | null)[]): number | null {
   if (treads.length === 0 || treads.some((t) => t === null)) return null;
   const t = treads as number[];
-  return Math.max(...t) - Math.min(...t);
+  return Math.round((Math.max(...t) - Math.min(...t)) * 10) / 10;
 }
 
 export function positionWarnings(
@@ -110,28 +113,42 @@ export function positionWarnings(
   // compare against and the reading stays deliberately unclassified.
   if (entry.pressureKpa !== null && position.targetKpa !== null) {
     const target = position.targetKpa;
-    const pct = ((entry.pressureKpa - target) / target) * 100;
-    const criticalUnder = position.criticalUnderPct ?? Infinity;
-    const criticalOver = position.criticalOverPct ?? Infinity;
-    const warnUnder = position.warnUnderPct ?? Infinity;
-    const warnOver = position.warnOverPct ?? Infinity;
+    // (p - t) / t * 100 against a band% as whole numbers, scaled by 1000:
+    // kPa are whole and bands are stored to a tenth of a percent (000012), so
+    // no derived float meets an edge app.inflation_compliance meets exactly
+    // (000013). A null band leaves that side unbanded.
+    const off = (entry.pressureKpa - target) * 1000;
+    const edge = (band: number | null) => (band === null ? null : Math.round(band * 10) * target);
+    const under = (band: number | null) => {
+      const e = edge(band);
+      return e !== null && off < -e;
+    };
+    const over = (band: number | null) => {
+      const e = edge(band);
+      return e !== null && off >= e;
+    };
+    // U55: entry reaches 1200 kPa, so both figures are grouped for display.
+    // enteredValue stays the bare number DR-021 stores.
+    // "the" target, since "a" or "an" before it would depend on how the
+    // tenant's number is read aloud ("a 900", "an 800"), TYRE-129.
+    const reading = `${groupThousands(String(entry.pressureKpa))} ${units.pressure} against the ${groupThousands(String(target))} ${units.pressure} target.`;
 
     // At most one pressure warning: FR-INS-031a supersedes FR-INS-037's
     // band rather than stacking. Strict under, inclusive over, matching
     // app.inflation_compliance's `pct < 100 - critical_under_pct` (000013),
     // the same drift FR-INS-036/041 are pinned against.
-    if (pct < -criticalUnder || pct >= criticalOver) {
+    if (under(position.criticalUnderPct) || over(position.criticalOverPct)) {
       out.push({
         code: "FR-INS-031a",
         requiresConfirmation: true,
-        message: `${entry.pressureKpa} ${units.pressure} against a ${target} ${units.pressure} target. Check the gauge and confirm.`,
+        message: `${reading} Check the gauge and confirm.`,
         enteredValue: String(entry.pressureKpa),
       });
-    } else if (pct < -warnUnder || pct >= warnOver) {
+    } else if (under(position.warnUnderPct) || over(position.warnOverPct)) {
       out.push({
         code: "FR-INS-037",
         requiresConfirmation: false,
-        message: `${entry.pressureKpa} ${units.pressure} against a ${target} ${units.pressure} target.`,
+        message: `${reading} Check the inflation before departure.`,
         enteredValue: String(entry.pressureKpa),
       });
     }

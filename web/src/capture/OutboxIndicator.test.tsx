@@ -7,6 +7,7 @@ import { me } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { db } from "./draft";
 import type { OutboxEntry, OutboxState } from "./outbox";
+import { CLOCK_AHEAD_COPY } from "./outbox";
 import { OutboxIndicator } from "./OutboxIndicator";
 import type { SubmitPayload } from "./payload";
 
@@ -44,6 +45,9 @@ vi.mock("../auth/oidc", () => ({
 beforeEach(async () => {
   await db.open();
   await outbox().clear();
+  // The fixtures are stamped for this driver, and the band words another
+  // driver's entry apart (U104).
+  window.localStorage.setItem("tyre.dev.user-id", "oid-driver-1");
   // The heartbeat and the mount flush both reach the network otherwise.
   vi.stubGlobal(
     "fetch",
@@ -53,6 +57,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllGlobals();
+  window.localStorage.clear();
   await outbox().clear();
 });
 
@@ -120,6 +125,43 @@ describe("OutboxIndicator", () => {
     expect(await screen.findByText(/waiting over two days/i)).toBeInTheDocument();
   });
 
+  // The account, the token store or the server holds these, so after two
+  // days the line warns, naming that cause, not signal.
+  it.each([
+    [403, "tenant_inactive", "This company's account is not active. Contact your fleet office."],
+    [403, "not_provisioned", "Ask your fleet office to set up your account."],
+    [503, "auth_unavailable", "Sign-in is unavailable right now. Try again shortly."],
+    [500, null, "The server could not take it yet. It will send by itself."],
+  ])("names what holds a %i %s entry after two days", async (status, code, sentence) => {
+    await outbox().put({
+      ...entry("u1", "queued"),
+      queuedAt: Date.now() - 49 * 3_600_000,
+      lastStatus: status,
+      lastCode: code,
+    });
+    render(<OutboxIndicator />);
+
+    expect(await screen.findByText(`Waiting over two days. ${sentence}`)).toBeInTheDocument();
+    expect(screen.queryByText(/find signal/i)).toBeNull();
+  });
+
+  // The clock has a line of its own, so this driver's stale TY021 entry
+  // prefixes that line rather than repeating it.
+  it("prefixes the clock line for a stale TY021 entry, once", async () => {
+    await outbox().put({
+      ...entry("u1", "queued"),
+      queuedAt: Date.now() - 49 * 3_600_000,
+      lastStatus: 422,
+      lastCode: "TY021",
+    });
+    render(<OutboxIndicator />);
+
+    expect(
+      await screen.findByText(`Waiting over two days. ${CLOCK_AHEAD_COPY}`),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/clock is ahead/)).toHaveLength(1);
+  });
+
   // TYRE-167: the "needs the office" line stops being permanent. Two taps,
   // on the shell banner, only for a refused entry. A queued one shows no
   // such control.
@@ -180,6 +222,35 @@ describe("OutboxIndicator", () => {
     const [remaining] = await outbox().toArray();
     expect(remaining.clientUuid).toBe("u-202");
     expect(screen.getByRole("button", { name: /the office has bac 202/i })).toBeInTheDocument();
+    expect(screen.queryByText("Could not remove it. Try again.")).toBeNull();
+  });
+
+  // TYRE-218: IndexedDB can refuse the delete. The entry stays, so the
+  // driver is told on that entry's line why the tap did nothing, and the
+  // next tap tries again.
+  it("says so on the entry's line when the phone refuses to remove it", async () => {
+    const user = userEvent.setup();
+    await outbox().put(entry("u-101", "failed", "BAC 101"));
+    await outbox().put(entry("u-202", "failed", "BAC 202"));
+    const refused = vi.spyOn(outbox(), "delete").mockRejectedValueOnce(new Error("blocked"));
+    try {
+      render(<OutboxIndicator />);
+      await user.click(await screen.findByRole("button", { name: "The office has BAC 101" }));
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+
+      const line = await screen.findByText("Could not remove it. Try again.");
+      expect(screen.getAllByText("Could not remove it. Try again.")).toHaveLength(1);
+      const group = screen.getByRole("group", { name: /remove this inspection/i });
+      expect(group.parentElement).toContainElement(line);
+      expect(await outbox().count()).toBe(2);
+
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      await waitFor(async () => expect(await outbox().count()).toBe(1));
+      expect(screen.queryByText("Could not remove it. Try again.")).toBeNull();
+      expect(screen.getByRole("button", { name: "The office has BAC 202" })).toBeInTheDocument();
+    } finally {
+      refused.mockRestore();
+    }
   });
 
   // NFR-USE-010, ADR-0009: what is stuck, and the way to unstick it, show
@@ -244,6 +315,117 @@ describe("the sign-in line", () => {
   });
   afterEach(() => {
     window.localStorage.clear();
+  });
+
+  // A stale entry this driver can sign in for prefixes the sign-in line.
+  it("prefixes the sign-in line for this driver's stale entry, once", async () => {
+    await outbox().put({
+      ...entry("u1", "queued"),
+      queuedAt: Date.now() - 49 * 3_600_000,
+      lastStatus: 401,
+    });
+    render(<OutboxIndicator />);
+
+    expect(
+      await screen.findByText("Waiting over two days. Sign in to send 1 inspection"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Sign in to send it/)).toBeNull();
+  });
+
+  // Another driver's held entry waits for them (U104), so this driver is not
+  // told to sign in for it.
+  it("asks for the capturing driver's sign-in on another driver's stale entry", async () => {
+    window.localStorage.setItem("tyre.auth.subject", "oid-driver-2");
+    await outbox().put({
+      ...entry("u1", "queued"),
+      queuedAt: Date.now() - 49 * 3_600_000,
+      lastStatus: 401,
+    });
+    render(<OutboxIndicator />);
+
+    expect(
+      await screen.findByText(
+        "Waiting over two days. The driver who captured it needs to sign in here to send it.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Sign in to send/)).toBeNull();
+  });
+
+  // U104: sendEntry sends nothing mayCarry refuses, so another driver's entry
+  // waits on their sign-in whatever hold it last met.
+  it.each([
+    [null, null],
+    [503, null],
+    [422, "TY021"],
+    [403, "tenant_inactive"],
+  ])(
+    "asks for the capturing driver's sign-in on another driver's stale entry held by %s %s",
+    async (status, code) => {
+      window.localStorage.setItem("tyre.auth.subject", "oid-driver-2");
+      await outbox().put({
+        ...entry("u1", "queued"),
+        queuedAt: Date.now() - 49 * 3_600_000,
+        lastStatus: status,
+        lastCode: code,
+      });
+      render(<OutboxIndicator />);
+
+      await screen.findByText("1 inspection waiting to send");
+      expect(screen.getAllByText(/Waiting over two days/).map((line) => line.textContent)).toEqual([
+        "Waiting over two days. The driver who captured it needs to sign in here to send it.",
+      ]);
+      expect(screen.queryByText(/clock is ahead/)).toBeNull();
+    },
+  );
+
+  // The U104 undo leaves nobody signed in, and the next to open the app is
+  // usually the phone's owner (U115), so the line names no other driver.
+  it.each([[401], [null]])(
+    "names no other driver for a stale %s entry while nobody is signed in",
+    async (status) => {
+      window.localStorage.removeItem("tyre.auth.subject");
+      await outbox().put({
+        ...entry("u1", "queued"),
+        queuedAt: Date.now() - 49 * 3_600_000,
+        lastStatus: status,
+      });
+      render(
+        <ActorContext.Provider value={{ actor: null, settled: true, failure: "signed-out" }}>
+          <OutboxIndicator />
+        </ActorContext.Provider>,
+      );
+
+      await screen.findByText("1 inspection waiting to send");
+      expect(screen.getAllByText(/Waiting over two days/).map((line) => line.textContent)).toEqual([
+        "Waiting over two days. The driver who captured it needs to sign in here to send it.",
+      ]);
+      expect(screen.queryByText(/Another driver/)).toBeNull();
+    },
+  );
+
+  // The clock line says the entry will send later, which another driver's
+  // will not without their sign-in.
+  it("leaves another driver's TY021 entry off the clock line", async () => {
+    window.localStorage.setItem("tyre.auth.subject", "oid-driver-2");
+    await outbox().put({ ...entry("u1", "queued"), lastStatus: 422, lastCode: "TY021" });
+    render(<OutboxIndicator />);
+
+    await screen.findByText("1 inspection waiting to send");
+    expect(screen.queryByText(/clock is ahead/)).toBeNull();
+  });
+
+  // FR-OFF-020: a stale entry's warning is an alert on every line it prefixes.
+  it("warns with an alert when this driver's stale entry waits on a sign-in", async () => {
+    await outbox().put({
+      ...entry("u1", "queued"),
+      queuedAt: Date.now() - 49 * 3_600_000,
+      lastStatus: 401,
+    });
+    render(<OutboxIndicator />);
+
+    const line = await screen.findByText("Waiting over two days. Sign in to send 1 inspection");
+    expect(line).toHaveAttribute("role", "alert");
+    expect(line).toHaveClass("cap-outbox-line--stop");
   });
 
   it("asks this driver to sign in to send what a 401 is holding", async () => {

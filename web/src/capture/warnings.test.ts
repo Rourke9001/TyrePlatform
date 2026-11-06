@@ -79,6 +79,12 @@ describe("widthSpread", () => {
   it("is max minus min (BR-ANL-007)", () => {
     expect(widthSpread([15, 11, 15])).toBe(4);
   });
+
+  // 0.1mm is a tenant setting (000011), and a float subtraction of tenths
+  // leaves 15.3 - 12 at 3.3000000000000007.
+  it("is exact at tenths", () => {
+    expect(widthSpread([15.3, 12, 13])).toBe(3.3);
+  });
 });
 
 describe("positionWarnings", () => {
@@ -107,6 +113,14 @@ describe("positionWarnings", () => {
     expect(spread?.promptPhoto).toBe(true);
   });
 
+  // 4.6 - 0.6 is 3.9999999999999996 as floats: under the boundary the
+  // dashboard's numeric spread meets (000045), and stored that way.
+  it("warns at the configured spread at tenths", () => {
+    const tenths = { ...config, treadGranularityMm: 0.1 };
+    const w = positionWarnings({ treads: [4.6, 0.6, 2], pressureKpa: 800 }, steer, tenths, metric);
+    expect(w.find((x) => x.code === "FR-INS-041")?.enteredValue).toBe("4");
+  });
+
   // FR-INS-037: outside the warn band at 10% of an 800kPa target is <720 or
   // >880. Every number here comes from the payload; none is a literal in src.
   it("warns on a pressure outside the correct band", () => {
@@ -122,6 +136,21 @@ describe("positionWarnings", () => {
     expect(codes(w)).toContain("FR-INS-031a");
     expect(codes(w)).not.toContain("FR-INS-037");
     expect(w.find((x) => x.code === "FR-INS-031a")?.requiresConfirmation).toBe(true);
+  });
+
+  // Bands are tenant configuration (rule 5), and app.inflation_compliance
+  // meets each edge exactly (000013). As floats, 930 against 1,000 is
+  // -7.000000000000001% and 1,161 against 900 is 28.999999999999996%.
+  it("meets the strict under edge as the database does", () => {
+    const at7 = { ...steer, targetKpa: 1000, criticalUnderPct: 7, warnUnderPct: 5 };
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 930 }, at7, config, metric);
+    expect(codes(w)).toEqual(["FR-INS-037"]);
+  });
+
+  it("meets the inclusive over edge as the database does", () => {
+    const at29 = { ...steer, targetKpa: 900, criticalOverPct: 29 };
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 1161 }, at29, config, metric);
+    expect(codes(w)).toEqual(["FR-INS-031a"]);
   });
 
   // FR-CFG-013 as amended: SPARE carries no target. An unclassified spare
@@ -256,7 +285,29 @@ describe("pressure labels", () => {
       unitLabels("XKPA", "KM"),
     );
     expect(w.find((x) => x.code === "FR-INS-037")?.message).toBe(
-      "700 XKPA against a 800 XKPA target.",
+      "700 XKPA against the 800 XKPA target. Check the inflation before departure.",
+    );
+  });
+
+  // U55 (TYRE-342): entry reaches 1200 kPa, so both pressure messages group
+  // the reading and the target with a comma.
+  it("groups a four-digit pressure in the confirming warning", () => {
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 1100 }, steer, config, metric);
+    expect(w.find((x) => x.code === "FR-INS-031a")?.message).toBe(
+      "1,100 kPa against the 800 kPa target. Check the gauge and confirm.",
+    );
+  });
+
+  it("groups a four-digit pressure and target in the warn-band warning", () => {
+    const highTarget = { ...steer, targetKpa: 1000 };
+    const w = positionWarnings(
+      { treads: [12, 12, 13], pressureKpa: 1150 },
+      highTarget,
+      config,
+      metric,
+    );
+    expect(w.find((x) => x.code === "FR-INS-037")?.message).toBe(
+      "1,150 kPa against the 1,000 kPa target. Check the inflation before departure.",
     );
   });
 });

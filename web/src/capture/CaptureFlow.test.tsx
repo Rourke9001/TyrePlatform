@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
-import { onlineManager } from "@tanstack/react-query";
+import { act, screen, waitFor, within } from "@testing-library/react";
+import { focusManager, onlineManager, type QueryClient } from "@tanstack/react-query";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
@@ -8,6 +8,7 @@ import { renderWithActor, testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureFlow } from "./CaptureFlow";
 import type { CaptureContext } from "./captureContext";
+import { captureContextQuery } from "./captureContext";
 import { clearDraft, db, loadDraft, markSpareAbsent, startDraft } from "./draft";
 import { listOutbox } from "./outbox";
 
@@ -903,6 +904,733 @@ describe("sign-in inside capture", () => {
   });
 });
 
+// TYRE-329, NFR-USE-005: a refusal answers the same on every reload, so it
+// says what happened and who can change it, and offers no reload. Only a
+// fault that signal can clear keeps the signal line and its button.
+describe("a vehicle that does not load", () => {
+  // A real Response: the client reads a refusal's body as text (TYRE-389).
+  const json = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  // Every GET fails with this status, or, given a motive, every GET but v1's.
+  function answer(status: number, code: string, motive?: CaptureContext) {
+    const fetch = vi.fn((url: string) =>
+      Promise.resolve(
+        motive !== undefined && url.split("?")[0].endsWith("/v1")
+          ? json(200, motive)
+          : json(status, { code, message: "x" }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  }
+
+  it.each([
+    [
+      "forbidden",
+      "You do not have permission to inspect this vehicle. Ask your fleet office to check you are assigned to it.",
+    ],
+    ["tenant_inactive", "This company's account is not active. Contact your fleet office."],
+    ["not_provisioned", "Ask your fleet office to set up your account."],
+  ])("says why a 403 %s refuses it, with nothing to reload", async (code, sentence) => {
+    answer(403, code);
+    renderFlow();
+
+    expect((await screen.findByRole("alert")).textContent).toBe(sentence);
+    expect(screen.queryByRole("button", { name: /reload vehicle/i })).toBeNull();
+    expect(screen.queryByText(/Find signal/)).toBeNull();
+    expect(screen.getByRole("link", { name: "My inspections" })).toHaveAttribute("href", "/my");
+  });
+
+  // The member units load on the start screen, whose own branch comes
+  // first, so one that fails is told after Start, beside the saved draft.
+  it("says why a rig member's 403 refuses it, not signal", async () => {
+    answer(403, "forbidden", rigMotive);
+    renderFlow();
+
+    await newUser().click(await screen.findByRole("button", { name: /start inspection/i }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "You do not have permission to inspect a unit on this rig. Ask your fleet office to check you are assigned to it. Your readings are saved.",
+    );
+    expect(screen.queryByText(/Find signal/)).toBeNull();
+    expect(screen.getByRole("link", { name: "My inspections" })).toHaveAttribute("href", "/my");
+  });
+
+  it("says to sign in, not to find signal, when a rig member answers 401", async () => {
+    answer(401, "unauthorized", rigMotive);
+    renderFlow();
+
+    await newUser().click(await screen.findByRole("button", { name: /start inspection/i }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Sign in to load the rest of the rig. Your readings are saved.",
+    );
+    expect(screen.getByRole("button", { name: "Reload rig" })).toBeInTheDocument();
+  });
+
+  // Loading waits only on a copy that is renewing. A member still loading
+  // for the first time does not hold the start screen back.
+  it("shows the start screen while a rig member first loads", async () => {
+    // The member's GET never answers, so it stays on its first load.
+    const hang = new Promise<Response>((resolve) => void resolve);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        url.split("?")[0].endsWith("/v1") ? Promise.resolve(json(200, rigMotive)) : hang,
+      ),
+    );
+    renderFlow();
+
+    expect(await screen.findByRole("button", { name: /start inspection/i })).toBeInTheDocument();
+  });
+
+  // A failed query is fetched again only by a mount, focus or reconnect, so
+  // the screen that says try again offers the try.
+  it("reloads a rig member that failed with a 500", async () => {
+    const user = newUser();
+    const fetch = answer(500, "internal", rigMotive);
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Could not load the rest of the rig. Find signal and try again. Your readings are saved.",
+    );
+
+    fetch.mockImplementation((url: string) =>
+      Promise.resolve(json(200, url.split("?")[0].endsWith("/v1") ? rigMotive : trailer)),
+    );
+    await user.click(screen.getByRole("button", { name: "Reload rig" }));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it.each([
+    ["a 500", () => answer(500, "internal")],
+    [
+      "a network fault",
+      () => vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch"))),
+    ],
+  ])("keeps the signal line and the reload for %s", async (_, fail) => {
+    fail();
+    renderFlow();
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Could not load this vehicle. Find signal and try again.",
+    );
+    expect(screen.getByRole("button", { name: "Reload vehicle" })).toBeInTheDocument();
+  });
+
+  // A 503 auth_unavailable is the token store's latch, which only a page
+  // reload clears (apiError.ts), so a Reload that refetches into it is no way
+  // out, and signal is not the cause.
+  it("says sign-in is unavailable, with a page reload, for a latched store", async () => {
+    answer(503, "auth_unavailable");
+    renderFlow();
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Sign-in is unavailable right now. Try again shortly.",
+    );
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reload vehicle" })).toBeNull();
+  });
+
+  it("says the same for a rig member", async () => {
+    answer(503, "auth_unavailable", rigMotive);
+    renderFlow();
+
+    await newUser().click(await screen.findByRole("button", { name: /start inspection/i }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Sign-in is unavailable right now. Try again shortly. Your readings are saved.",
+    );
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reload rig" })).toBeNull();
+  });
+});
+
+const cachedAt = (
+  updatedAt: number,
+  units: CaptureContext[] = [{ ...context, lastOdometerAgeDays: 1 }],
+) => {
+  const client = testQueryClient();
+  for (const u of units) {
+    client.setQueryData(captureContextQuery(u.vehicleId).queryKey, u, { updatedAt });
+  }
+  return client;
+};
+const dayAgo = () => Date.now() - 86_400_000;
+
+// A renewal the walk-around must not show (U186): another fleet number, and a
+// 20mm removal threshold, which a 13mm tread is at or below.
+const renewed: CaptureContext = {
+  ...context,
+  fleetNumber: "RENEWED",
+  config: { ...context.config, removalThresholdMm: 20 },
+};
+
+// Waits for a renewal to land in the cache, so an assertion on the screen
+// after it cannot pass by racing it.
+const landed = (client: QueryClient, id: string, check: (c: CaptureContext) => boolean) =>
+  waitFor(() => {
+    const cached = client.getQueryData<CaptureContext>(captureContextQuery(id).queryKey);
+    expect(cached !== undefined && check(cached)).toBe(true);
+  });
+
+const heldOnScreen = () => {
+  expect(screen.queryByText("Loading…")).toBeNull();
+  expect(screen.getAllByText("BAC039SP")).not.toHaveLength(0);
+  expect(screen.queryAllByText(/RENEWED/)).toHaveLength(0);
+};
+
+// Answers each unit's GET at once, except the one held open until the test
+// answers it, so a screen can be asserted while that renewal is in flight.
+function serveOpen(open: string, answered: CaptureContext[] = []) {
+  let answer: (c: CaptureContext) => void = () => undefined;
+  const pending = new Promise<CaptureContext>((resolve) => (answer = resolve));
+  const byId = new Map(answered.map((c) => [c.vehicleId, c]));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) => {
+      const id = url.split("?")[0].split("/").pop() ?? "";
+      const reply = id === open ? pending : Promise.resolve(byId.get(id));
+      return reply.then((c) => ({ ok: true, status: 200, json: () => Promise.resolve(c) }));
+    }),
+  );
+  return (c: CaptureContext) => answer(c);
+}
+// Types digits on the open sheet and waits for the field they move it to.
+async function typeInto(user: UserEvent, digits: string[], next: string) {
+  for (const d of digits) await user.click(screen.getByRole("button", { name: d }));
+  await waitFor(() => expect(screen.getByLabelText(next)).toHaveAttribute("aria-current", "true"));
+}
+const inFlight = (client: QueryClient, id: string) =>
+  waitFor(() =>
+    expect(client.getQueryState(captureContextQuery(id).queryKey)?.fetchStatus).toBe("fetching"),
+  );
+
+// Rule 6: a context read at now counts its days to the tenant's day it was
+// fetched on, and a draft's windowed read counts to the tenant day of its
+// start, or of now if the start is later (U187). The cache never
+// garbage-collects either (gcTime, captureContextQuery).
+describe("a vehicle loaded on an earlier day", () => {
+  const askedForV1 = (api: ReturnType<typeof stubApi>) =>
+    api.mock.calls.some(([url]) => url.split("?")[0].endsWith("/vehicles/v1"));
+
+  it("is loaded again when a capture opens on a later day", async () => {
+    const api = stubApi(201, [{ ...context, lastOdometerAgeDays: 2 }]);
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+      client: cachedAt(Date.now() - 86_400_000),
+    });
+
+    expect(await screen.findByText("Last reading 412,180 km, 2 days ago")).toBeInTheDocument();
+    expect(askedForV1(api)).toBe(true);
+  });
+
+  it("is read from the cache on the day it was loaded", async () => {
+    const api = stubApi(201, [{ ...context, lastOdometerAgeDays: 2 }]);
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+      client: cachedAt(Date.now()),
+    });
+
+    expect(await screen.findByText("Last reading 412,180 km, 1 day ago")).toBeInTheDocument();
+    expect(askedForV1(api)).toBe(false);
+  });
+
+  // FR-OFF-001: offline it is the only copy there is.
+  it("is kept offline", async () => {
+    stubApi(201, [{ ...context, lastOdometerAgeDays: 2 }]);
+    onlineManager.setOnline(false);
+    try {
+      renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+        client: cachedAt(Date.now() - 86_400_000),
+      });
+      expect(await screen.findByText("Last reading 412,180 km, 1 day ago")).toBeInTheDocument();
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  // U179 (TYRE-334): a renewal that fails keeps the copy, so the start
+  // screen shows it rather than "Could not load". A phone with bars and no
+  // data reads as online.
+  it("keeps the earlier day's copy when the renewal fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+      client: cachedAt(Date.now() - 86_400_000),
+    });
+
+    expect(await screen.findByText("Last reading 412,180 km, 1 day ago")).toBeInTheDocument();
+    expect(screen.queryByText(/Could not load/)).toBeNull();
+  });
+
+  // A resumed draft keys on its own window, seeded from the copy (U148),
+  // which nothing may empty while signal is weak.
+  it("carries a resumed draft on the copy when the fetch fails", async () => {
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: new Date(Date.now() - 86_400_000).toISOString(),
+    });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+      client: cachedAt(Date.now() - 86_400_000),
+    });
+
+    expect(await screen.findAllByRole("button", { name: /^Position 1,/ })).not.toHaveLength(0);
+    expect(screen.queryByText(/Could not load/)).toBeNull();
+  });
+
+  // A start screen left open overnight renews on the next focus, which an
+  // unlocked phone fires, not only when a capture opens.
+  it("is loaded again on focus once the day has turned", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      stubApi(201, [{ ...context, lastOdometerAgeDays: 2 }]);
+      renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+        client: cachedAt(Date.now()),
+      });
+      expect(await screen.findByText("Last reading 412,180 km, 1 day ago")).toBeInTheDocument();
+
+      vi.setSystemTime(Date.now() + 86_400_000);
+      act(() => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+      });
+
+      expect(await screen.findByText("Last reading 412,180 km, 2 days ago")).toBeInTheDocument();
+    } finally {
+      focusManager.setFocused(undefined);
+      vi.useRealTimers();
+    }
+  });
+
+  const focus = () =>
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+  const reads = (api: { mock: { calls: unknown[][] } }) =>
+    api.mock.calls.filter(([url, init]) => {
+      const method = (init as { method?: string } | undefined)?.method;
+      return (method === undefined || method === "GET") && String(url).includes("/vehicles/v1");
+    }).length;
+
+  // U186: past Start the walk-around reads the context held at Start. While
+  // the renewal is open no Loading covers the sheet, and once it lands the
+  // sheet keeps its field and its threshold.
+  it("keeps a fresh capture's walk-around through a focus once the day has turned", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const user = newUser();
+      stubApi();
+      const client = cachedAt(Date.now());
+      renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, { client });
+      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+      await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
+      await user.click(screen.getByRole("button", { name: "1" }));
+      const answer = serveOpen("v1");
+
+      vi.setSystemTime(Date.now() + 86_400_000);
+      focus();
+      await inFlight(client, "v1");
+      await typeInto(user, ["3"], "Tread reading 2 of 3");
+      expect(screen.queryByText("Loading…")).toBeNull();
+
+      answer(renewed);
+      await landed(client, "v1", (c) => c.fleetNumber === "RENEWED");
+      await typeInto(user, ["1", "3"], "Tread reading 3 of 3");
+      await typeInto(user, ["1", "4"], "Pressure");
+
+      heldOnScreen();
+      expect(screen.getByLabelText("Tread reading 1 of 3")).toHaveTextContent("13");
+      expect(screen.queryByText(/replacement point/)).toBeNull();
+    } finally {
+      focusManager.setFocused(undefined);
+      vi.useRealTimers();
+    }
+  });
+
+  // The same after a failed start-screen renewal, whose copy stays stale, so
+  // a focus past Start renews it.
+  it("keeps the walk-around on the copy after a failed start-screen renewal", async () => {
+    try {
+      const user = newUser();
+      const api = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+      vi.stubGlobal("fetch", api);
+      const client = cachedAt(dayAgo());
+      renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, { client });
+      const start = await screen.findByRole("button", { name: /start inspection/i });
+      expect(reads(api)).toBeGreaterThan(0);
+      await user.click(start);
+      await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
+      await user.click(screen.getByRole("button", { name: "1" }));
+      const answer = serveOpen("v1");
+
+      focus();
+      await inFlight(client, "v1");
+      await typeInto(user, ["3"], "Tread reading 2 of 3");
+      expect(screen.queryByText("Loading…")).toBeNull();
+
+      answer(renewed);
+      await landed(client, "v1", (c) => c.fleetNumber === "RENEWED");
+      await typeInto(user, ["1", "3"], "Tread reading 3 of 3");
+      await typeInto(user, ["1", "4"], "Pressure");
+
+      heldOnScreen();
+      expect(screen.getByLabelText("Tread reading 1 of 3")).toHaveTextContent("13");
+      expect(screen.queryByText(/replacement point/)).toBeNull();
+    } finally {
+      focusManager.setFocused(undefined);
+    }
+  });
+
+  // A renewal with a copy in hand tries once: every retry holds the start
+  // screen on Loading, up to 10s each on a phone with bars and no data.
+  it("tries a renewal once when a copy is in hand", async () => {
+    const api = vi.fn(() => Promise.reject(new TypeError("Failed to fetch")));
+    vi.stubGlobal("fetch", api);
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+      client: cachedAt(Date.now() - 86_400_000),
+    });
+
+    expect(await screen.findByText("Last reading 412,180 km, 1 day ago")).toBeInTheDocument();
+    expect(api).toHaveBeenCalledTimes(1);
+  });
+
+  // U182: a draft's window is held once loaded, and a read with nothing
+  // loaded tries again when signal returns.
+  it("loads a resumed draft's failed read when signal returns", async () => {
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: new Date(Date.now() - 3_600_000).toISOString(),
+    });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    renderFlow();
+    expect(await screen.findByRole("button", { name: "Reload vehicle" })).toBeInTheDocument();
+
+    stubApi();
+    act(() => {
+      onlineManager.setOnline(false);
+      onlineManager.setOnline(true);
+    });
+
+    expect(await screen.findAllByRole("button", { name: /^Position 1,/ })).not.toHaveLength(0);
+  });
+});
+
+// U186: past Start the walk-around and the review read held contexts. A
+// renewal of a held unit that starts or resumes after Start reaches the cache
+// only.
+describe("the contexts held at Start", () => {
+  const mount = (client: QueryClient) =>
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, { client });
+
+  // The screen leaves Start once the draft is written, so a renewal that
+  // lands during that write must not be what the walk-around reads.
+  it("holds the contexts at the tap, before the draft write leaves the start screen", async () => {
+    const user = newUser();
+    stubApi();
+    const client = testQueryClient();
+    let release: () => void = () => undefined;
+    const written = new Promise<void>((resolve) => (release = resolve));
+    const put = db.drafts.put.bind(db.drafts);
+    vi.spyOn(db.drafts, "put").mockImplementationOnce(((...args: Parameters<typeof put>) =>
+      written.then(() => put(...args))) as never);
+    mount(client);
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    stubApi(201, [renewed]);
+    await act(() => client.invalidateQueries({ queryKey: ["capture-context"] }));
+    await landed(client, "v1", (c) => c.fleetNumber === "RENEWED");
+    release();
+
+    await screen.findAllByRole("button", { name: /^Position 1,/ });
+    heldOnScreen();
+  });
+
+  // FR-OFF-001, U186: offline, the start screen's renewal pauses, and the
+  // library resumes it when signal returns, after Start.
+  it("keeps the walk-around on its context when a renewal paused before Start lands", async () => {
+    const user = newUser();
+    stubApi(201, [renewed]);
+    const client = cachedAt(dayAgo());
+    onlineManager.setOnline(false);
+    try {
+      mount(client);
+      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+      await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
+      await user.click(screen.getByRole("button", { name: "1" }));
+      act(() => onlineManager.setOnline(true));
+      await landed(client, "v1", (c) => c.fleetNumber === "RENEWED");
+      await user.click(screen.getByRole("button", { name: "3" }));
+
+      heldOnScreen();
+      expect(screen.getByLabelText("Tread reading 1 of 3")).toHaveTextContent("13");
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  it("keeps a rig's trailer on its context when a renewal paused before Start lands", async () => {
+    const user = newUser();
+    const answer = serveOpen("v2", [rigMotive]);
+    const client = cachedAt(dayAgo(), [rigMotive, trailer]);
+    onlineManager.setOnline(false);
+    try {
+      mount(client);
+      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+      await screen.findAllByRole("button", { name: /, BAC711TR, / });
+      act(() => onlineManager.setOnline(true));
+      await inFlight(client, "v2");
+      expect(screen.queryByText("Loading…")).toBeNull();
+      answer({ ...trailer, fleetNumber: "RENEWED-TR" });
+      await landed(client, "v2", (c) => c.fleetNumber === "RENEWED-TR");
+
+      heldOnScreen();
+      expect(screen.getAllByText("BAC711TR")).not.toHaveLength(0);
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  // The member list is read from the held motive, so a combination changed
+  // at the office does not drop a unit from the open walk-around.
+  it("keeps every unit on the walk-around when a renewal after Start drops the combination", async () => {
+    const user = newUser();
+    stubApi(201, [{ ...rigMotive, combination: null }, trailer]);
+    const client = cachedAt(dayAgo(), [rigMotive, trailer]);
+    onlineManager.setOnline(false);
+    try {
+      mount(client);
+      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+      await screen.findAllByRole("button", { name: /, BAC711TR, / });
+      act(() => onlineManager.setOnline(true));
+      await landed(client, "v1", (c) => c.combination === null);
+
+      expect(screen.getByRole("heading", { name: "0 of 3 done" })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /, BAC711TR, / })).toHaveLength(2);
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  // U179: a member with a copy has not failed, so the reload asks only for
+  // the one that has none.
+  it("reloads only the rig member that has no copy", async () => {
+    const user = newUser();
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    mount(cachedAt(dayAgo(), [rigMotive]));
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await screen.findByRole("button", { name: "Reload rig" });
+    const api = stubApi(201, [{ ...rigMotive, fleetNumber: "RENEWED" }, trailer]);
+    await user.click(screen.getByRole("button", { name: "Reload rig" }));
+
+    await screen.findAllByRole("button", { name: /, BAC711TR, / });
+    expect(contextReads(api)).toEqual(["/api/capture/vehicles/v2"]);
+    heldOnScreen();
+  });
+
+  // A client-level call reaches the query whatever its refetch flags say, so
+  // the walk-around must not read the query past Start.
+  it.each([
+    ["an invalidate", (c: QueryClient) => c.invalidateQueries({ queryKey: ["capture-context"] })],
+    ["a refetch", (c: QueryClient) => c.refetchQueries({ queryKey: ["capture-context"] })],
+  ])("keeps the walk-around on its context through %s of the key", async (_name, call) => {
+    const user = newUser();
+    stubApi();
+    const client = testQueryClient();
+    mount(client);
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
+    await user.click(screen.getByRole("button", { name: "1" }));
+    stubApi(201, [renewed]);
+
+    await act(() => call(client));
+    await landed(client, "v1", (c) => c.fleetNumber === "RENEWED");
+    await user.click(screen.getByRole("button", { name: "3" }));
+
+    heldOnScreen();
+    expect(screen.getByLabelText("Tread reading 1 of 3")).toHaveTextContent("13");
+  });
+
+  // A reset empties the query, so the screen must not wait on its refetch.
+  it("keeps the walk-around on its context while a reset of the key refetches", async () => {
+    const user = newUser();
+    const api = stubApi();
+    const client = testQueryClient();
+    mount(client);
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
+    await user.click(screen.getByRole("button", { name: "1" }));
+    api.mockImplementation(() => new Promise<never>((resolve) => void resolve));
+
+    act(() => void client.resetQueries({ queryKey: ["capture-context"] }));
+    await waitFor(() =>
+      expect(client.getQueryState(captureContextQuery("v1").queryKey)?.status).toBe("pending"),
+    );
+    await user.click(screen.getByRole("button", { name: "3" }));
+
+    heldOnScreen();
+    expect(screen.getByLabelText("Tread reading 1 of 3")).toHaveTextContent("13");
+  });
+
+  // A reset whose refetch fails leaves the query with no data, which past
+  // Start is not a failure to load a held unit.
+  it("keeps a rig's walk-around when a reset of the key fails to refetch", async () => {
+    const user = newUser();
+    stubApi(201, [rigMotive, trailer]);
+    const client = testQueryClient();
+    mount(client);
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await screen.findAllByRole("button", { name: /, BAC711TR, / });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    await act(() => client.resetQueries({ queryKey: ["capture-context"] }));
+    await waitFor(() =>
+      expect(client.getQueryState(captureContextQuery("v2").queryKey)?.status).toBe("error"),
+    );
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getAllByRole("button", { name: /, BAC711TR, / })).toHaveLength(2);
+    heldOnScreen();
+  });
+
+  // U186 holds to Done. A remount in the same tab resumes through the
+  // draft's window, which a renewal of the at-now read after Start does not
+  // reach.
+  it("resumes a same-tab remount on the contexts held at Start", async () => {
+    const user = newUser();
+    stubApi(201, [renewed]);
+    const client = cachedAt(dayAgo());
+    onlineManager.setOnline(false);
+    try {
+      const first = mount(client);
+      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+      await screen.findAllByRole("button", { name: /^Position 1,/ });
+      act(() => onlineManager.setOnline(true));
+      await landed(client, "v1", (c) => c.fleetNumber === "RENEWED");
+      first.unmount();
+
+      mount(client);
+      await screen.findAllByRole("button", { name: /^Position 1,/ });
+      heldOnScreen();
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+});
+
+// U186: a cold reload holds no copy, so when the draft's read serves a rig
+// other than the one the draft was started on, the walk-around is the list
+// the draft was resumed with.
+describe("a cold reload of a rig draft after the office changed the rig", () => {
+  const unit = (vehicleId: string, fleetNumber: string): CaptureContext => ({
+    ...trailer,
+    vehicleId,
+    fleetNumber,
+    positions: trailer.positions.map((p) => ({ ...p, vehicleId })),
+  });
+  const member = (vehicleId: string, fleetNumber: string, sequence: number) => ({
+    vehicleId,
+    fleetNumber,
+    sequence,
+    descriptor: null,
+  });
+  const stamped = (observed: string[]) =>
+    startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-10-22T06:00:00.000Z",
+      fleetNumber: "BAC039SP",
+      combinationId: "c1",
+      observedMemberVehicleIds: observed,
+    });
+  const unitsRead = (api: ReturnType<typeof stubApi>) =>
+    contextReads(api)
+      .map((u) => u.split("?")[0].split("/").pop())
+      .sort();
+  // Each test asserts on the screen Loading gives way to, so a wrong screen
+  // fails on what it shows rather than on the test's timeout.
+  const settled = () => waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+
+  // The office ended the rig with a date before the start, so the read
+  // serves no rig.
+  it("walks every unit the draft observed when the read serves no rig", async () => {
+    await stamped(["v1", "v2"]);
+    const api = stubApi(201, [{ ...rigMotive, combination: null }, trailer]);
+    renderFlow();
+
+    await settled();
+    expect(screen.getByRole("heading", { name: /done$/ })).toHaveTextContent("0 of 3 done");
+    expect(screen.getAllByRole("button", { name: /, BAC711TR, / })).toHaveLength(2);
+    expect(unitsRead(api)).toEqual(["v1", "v2"]);
+  });
+
+  // The rig was replaced before Start while the phone's copy still showed
+  // the old one, so the read serves a rig that lacks v2 and adds v3.
+  it("walks the draft's units in the draft's order when the read serves another rig", async () => {
+    await stamped(["v1", "v2", "v4"]);
+    const api = stubApi(201, [
+      {
+        ...rigMotive,
+        combination: {
+          id: "c2",
+          members: [
+            member("v1", "BAC039SP", 1),
+            member("v4", "BAC744TR", 2),
+            member("v3", "BAC733TR", 3),
+          ],
+        },
+      },
+      trailer,
+      unit("v3", "BAC733TR"),
+      unit("v4", "BAC744TR"),
+    ]);
+    renderFlow();
+
+    await settled();
+    expect(screen.getByRole("heading", { name: /done$/ })).toHaveTextContent("0 of 5 done");
+    expect(screen.getByRole("button", { name: /^Position 1, BAC039SP,/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Position 3, BAC711TR,/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Position 5, BAC744TR,/ })).toBeInTheDocument();
+    expect(unitsRead(api)).toEqual(["v1", "v2", "v4"]);
+  });
+
+  // FR-AUT-005: a driver who held v2 only through a rig that ended before
+  // the start is refused it over the draft's window.
+  it("says a unit of the draft the read refuses is refused", async () => {
+    await stamped(["v1", "v2"]);
+    const json = (status: number, body: unknown) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.split("?")[0].endsWith("/v1")
+            ? json(200, { ...rigMotive, combination: null })
+            : json(403, { code: "forbidden", message: "x" }),
+        ),
+      ),
+    );
+    renderFlow();
+
+    await settled();
+    expect(screen.getByRole("alert").textContent).toBe(
+      "You do not have permission to inspect a unit on this rig. Ask your fleet office to check you are assigned to it. Your readings are saved.",
+    );
+  });
+});
+
 describe("a held 401 inside capture", () => {
   // Passing null for lastStatus would leave the signal wording here.
   it("tells the driver to sign in to send it when the submit is refused with 401", async () => {
@@ -917,6 +1645,50 @@ describe("a held 401 inside capture", () => {
 
     expect(await screen.findByRole("heading", { name: "Inspection saved" })).toBeInTheDocument();
     expect(screen.getByText("Sign in to send it.")).toBeInTheDocument();
+    expect(await db.table("outbox").count()).toBe(1);
+  });
+});
+
+describe("what the done screen says a queued submit waits on", () => {
+  // U104: a sign-in in another tab can leave another driver's credential
+  // here, and sendEntry then refuses the stamp without recording anything.
+  it("names the capturing driver's sign-in when the credential is another driver's", async () => {
+    const user = newUser();
+    const api = stubApi(201);
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await capturePosition(user);
+    await user.click(screen.getByRole("button", { name: /review and submit/i }));
+    setDevActorId("oid-driver-2");
+    await user.click(screen.getByRole("button", { name: /submit inspection/i }));
+
+    expect(await screen.findByRole("heading", { name: "Inspection saved" })).toBeInTheDocument();
+    expect(
+      screen.getByText("The driver who captured it needs to sign in here to send it."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/while the app is open with signal/)).toBeNull();
+    expect(api.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+    expect(await db.table("outbox").count()).toBe(1);
+  });
+
+  it("keeps the signal line for this driver's submit with no signal", async () => {
+    const user = newUser();
+    stubApi(201);
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await capturePosition(user);
+    await user.click(screen.getByRole("button", { name: /review and submit/i }));
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    await user.click(screen.getByRole("button", { name: /submit inspection/i }));
+
+    expect(await screen.findByRole("heading", { name: "Inspection saved" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "It sends by itself while the app is open with signal. You can close the app.",
+      ),
+    ).toBeInTheDocument();
     expect(await db.table("outbox").count()).toBe(1);
   });
 });

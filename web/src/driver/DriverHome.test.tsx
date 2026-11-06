@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithActor, requestedUrl, respond } from "../test/fixtures";
+import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { formatTenantDate } from "../time/tenantTime";
 import { DriverHome } from "./DriverHome";
 
@@ -84,7 +85,7 @@ describe("the driver's home", () => {
       ]),
       ok(onTrip()),
     );
-    renderHome();
+    const { container } = renderHome();
 
     const section = await screen.findByRole("region", { name: "Your trip" });
     const items = within(section).getAllByRole("listitem");
@@ -96,6 +97,8 @@ describe("the driver's home", () => {
     expect(within(items[0]).getByRole("link").getAttribute("href")).toBe("/capture/h1?taskId=k1");
     expect(within(items[1]).queryByRole("link")).toBeNull();
     expect(screen.queryByText("Nothing due.")).toBeNull();
+    // CR-010/OR-LEG-001 (TYRE-207): the driver's home is a driver screen.
+    expectNothingForbiddenSpoken(container, /overdue/);
   });
 
   it("says nothing is due once for a trip with nothing due", async () => {
@@ -112,12 +115,13 @@ describe("the driver's home", () => {
       ok([task({ id: "k9", vehicleId: "x9", fleetNumber: "X9", captureVehicleId: "x9" })]),
       ok({ trip: null }),
     );
-    renderHome();
+    const { container } = renderHome();
 
     const section = await screen.findByRole("region", { name: "Nominated inspections" });
     expect(within(section).getByRole("link").getAttribute("href")).toBe("/capture/x9?taskId=k9");
     expect(screen.queryByRole("region", { name: "Your trip" })).toBeNull();
     expect(screen.queryByText("You are not on a trip.")).toBeNull();
+    expectNothingForbiddenSpoken(container, /nominated inspections/);
   });
 
   // A solo trailer capture would lose the rig, so a coupled
@@ -169,11 +173,12 @@ describe("the driver's home", () => {
 
   it("says the driver is not on a trip when there is no trip and no task", async () => {
     stub(ok([]), ok({ trip: null }));
-    renderHome();
+    const { container } = renderHome();
 
     expect(await screen.findByText("You are not on a trip.")).toBeInTheDocument();
     expect(screen.queryByRole("list")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+    expectNothingForbiddenSpoken(container, /not on a trip/);
   });
 
   // The one tap to a task is never held behind the second read.
@@ -191,16 +196,17 @@ describe("the driver's home", () => {
       status: 500,
       body: {},
     });
-    renderHome();
+    const { container } = renderHome();
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/trip/i);
     expect(hrefOf(/^H1,/)).toBe("/capture/h1?taskId=k1");
     expect(screen.getByRole("heading", { name: "My inspections" })).toBeInTheDocument();
+    expectNothingForbiddenSpoken(container, /could not load your trip/);
   });
 
   it("shows the trip when the tasks cannot load, and says so", async () => {
     stub({ status: 500, body: {} }, ok(onTrip()));
-    renderHome();
+    const { container } = renderHome();
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/inspections/i);
     const section = await screen.findByRole("region", { name: "Your trip" });
@@ -212,6 +218,7 @@ describe("the driver's home", () => {
     // Nothing is known to be due, so nothing says so.
     expect(screen.queryByText("Nothing due.")).toBeNull();
     expect(screen.getByRole("heading", { name: "My inspections" })).toBeInTheDocument();
+    expectNothingForbiddenSpoken(container, /could not load your inspections/);
   });
 
   it("names the heading while both reads are pending", async () => {

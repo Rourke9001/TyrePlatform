@@ -281,7 +281,13 @@ The capture read, `GET /api/capture/vehicles/{id}`, judges at now through
 `app.v_capture_vehicle`, as `/api/my/vehicles` does. A resumed draft sends
 its own `startedAt`, and the read then admits a unit the actor could capture
 over the window its submit will be judged on, so a trip that ended while the
-draft sat on the phone does not strand it (U148).
+draft sat on the phone does not strand it (U148). On that read, for any role,
+the day figures count to the tenant day of one instant, `startedAt`, or now
+if `startedAt` is later. They count from odometer readings dated on or before
+that day and from non-voided sheets submitted by that instant (U187). The rig
+it serves is the one open at that instant, and the capture app walks the units
+the draft was resumed with when that rig is not the one the draft was started
+on (U186).
 
 ## Environments
 

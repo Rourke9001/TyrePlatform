@@ -30,6 +30,61 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-06 - A fix's comment or message held for the reviewer's examples and was false outside them (#166, #167)
+
+**What happened:** #166's round 3 fix took the refusal message its review
+proposed ("is not a number this field can hold") and tested it on the cases
+that review named. Round 4's R6 found it false for a whole number written
+with an exponent or a decimal point (`1e3` or `5.0` into an `int64`).
+Round 3's report had listed exponent form among the causes, and the
+committed comment left it out. #167's round 4 commit message, PR
+Decisions, three code comments and TYRE-334 c14146 said the walk-around
+and the review read one context through to Done. Each of round 4's four
+new tests began from a query that had already settled, and round 5's
+finding 1 showed a renewal paused offline on the start screen resuming
+after Start and replacing that context.
+
+**The rule:** before committing a comment, message or PR sentence that
+makes a general claim, test it on inputs outside the reviewer's examples,
+or narrow the claim.
+
+## 2026-11-05 - A client copy of a SQL rule drifted in every review round, however carefully its inputs were read (#167)
+
+**What happened:** #167's stage 5 round 1 prescribed dividing FR-INS-033 by
+`max(1, lastOdometerAgeDays)` "as DR-020's trigger does". The trigger's
+`GREATEST(1, ...)` binds a different pair: its `prev` is the last reading
+on an earlier day (000021), never today's. The same fix moved the warning to
+whole days and left the FR-INS-020 projection on the browser clock, so the
+app's own offer could trip its warning, and the served count went stale in
+a tab kept overnight. Round 2 found all three, and two more that round 1's
+grouping and lone-0 guards let in. Round 2's fix read the trigger's inputs
+first, as this entry's first rule said, and round 3 still found the
+projection offering today's reading as itself. The design audit of #167
+(its section 2 is on TYRE-244, c14143) traced every odometer one to a
+second implementation, not a careless one.
+
+**The rule (replaces this entry's first, which taught the next copy):**
+when a client or Go check must agree with a SQL rule's verdict, SQL
+computes the bounds and the date they hold for and serves them with the
+read; the client compares the typed number with served numbers. A second
+implementation is allowed only for a threshold compare (CLAUDE.md, Testing;
+`warnings.ts`). A copy of row selection or calendar arithmetic is the
+drift, however carefully its inputs were read (ADR-0022, Revisit when).
+When review rounds keep landing on one mechanism, run `/design-audit` on it
+before the next fix round.
+
+## 2026-11-05 - `scrollWidth <= clientWidth` passes while a value spills past its tile's border (#167)
+
+**What happened:** `sheetFit.spec.ts` asserted no tile overflowed by
+comparing `scrollWidth` with `clientWidth`, and only on an empty sheet. A
+grouped "1,200" pressure sat 8px past the tile at 360px and 0.7px past it at
+390px. At 390 both widths read 84, since they round and count padding, so
+the check could not see a spill even with the value typed.
+
+**The rule:** to prove a value fits its box, type the widest value it can
+hold, then compare the value element's `getBoundingClientRect()` with the
+box's rect inset by its border. Never rely on `scrollWidth` alone.
+
 ## 2026-11-03 - A text-matching gate patched one finding at a time opens a new hole each round (#151, #162)
 
 **What happened:** #151's colour gate was a regex scanner fixed finding by

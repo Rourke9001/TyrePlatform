@@ -1,18 +1,28 @@
-import { ACCESS_COPY } from "../auth/actorContext";
 import { Icon } from "../ui/Icon";
 import { CheckIcon } from "../ui/icons/Check";
 import { CriticalIcon } from "../ui/icons/Critical";
+import { heldBy, SERVER_HOLD_COPY, STAMP_HOLD_COPY } from "./outbox";
 import "./capture.css";
 
-// A 401 waits for a sign-in. A latched store and a held 403 do not clear with
-// signal, so they say what their access screen says instead of promising a
+// Nothing sends while the app is closed (FR-OFF-009, ADR-0009), so the two
+// lines that let the driver close it say the send waits for it to be open.
+const SIGNAL_HOLD_DONE =
+  "It sends by itself while the app is open with signal. You can close the app.";
+const SERVER_HOLD_DONE =
+  "The server could not take it yet. It sends by itself while the app is open. You can close the app.";
+
+// A hold signal cannot clear says what clears it instead of promising a
 // send (spec section 4, The indicator).
-function waitingOn(lastStatus: number | null, lastCode: string | null): string {
-  if (lastStatus === 401) return "Sign in to send it.";
-  if (lastCode === "auth_unavailable") return ACCESS_COPY.unavailable.body;
-  if (lastCode === "tenant_inactive") return ACCESS_COPY["tenant-inactive"].body;
-  if (lastCode === "not_provisioned") return ACCESS_COPY["not-set-up"].body;
-  return "It will send by itself when you have signal. You can close the app.";
+function waitingOn(lastStatus: number | null, lastCode: string | null, stampHeld: boolean): string {
+  // U104: sendEntry records nothing when it refuses the stamp, so the status
+  // cannot name this hold.
+  if (stampHeld) return STAMP_HOLD_COPY;
+  const held = heldBy(lastStatus, lastCode);
+  // FR-OFF-006 keeps the entry across a restart. Signal and the server are
+  // the two holds whose words ask nothing of the driver, so they alone add
+  // that the driver may close the app.
+  if (held === SERVER_HOLD_COPY) return SERVER_HOLD_DONE;
+  return held ?? SIGNAL_HOLD_DONE;
 }
 
 // A plain anchor, not a router Link. Nothing on a screen that offers it needs
@@ -34,10 +44,13 @@ export function CaptureDone({
   state,
   lastCode,
   lastStatus,
+  stampHeld = false,
 }: {
   state: "sent" | "queued" | "failed";
   lastCode: string | null;
   lastStatus: number | null;
+  // True when the phone's subject may not carry the entry (mayCarry, U104).
+  stampHeld?: boolean;
 }) {
   if (state === "sent") {
     return (
@@ -61,7 +74,7 @@ export function CaptureDone({
           <Icon icon={CheckIcon} size={48} />
         </p>
         <h1 className="cap-done-title">Inspection saved</h1>
-        <p className="cap-done-body">{waitingOn(lastStatus, lastCode)}</p>
+        <p className="cap-done-body">{waitingOn(lastStatus, lastCode, stampHeld)}</p>
         <BackToWork />
       </section>
     );

@@ -69,6 +69,15 @@ describe("the shell's main nav", () => {
     expect(screen.getByRole("link", { name: "Exceptions" })).toHaveAttribute("href", "/exceptions");
   });
 
+  // TYRE-129: an actor who holds nothing has no item to offer, so neither
+  // shell may draw an empty landmark a screen reader would still announce.
+  it("renders no navigation at all for an actor holding nothing", () => {
+    renderShellAt("/", []);
+    expect(screen.getByRole("banner")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Menu" })).toBeNull();
+  });
+
   // TYRE-242: the switchers must not sit in the header a driver sees first.
   it("keeps the dev switchers out of the header", () => {
     renderShellAt("/my", ["CaptureInspection"]);

@@ -1,5 +1,6 @@
 import { ApiError, apiPostAs } from "../api/client";
 import { sender, type Sender } from "../api/token";
+import { ACCESS_COPY } from "../auth/actorContext";
 import { clearDraft, db, loadDraft } from "./draft";
 import type { SubmitMeta, SubmitPayload } from "./payload";
 import { toSubmitPayload } from "./payload";
@@ -43,6 +44,32 @@ const BASE_BACKOFF_MS = 5 * 1000;
 const STALE_AFTER_MS = 48 * 3600 * 1000;
 
 const table = () => db.table<OutboxEntry, string>("outbox");
+
+// TYRE-215: what the outbox band and the done screen both say of an entry
+// TY021 holds, so the two never say different things. The driver can fix it
+// without the office, and signal does not.
+export const CLOCK_AHEAD_COPY =
+  "This phone's clock is ahead, so the office could not accept it yet. It will send later. Check the time.";
+
+export const SERVER_HOLD_COPY = "The server could not take it yet. It will send by itself.";
+
+// U104: what the outbox band and the done screen say of an entry the phone's
+// subject may not carry. Only the driver its stamp names can send it.
+export const STAMP_HOLD_COPY = "The driver who captured it needs to sign in here to send it.";
+
+// What holds a queued entry when signal is not the cause, in the words the
+// done screen and the outbox band both use: a sign-in, the account, the
+// token store's latch, the phone's clock, or a server that answered. Null
+// while it waits on signal. TYRE-465 makes this one table for every screen.
+export function heldBy(lastStatus: number | null, lastCode: string | null): string | null {
+  if (lastStatus === 401) return "Sign in to send it.";
+  if (lastCode === "auth_unavailable") return ACCESS_COPY.unavailable.body;
+  if (lastCode === "tenant_inactive") return ACCESS_COPY["tenant-inactive"].body;
+  if (lastCode === "not_provisioned") return ACCESS_COPY["not-set-up"].body;
+  if (lastCode === "TY021") return CLOCK_AHEAD_COPY;
+  if (lastStatus !== null) return SERVER_HOLD_COPY;
+  return null;
+}
 
 export function backoffMs(attempts: number): number {
   return Math.min(BASE_BACKOFF_MS * 2 ** attempts, MAX_BACKOFF_MS);

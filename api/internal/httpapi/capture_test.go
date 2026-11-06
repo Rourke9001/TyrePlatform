@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -495,18 +496,6 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 	}
 }
 
-// TestCaptureContextServesTheLastOdometerReading pins FR-INS-033's
-// denominator. The rule divides the tread lost since the previous reading by
-// the distance covered since it, so the capture context has to carry both the
-// last odometer value AND the date it was taken. Serving the value alone
-// leaves the plausibility warning with nothing to divide by.
-//
-// The join that resolves them is a LEFT JOIN LATERAL taking one row ordered by
-// reading_date DESC, so two things need proving and neither is visible from
-// the fixture: that an absent reading serves null rather than a zero, and that
-// "last" means the most recent by reading date rather than whichever row the
-// planner happened to reach first.
-//
 // FR-TYR-017: each position's previous reading carries its age in the
 // fleet's calendar, beside FR-INS-034's previous figure. The fixture's
 // sheets are months back, so a field left at zero cannot pass.
@@ -541,6 +530,16 @@ func TestCaptureContextCarriesPreviousReadingAge(t *testing.T) {
 	require.Positive(t, read, "the fixture's veh1 has read positions")
 }
 
+// TestCaptureContextServesTheLastOdometerReading pins the last odometer value
+// AND the date it was taken: FR-INS-032 refuses a reading below the value,
+// and the start screen names its age.
+//
+// The join that resolves them is a LEFT JOIN LATERAL taking one row ordered by
+// reading_date DESC, then odometer_km DESC, so two things need proving and
+// neither is visible from the fixture: that an absent reading serves null
+// rather than a zero, and that "last" means the most recent by reading date
+// rather than whichever row the planner happened to reach first.
+//
 // The same two rows settle FR-INS-020's pre-fill, which is why it is asserted
 // here rather than apart: the projection the driver confirms is this reading
 // carried forward at averageDailyKm, so the rate has to be derived from the
@@ -554,18 +553,20 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	read := func(t *testing.T) struct {
-		LastOdometerKm *int64     `json:"lastOdometerKm"`
-		LastOdometerAt *time.Time `json:"lastOdometerAt"`
-		AverageDailyKm *float64   `json:"averageDailyKm"`
+		LastOdometerKm      *int64     `json:"lastOdometerKm"`
+		LastOdometerAt      *time.Time `json:"lastOdometerAt"`
+		LastOdometerAgeDays *int       `json:"lastOdometerAgeDays"`
+		AverageDailyKm      *float64   `json:"averageDailyKm"`
 	} {
 		t.Helper()
 		rec := get(t, h, "/api/capture/vehicles/"+vehicleID.String(),
 			tenantID.String(), driverID.String())
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		var body struct {
-			LastOdometerKm *int64     `json:"lastOdometerKm"`
-			LastOdometerAt *time.Time `json:"lastOdometerAt"`
-			AverageDailyKm *float64   `json:"averageDailyKm"`
+			LastOdometerKm      *int64     `json:"lastOdometerKm"`
+			LastOdometerAt      *time.Time `json:"lastOdometerAt"`
+			LastOdometerAgeDays *int       `json:"lastOdometerAgeDays"`
+			AverageDailyKm      *float64   `json:"averageDailyKm"`
 		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 		return body
@@ -576,6 +577,7 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 	before := read(t)
 	require.Nil(t, before.LastOdometerKm, "a vehicle with no reading served an odometer value")
 	require.Nil(t, before.LastOdometerAt, "a vehicle with no reading served a reading date")
+	require.Nil(t, before.LastOdometerAgeDays, "a vehicle with no reading served an age")
 	require.Nil(t, before.AverageDailyKm,
 		"a vehicle with no timeline served a rate, which FR-INS-020 would project from")
 
@@ -599,7 +601,7 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 
 	after := read(t)
 	require.NotNil(t, after.LastOdometerKm, "a planted odometer reading did not reach the capture context")
-	require.NotNil(t, after.LastOdometerAt, "FR-INS-033 has no denominator without the reading date")
+	require.NotNil(t, after.LastOdometerAt, "a planted odometer reading served no reading date")
 	require.Equal(t, int64(110000), *after.LastOdometerKm, "the older reading was served as the last one")
 
 	wantDate := time.Now().UTC().AddDate(0, 0, -5).Format("2006-01-02")
@@ -612,6 +614,139 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 	// put a fiction on an append-only timeline (DR-018).
 	require.NotNil(t, after.AverageDailyKm, "two readings 25 days apart yielded no rate")
 	require.InDelta(t, 400.0, *after.AverageDailyKm, 0.005)
+}
+
+// The unique key admits one reading per source per day, so two sources can
+// share the last date. An odometer only rises, so the higher one is the later
+// reading. The higher is planted first, so a pick in insertion order or its
+// reverse would each serve the wrong one in one of the two runs.
+func TestCaptureContextServesTheHigherOfTwoReadingsOnOneDay(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	for _, order := range [][]int64{{125000, 120000}, {120000, 125000}} {
+		t.Run(fmt.Sprintf("planted %d then %d", order[0], order[1]), func(t *testing.T) {
+			tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin,
+				fmt.Sprintf("odometer-tie-%d", order[0]))
+			driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+			plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
+			for i, km := range order {
+				_, err := admin.Exec(ctx,
+					`INSERT INTO app.vehicle_odometer_reading
+					   (tenant_id, vehicle_id, reading_date, odometer_km, source)
+					 VALUES ($1, $2, (now() AT TIME ZONE 'UTC')::date - 2, $3, $4)`,
+					tenantID, vehicleID, km, []string{"MANUAL", "FUEL_RECORD"}[i])
+				require.NoError(t, err)
+			}
+
+			rec := get(t, h, "/api/capture/vehicles/"+vehicleID.String(),
+				tenantID.String(), driverID.String())
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			var body struct {
+				LastOdometerKm *int64 `json:"lastOdometerKm"`
+				OdometerBaseKm *int64 `json:"odometerBaseKm"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NotNil(t, body.LastOdometerKm)
+			require.Equal(t, int64(125000), *body.LastOdometerKm,
+				"the lower of two readings on the last day was served as the last one")
+			require.NotNil(t, body.OdometerBaseKm)
+			require.Equal(t, int64(125000), *body.OdometerBaseKm,
+				"the lower of two readings on the base day was served as FR-INS-033's base")
+		})
+	}
+}
+
+// DR-020's trigger judges a reading against the last one dated before it
+// (000021), so a reading already dated today is not FR-INS-033's base: the
+// phone divides from yesterday's, as the trigger will once TYRE-244 dates
+// the write on the tenant's day. Both are dated from the tenant's own today,
+// so no Go clock is what the test measures.
+func TestCaptureContextServesTheOdometerBaseFromAnEarlierDay(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "odometer-base")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	read := func(t *testing.T) (base *int64, age *int) {
+		t.Helper()
+		rec := get(t, h, "/api/capture/vehicles/"+vehicleID.String(),
+			tenantID.String(), driverID.String())
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var body struct {
+			OdometerBaseKm      *int64 `json:"odometerBaseKm"`
+			OdometerBaseAgeDays *int   `json:"odometerBaseAgeDays"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		return body.OdometerBaseKm, body.OdometerBaseAgeDays
+	}
+
+	plant := func(t *testing.T, daysAgo int, km int64, source string) {
+		t.Helper()
+		_, err := admin.Exec(ctx,
+			`INSERT INTO app.vehicle_odometer_reading
+			   (tenant_id, vehicle_id, reading_date, odometer_km, source)
+			 SELECT id, $2, app.tenant_today(timezone) - $3::int, $4, $5
+			   FROM app.tenant WHERE id = $1`,
+			tenantID, vehicleID, daysAgo, km, source)
+		require.NoError(t, err)
+	}
+
+	// Today's reading alone has nothing before it to be judged against.
+	plant(t, 0, 100500, "FUEL_RECORD")
+	base, age := read(t)
+	require.Nil(t, base, "a reading dated today was served as FR-INS-033's base")
+	require.Nil(t, age, "no base, yet an age was served")
+
+	plant(t, 1, 100000, "MANUAL")
+	base, age = read(t)
+	require.NotNil(t, base, "yesterday's reading did not reach FR-INS-033's base")
+	require.Equal(t, int64(100000), *base, "today's reading was served as FR-INS-033's base")
+	require.NotNil(t, age)
+	require.Equal(t, 1, *age, "the base's age is counted in this fleet's own calendar")
+}
+
+// Rule 6 (TYRE-342): the age beside the last odometer reading is a count of
+// the fleet's own calendar days, as the tread's is. Kiritimati and Midway sit
+// 25 hours apart and never share a civil date, so a count taken on UTC's
+// calendar, or the runner's, misses for one of them at any hour.
+func TestCaptureContextCountsTheOdometerAgeInTheFleetsDays(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	for _, zone := range []string{"Pacific/Kiritimati", "Pacific/Midway"} {
+		t.Run(zone, func(t *testing.T) {
+			tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "odometer-age")
+			_, err := admin.Exec(ctx, `UPDATE app.tenant SET timezone = $2 WHERE id = $1`, tenantID, zone)
+			require.NoError(t, err)
+			driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+			plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
+
+			// Dated in SQL from the tenant's own today, so no Go clock is
+			// what the test measures.
+			_, err = admin.Exec(ctx,
+				`INSERT INTO app.vehicle_odometer_reading
+				   (tenant_id, vehicle_id, reading_date, odometer_km, source)
+				 SELECT id, $2, app.tenant_today(timezone) - 3, 100000, 'MANUAL'
+				   FROM app.tenant WHERE id = $1`,
+				tenantID, vehicleID)
+			require.NoError(t, err)
+
+			rec := get(t, h, "/api/capture/vehicles/"+vehicleID.String(),
+				tenantID.String(), driverID.String())
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			var body struct {
+				LastOdometerAgeDays *int `json:"lastOdometerAgeDays"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NotNil(t, body.LastOdometerAgeDays, "a dated reading served no age")
+			require.Equal(t, 3, *body.LastOdometerAgeDays, "the age is counted in this fleet's own calendar")
+		})
+	}
 }
 
 // captureBetween is captureFixture's payload with its own started_at and
@@ -913,4 +1048,408 @@ func TestCaptureContextAdmitsAResumedDraftsWindow(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, read(horseID, controllerID, nil), "a tenant-wide role reads the register")
 	require.Equal(t, http.StatusOK, read(horseID, controllerID, &twenty))
+}
+
+// tenantInstant is the instant at clock on the tenant's own day daysAgo
+// before its today, computed in SQL so no Go clock picks the day.
+func tenantInstant(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, daysAgo int, clock string) time.Time {
+	t.Helper()
+	var at time.Time
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT ((app.tenant_today(timezone) - $2::int) + $3::time) AT TIME ZONE timezone
+		   FROM app.tenant WHERE id = $1`,
+		tenantID, daysAgo, clock,
+	).Scan(&at))
+	return at
+}
+
+// tenantDate is the tenant's day daysAgo before its today, as YYYY-MM-DD.
+func tenantDate(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, daysAgo int) string {
+	t.Helper()
+	var day string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT (app.tenant_today(timezone) - $2::int)::text FROM app.tenant WHERE id = $1`,
+		tenantID, daysAgo,
+	).Scan(&day))
+	return day
+}
+
+func contextPath(vehicleID uuid.UUID, startedAt *time.Time) string {
+	path := "/api/capture/vehicles/" + vehicleID.String()
+	if startedAt != nil {
+		path += "?startedAt=" + url.QueryEscape(startedAt.UTC().Format(time.RFC3339))
+	}
+	return path
+}
+
+// U187: a resumed draft's read counts the odometer figures to the tenant day
+// of its startedAt, from the readings dated on or before that day (U183).
+// Each dated start is a clock time whose UTC date is not the tenant's, so a
+// count to UTC's day misses. A start after now is counted to today, as no
+// start is.
+func TestCaptureContextCountsADraftsOdometerToItsStartDay(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	type odometer struct {
+		LastOdometerKm      *int64     `json:"lastOdometerKm"`
+		LastOdometerAt      *time.Time `json:"lastOdometerAt"`
+		LastOdometerAgeDays *int       `json:"lastOdometerAgeDays"`
+		OdometerBaseKm      *int64     `json:"odometerBaseKm"`
+		OdometerBaseAgeDays *int       `json:"odometerBaseAgeDays"`
+		AverageDailyKm      *float64   `json:"averageDailyKm"`
+	}
+	type want struct {
+		lastKm, baseKm   int64
+		lastAgo, lastAge int
+		baseAge          int
+		avg              float64
+	}
+	today := &want{lastKm: 103000, lastAgo: 0, lastAge: 0, baseKm: 102500, baseAge: 1, avg: 375}
+
+	for _, zone := range []struct{ name, clock string }{
+		{"Pacific/Kiritimati", "06:00"},
+		{"Pacific/Midway", "20:00"},
+	} {
+		t.Run(zone.name, func(t *testing.T) {
+			tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "draft-odometer")
+			_, err := admin.Exec(ctx, `UPDATE app.tenant SET timezone = $2 WHERE id = $1`, tenantID, zone.name)
+			require.NoError(t, err)
+			driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+			plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
+			controllerID := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+			for _, r := range []struct {
+				daysAgo int
+				km      int64
+			}{{8, 100000}, {5, 101200}, {3, 101500}, {1, 102500}, {0, 103000}} {
+				_, err := admin.Exec(ctx,
+					`INSERT INTO app.vehicle_odometer_reading
+					   (tenant_id, vehicle_id, reading_date, odometer_km, source)
+					 SELECT id, $2, app.tenant_today(timezone) - $3::int, $4, 'MANUAL'
+					   FROM app.tenant WHERE id = $1`,
+					tenantID, vehicleID, r.daysAgo, r.km)
+				require.NoError(t, err)
+			}
+
+			startedOn := func(daysAgo int) *time.Time {
+				at := tenantInstant(t, ctx, admin, tenantID, daysAgo, zone.clock)
+				return &at
+			}
+			later := time.Now().Add(72 * time.Hour)
+			for _, row := range []struct {
+				name      string
+				startedAt *time.Time
+				want      *want
+			}{
+				{"no start", nil, today},
+				{"started 3 days back", startedOn(3),
+					&want{lastKm: 101500, lastAgo: 3, lastAge: 0, baseKm: 101200, baseAge: 2, avg: 300}},
+				{"started 4 days back", startedOn(4),
+					&want{lastKm: 101200, lastAgo: 5, lastAge: 1, baseKm: 101200, baseAge: 1, avg: 400}},
+				{"started before every reading", startedOn(10), nil},
+				{"started after now", &later, today},
+			} {
+				for _, actor := range []struct {
+					name string
+					id   uuid.UUID
+				}{{"driver", driverID}, {"controller", controllerID}} {
+					t.Run(row.name+"/"+actor.name, func(t *testing.T) {
+						rec := get(t, h, contextPath(vehicleID, row.startedAt), tenantID.String(), actor.id.String())
+						require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+						var got odometer
+						require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+						if row.want == nil {
+							require.Nil(t, got.LastOdometerKm, "a reading dated after the start day was served")
+							require.Nil(t, got.LastOdometerAt)
+							require.Nil(t, got.LastOdometerAgeDays)
+							require.Nil(t, got.OdometerBaseKm)
+							require.Nil(t, got.OdometerBaseAgeDays)
+							require.Nil(t, got.AverageDailyKm, "a rate was served from readings after the start day")
+							return
+						}
+						w := row.want
+						require.NotNil(t, got.LastOdometerKm)
+						require.Equal(t, w.lastKm, *got.LastOdometerKm, "the last reading on or before the start day")
+						require.NotNil(t, got.LastOdometerAt)
+						require.Equal(t, tenantDate(t, ctx, admin, tenantID, w.lastAgo),
+							got.LastOdometerAt.UTC().Format("2006-01-02"))
+						require.NotNil(t, got.LastOdometerAgeDays)
+						require.Equal(t, w.lastAge, *got.LastOdometerAgeDays, "counted to the start day")
+						require.NotNil(t, got.OdometerBaseKm)
+						require.Equal(t, w.baseKm, *got.OdometerBaseKm, "the base is the last reading before the start day")
+						require.NotNil(t, got.OdometerBaseAgeDays)
+						require.Equal(t, w.baseAge, *got.OdometerBaseAgeDays, "counted to the start day")
+						require.NotNil(t, got.AverageDailyKm)
+						require.InDelta(t, w.avg, *got.AverageDailyKm, 0.005, "the rate ends at the start day")
+					})
+				}
+			}
+
+			// A reading dated the tenant's tomorrow, as submit_inspection's UTC
+			// dating writes west of UTC until TYRE-244, stays the last one on
+			// a read with no start, since FR-INS-032 refuses below it.
+			_, err = admin.Exec(ctx,
+				`INSERT INTO app.vehicle_odometer_reading
+				   (tenant_id, vehicle_id, reading_date, odometer_km, source)
+				 SELECT id, $2, app.tenant_today(timezone) + 1, 103400, 'MANUAL'
+				   FROM app.tenant WHERE id = $1`,
+				tenantID, vehicleID)
+			require.NoError(t, err)
+			for _, row := range []struct {
+				startedAt *time.Time
+				lastKm    int64
+			}{{nil, 103400}, {startedOn(3), 101500}} {
+				rec := get(t, h, contextPath(vehicleID, row.startedAt), tenantID.String(), driverID.String())
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+				var got odometer
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+				require.NotNil(t, got.LastOdometerKm)
+				require.Equal(t, row.lastKm, *got.LastOdometerKm, "started %v", row.startedAt)
+			}
+		})
+	}
+}
+
+// U187: a resumed draft's read takes each position's previous reading from
+// the non-voided sheets submitted by its startedAt, or by now if startedAt is
+// later, and counts its age to that instant's tenant day. The bound is the
+// instant, not its day, so a sheet submitted later that day is not the
+// previous one.
+func TestCaptureContextServesADraftTheTreadHistoryItStartedOn(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	type position struct {
+		Code                   string     `json:"code"`
+		PreviousGoverningMm    *float64   `json:"previousGoverningMm"`
+		PreviousReadingAt      *time.Time `json:"previousReadingAt"`
+		PreviousReadingAgeDays *int       `json:"previousReadingAgeDays"`
+	}
+
+	// Each clock time below falls on a UTC date that is not the tenant's
+	// (Kiritimati before 14:00, Midway from 14:00), so a count on UTC's
+	// calendar misses. On the start day the early start, the later sheet and
+	// the later start come in that order.
+	for _, zone := range []struct{ name, sheet, early, late, later string }{
+		{"Pacific/Kiritimati", "05:00", "02:00", "06:00", "09:00"},
+		{"Pacific/Midway", "15:00", "14:00", "16:00", "20:00"},
+	} {
+		t.Run(zone.name, func(t *testing.T) {
+			tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "draft-tread")
+			_, err := admin.Exec(ctx, `UPDATE app.tenant SET timezone = $2 WHERE id = $1`, tenantID, zone.name)
+			require.NoError(t, err)
+			driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+			plantTrip(t, ctx, admin, tenantID, motiveID, driverID)
+			controllerID := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+			// Submitted by the controller, whom no trip window binds, on
+			// 1L, the fixture's fitted position.
+			sixBack := tenantInstant(t, ctx, admin, tenantID, 6, zone.sheet)
+			threeBackLate := tenantInstant(t, ctx, admin, tenantID, 3, zone.late)
+			oneBack := tenantInstant(t, ctx, admin, tenantID, 1, zone.sheet)
+			for _, sheet := range []struct {
+				at     time.Time
+				treads []float64
+			}{
+				{sixBack, []float64{8.4, 8.6, 8.5}},
+				{threeBackLate, []float64{8.2, 8.4, 8.3}},
+				{oneBack, []float64{8.0, 8.5, 8.2}},
+			} {
+				body := captureBetween(t, ctx, admin, tenantID, motiveID, sheet.at.Add(-2*time.Minute), sheet.at)
+				delete(body, "odometer_km")
+				body["readings"].([]any)[0].(map[string]any)["treads"] = sheet.treads
+				rec := postCapture(t, h, tenantID, controllerID, body)
+				require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+			}
+
+			threeBackEarly := tenantInstant(t, ctx, admin, tenantID, 3, zone.early)
+			threeBackLater := tenantInstant(t, ctx, admin, tenantID, 3, zone.later)
+			longBack := tenantInstant(t, ctx, admin, tenantID, 100, zone.early)
+			later := time.Now().Add(72 * time.Hour)
+			type want struct {
+				mm  float64
+				at  time.Time
+				age int
+			}
+			today := &want{8.0, oneBack, 1}
+			for _, row := range []struct {
+				name      string
+				startedAt *time.Time
+				want      *want
+			}{
+				{"no start", nil, today},
+				{"started before that day's later sheet", &threeBackEarly, &want{8.4, sixBack, 3}},
+				{"started after that day's later sheet", &threeBackLater, &want{8.2, threeBackLate, 0}},
+				{"started before every sheet", &longBack, nil},
+				{"started after now", &later, today},
+			} {
+				for _, actor := range []struct {
+					name string
+					id   uuid.UUID
+				}{{"driver", driverID}, {"controller", controllerID}} {
+					t.Run(row.name+"/"+actor.name, func(t *testing.T) {
+						rec := get(t, h, contextPath(motiveID, row.startedAt), tenantID.String(), actor.id.String())
+						require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+						var body struct {
+							Positions []position `json:"positions"`
+						}
+						require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+						var got *position
+						for i := range body.Positions {
+							if body.Positions[i].Code == "1L" {
+								got = &body.Positions[i]
+							}
+						}
+						require.NotNil(t, got, "the fixture's 1L was not served")
+						if row.want == nil {
+							require.Nil(t, got.PreviousGoverningMm, "a sheet submitted after the start was served")
+							require.Nil(t, got.PreviousReadingAt)
+							require.Nil(t, got.PreviousReadingAgeDays)
+							return
+						}
+						require.NotNil(t, got.PreviousGoverningMm)
+						require.InDelta(t, row.want.mm, *got.PreviousGoverningMm, 0.0001,
+							"the previous sheet as at the start")
+						require.NotNil(t, got.PreviousReadingAt)
+						require.True(t, row.want.at.Equal(*got.PreviousReadingAt),
+							"want %s, got %s", row.want.at, *got.PreviousReadingAt)
+						require.NotNil(t, got.PreviousReadingAgeDays)
+						require.Equal(t, row.want.age, *got.PreviousReadingAgeDays, "counted to the start day")
+					})
+				}
+			}
+
+			// A sheet submitted_at inside TYRE-166's skew after now is the
+			// previous one on a read with no start, as the latest sheet.
+			ahead := time.Now().Add(2 * time.Minute)
+			body := captureBetween(t, ctx, admin, tenantID, motiveID, ahead.Add(-2*time.Minute), ahead)
+			delete(body, "odometer_km")
+			body["readings"].([]any)[0].(map[string]any)["treads"] = []float64{7.9, 8.1, 8.0}
+			rec := postCapture(t, h, tenantID, controllerID, body)
+			require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+			rec = get(t, h, contextPath(motiveID, nil), tenantID.String(), driverID.String())
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			var after struct {
+				Positions []position `json:"positions"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after))
+			served := false
+			for _, p := range after.Positions {
+				if p.Code == "1L" {
+					served = true
+					require.NotNil(t, p.PreviousGoverningMm)
+					require.InDelta(t, 7.9, *p.PreviousGoverningMm, 0.0001, "the sheet ahead of now was not served")
+				}
+			}
+			require.True(t, served, "the fixture's 1L was not served")
+		})
+	}
+}
+
+// U186: a resumed draft's read serves the rig open at its startedAt, or at
+// now if startedAt is later, as the record dates the rig, so a rig ended or
+// replaced after that instant is the one served. A read with no startedAt
+// serves the rig with no end. A driver who held a trailer only through a rig
+// that ended before the start is refused the trailer's own read (FR-AUT-005).
+func TestCaptureContextServesADraftTheRigOpenAtItsStart(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	tenantID, horseID, trailerID := plantCaptureFixture(t, ctx, admin, "draft-rig")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTrip(t, ctx, admin, tenantID, horseID, driverID)
+	controllerID := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	// The fixture's rig, open from an hour ago, ends on a whole second, so a
+	// start can be sent at exactly that instant. Its replacement swaps the
+	// trailer and opens as it ends.
+	var first, second, swapID uuid.UUID
+	var ended time.Time
+	require.NoError(t, admin.QueryRow(ctx,
+		`UPDATE app.combination SET effective_to = date_trunc('second', now()) - interval '20 minutes'
+		  WHERE motive_vehicle_id = $1 RETURNING id, effective_to`, horseID).Scan(&first, &ended))
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+		 SELECT tenant_id, fleet_number || '-SWAP', configuration_id, unit_kind
+		   FROM app.vehicle WHERE id = $1 RETURNING id`, trailerID).Scan(&swapID))
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+		 VALUES ($1, $2, $3) RETURNING id`, tenantID, horseID, ended).Scan(&second))
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence, descriptor)
+		 VALUES ($1, $2, $3, 1, 'Horse'), ($1, $2, $4, 2, 'Swap')`,
+		tenantID, second, horseID, swapID)
+	require.NoError(t, err)
+
+	type rig struct {
+		ID      uuid.UUID `json:"id"`
+		Members []struct {
+			VehicleID uuid.UUID `json:"vehicleId"`
+			Sequence  int       `json:"sequence"`
+		} `json:"members"`
+	}
+	fromEnd := func(d time.Duration) *time.Time {
+		at := ended.Add(d)
+		return &at
+	}
+	later := time.Now().Add(72 * time.Hour)
+	firstRig := []uuid.UUID{horseID, trailerID}
+	secondRig := []uuid.UUID{horseID, swapID}
+	for _, row := range []struct {
+		name      string
+		startedAt *time.Time
+		want      *uuid.UUID
+		members   []uuid.UUID
+	}{
+		{"no start", nil, &second, secondRig},
+		{"started while the first rig was open", fromEnd(-20 * time.Minute), &first, firstRig},
+		{"started a second before it ended", fromEnd(-time.Second), &first, firstRig},
+		{"started the instant it ended", fromEnd(0), &second, secondRig},
+		{"started after it ended", fromEnd(10 * time.Minute), &second, secondRig},
+		{"started before any rig", fromEnd(-50 * time.Minute), nil, nil},
+		{"started after now", &later, &second, secondRig},
+	} {
+		for _, actor := range []struct {
+			name string
+			id   uuid.UUID
+		}{{"driver", driverID}, {"controller", controllerID}} {
+			t.Run(row.name+"/"+actor.name, func(t *testing.T) {
+				rec := get(t, h, contextPath(horseID, row.startedAt), tenantID.String(), actor.id.String())
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+				var body struct {
+					Combination *rig `json:"combination"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				if row.want == nil {
+					require.Nil(t, body.Combination, "a rig opened after the start was served")
+					return
+				}
+				require.NotNil(t, body.Combination, "no rig was served")
+				require.Equal(t, *row.want, body.Combination.ID, "the rig open at the start")
+				var got []uuid.UUID
+				for i, m := range body.Combination.Members {
+					require.Equal(t, i+1, m.Sequence, "members in sequence")
+					got = append(got, m.VehicleID)
+				}
+				require.Equal(t, row.members, got)
+			})
+		}
+	}
+
+	for _, row := range []struct {
+		name      string
+		actor     uuid.UUID
+		startedAt *time.Time
+		want      int
+	}{
+		{"driver, started while the first rig was open", driverID, fromEnd(-20 * time.Minute), http.StatusOK},
+		{"driver, started after it ended", driverID, fromEnd(10 * time.Minute), http.StatusForbidden},
+		{"controller, started after it ended", controllerID, fromEnd(10 * time.Minute), http.StatusOK},
+	} {
+		rec := get(t, h, contextPath(trailerID, row.startedAt), tenantID.String(), row.actor.String())
+		require.Equal(t, row.want, rec.Code, row.name+": "+rec.Body.String())
+	}
 }

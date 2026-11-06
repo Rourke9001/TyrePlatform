@@ -3,6 +3,8 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { apiGet } from "../api/client";
 import { retryQuery } from "../api/apiError";
 import { getDevTenantId } from "../api/devTenant";
+import { useActor } from "../auth/actorContext";
+import { tenantDayKey } from "../time/tenantTime";
 
 // Wire shape of GET /api/capture/vehicles/{id}. Every field exists because
 // FR-OFF-001 takes connectivity away after this call returns: a missing
@@ -28,7 +30,9 @@ export interface CapturePosition {
   // FR-INS-034: the increase and the fitment that would excuse it.
   previousGoverningMm: number | null;
   previousReadingAt: string | null;
-  // FR-TYR-017: days since previousReadingAt in the tenant's calendar.
+  // FR-TYR-017: tenant calendar days from previousReadingAt to the read's
+  // day, the tenant day the server counted to when it answered (capture.go,
+  // captureAsAt).
   // Optional: the capture route must render against an API older than
   // the field, which then reads as absent.
   previousReadingAgeDays?: number | null;
@@ -79,16 +83,26 @@ export interface CaptureContext {
   // (FR-INS-020) and distance is never apportioned to one (FR-INS-064).
   unitKind: string;
   lastOdometerKm: number | null;
-  // FR-INS-033 divides by the gap since this date; the value alone has no
-  // denominator.
   lastOdometerAt: string | null;
+  // Tenant calendar days from lastOdometerAt to the read's day (as above;
+  // rule 6, TYRE-342), counted by the server, not the phone. FR-INS-020
+  // projects over it. Optional for the reason previousReadingAgeDays is.
+  lastOdometerAgeDays?: number | null;
+  // FR-INS-033's base, the last reading on a day before the read's day, the
+  // day DR-020's trigger takes its prev from for a reading dated that day
+  // (000021), and its age, so at least one day. Null when no reading
+  // predates that day; optional as above.
+  odometerBaseKm?: number | null;
+  odometerBaseAgeDays?: number | null;
   // FR-INS-020's pre-fill projects from the last reading at this rate. Null
   // when the timeline cannot support one (a first inspection, or two
   // readings the same day); see history.projectedOdometerKm.
   averageDailyKm: number | null;
   positions: CapturePosition[];
-  // Null unless this unit heads a current combination: a solo rigid, or a
-  // trailer asked for its own context, simply has none.
+  // Null unless this unit heads the rig the read serves, which on a draft's
+  // windowed read is the one open at the read's instant (capture.go,
+  // captureAsAt): a solo rigid, or a trailer asked for its own context,
+  // simply has none.
   combination: CaptureCombination | null;
   config: CaptureConfig;
   // Keyed "AXLE_CLASS:AXLE_TYPE" (BR-ANL-006 cohorts by class, BR-ANL-009
@@ -109,34 +123,57 @@ export function fetchCaptureContext(
   return apiGet<CaptureContext>(`/api/capture/vehicles/${vehicleId}${query}`);
 }
 
-// staleTime Infinity, gcTime for the tab's life: FR-OFF-002 caches this for
-// the session, refreshed by FR-OFF-003 on app-open/demand, never a timer
-// that could change a threshold mid-walk-around. Options are a function,
-// not inlined, because a rig (useQueries) and a solo unit must produce the
-// same queryKey or the motive unit fetches twice. The key carries startedAt
-// because a read through a draft's window answers for that window, not now.
-//
-// A windowed read is seeded from the entry this capture started on (FR-OFF-001,
-// U148): a remount keys on the draft's startedAt, which the first mount never
-// cached, and offline a query with no data does not fetch. The seed admits
-// nothing the first mount did not, and the submit is judged again over its own
-// window.
-export function captureContextQuery(vehicleId: string, startedAt?: string, seed?: QueryClient) {
+function captureContextKey(vehicleId: string, startedAt?: string) {
+  return ["capture-context", getDevTenantId() ?? "default", vehicleId, startedAt ?? null];
+}
+
+// gcTime for the tab's life (FR-OFF-002), so an entry nothing observes stays,
+// such as the at-now copy across a route change or a draft's window across a
+// remount.
+// A read at now is fresh for the tenant's day it was fetched on, since its day
+// counts are that day's (rule 6, U179).
+// A failed or paused renewal keeps the copy (U179).
+// A draft's windowed read does not go stale with time, since it answers for
+// the window its submit is judged over (U148, U182).
+// Past the start screen, the walk-around and the review read held contexts,
+// not this query (U186).
+// One function for a rig (useQueries) and a solo unit, or their keys differ
+// and the motive fetches twice (FR-OFF-001).
+// A windowed read with no data of its own is seeded from the at-now entry,
+// since offline its own fetch pauses (FR-OFF-001, U148).
+// The seed admits no unit the first mount did not, and the submit is judged
+// again over its own window (U148).
+export function captureContextQuery(
+  vehicleId: string,
+  startedAt?: string,
+  seed?: QueryClient,
+  timeZone = "UTC",
+) {
+  const queryKey = captureContextKey(vehicleId, startedAt);
   return {
-    queryKey: ["capture-context", getDevTenantId() ?? "default", vehicleId, startedAt ?? null],
+    queryKey,
     queryFn: () => fetchCaptureContext(vehicleId, startedAt),
     initialData:
       startedAt === undefined || !seed
         ? undefined
-        : () => seed.getQueryData<CaptureContext>(captureContextQuery(vehicleId).queryKey),
-    staleTime: Infinity,
+        : () => seed.getQueryData<CaptureContext>(captureContextKey(vehicleId)),
+    staleTime:
+      startedAt !== undefined
+        ? Infinity
+        : (query: { state: { dataUpdatedAt: number } }) =>
+            tenantDayKey(query.state.dataUpdatedAt, timeZone) === tenantDayKey(Date.now(), timeZone)
+              ? Infinity
+              : 0,
     gcTime: Infinity,
-    refetchOnWindowFocus: false,
-    retry: retryQuery,
+    // A renewal with a copy in hand tries once, since each retry holds the
+    // start screen on Loading over the copy it falls back to (U179).
+    retry: (failures: number, error: unknown) =>
+      seed?.getQueryData(queryKey) === undefined && retryQuery(failures, error),
   };
 }
 
 export function useCaptureContext(vehicleId: string, startedAt?: string, enabled = true) {
   const client = useQueryClient();
-  return useQuery({ ...captureContextQuery(vehicleId, startedAt, client), enabled });
+  const timeZone = useActor()?.timezone ?? "UTC";
+  return useQuery({ ...captureContextQuery(vehicleId, startedAt, client, timeZone), enabled });
 }

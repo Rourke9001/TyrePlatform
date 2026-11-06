@@ -66,14 +66,15 @@ export function historyWarnings(
 // FR-INS-020's pre-fill, verbatim: a projection, never the raw last
 // reading, which cannot manufacture a zero-distance interval FR-INS-032/033
 // would misread. Confirming beats typing six digits (sponsor Q6). Null
-// wherever an input is missing (NFR-PRO-003 prefers absence to invention);
-// the caller decides what an unconfirmed projection means.
-export function projectedOdometerKm(ctx: CaptureContext, now: Date): number | null {
-  if (ctx.lastOdometerKm === null || ctx.lastOdometerAt === null) return null;
-  if (ctx.averageDailyKm === null) return null;
-  const days = daysBetween(new Date(ctx.lastOdometerAt), now);
-  if (days <= 0) return ctx.lastOdometerKm;
-  return Math.round(ctx.lastOdometerKm + ctx.averageDailyKm * days);
+// wherever an input is missing, or the last reading is today's and would be
+// offered as itself (NFR-PRO-003 prefers absence to invention); the caller
+// decides what an unconfirmed projection means.
+export function projectedOdometerKm(ctx: CaptureContext): number | null {
+  if (ctx.lastOdometerKm === null || ctx.lastOdometerAgeDays == null) return null;
+  if (ctx.averageDailyKm === null || ctx.lastOdometerAgeDays <= 0) return null;
+  // The served whole days FR-INS-033 divides by, so an offer at a rate at or
+  // under the ceiling passes its own check.
+  return Math.round(ctx.lastOdometerKm + ctx.averageDailyKm * ctx.lastOdometerAgeDays);
 }
 
 // FR-INS-032 is a rejection, not a warning: BR-INS-002 is unconditional and
@@ -95,21 +96,32 @@ export function odometerRejection(
 export function odometerWarnings(
   odometerKm: number | null,
   ctx: CaptureContext,
-  now: Date,
   units: UnitLabels,
 ): Warning[] {
-  if (odometerKm === null || ctx.lastOdometerKm === null || ctx.lastOdometerAt === null) return [];
-  const days = daysBetween(new Date(ctx.lastOdometerAt), now);
-  if (days <= 0) return [];
+  const base = ctx.odometerBaseKm;
+  const days = ctx.odometerBaseAgeDays;
+  if (odometerKm === null || base == null || days == null) return [];
 
-  const perDay = (odometerKm - ctx.lastOdometerKm) / days;
+  // The trigger's pair in whole tenant days (000021), so the driver is asked
+  // about a reading the timeline would refuse as implausible (TY002). The
+  // phone judges against the start screen's copy, and the trigger against the
+  // timeline at the write and the ceiling in force at the end of the
+  // reading's UTC date, so they can part wherever those differ. Causes
+  // include this reading dated on another day than the copy counted to (UTC
+  // dating until TYRE-244, or a later submit such as a resumed draft's), an
+  // earlier-dated reading landing after the copy was read (an outbox, an
+  // import), a base day two sources share (TYRE-244), and a ceiling taking
+  // effect after the copy was read (TYRE-244 for one after the submit).
+  const perDay = (odometerKm - base) / days;
   if (perDay <= ctx.config.odometerMaxDailyKm) return [];
 
   return [
     {
       code: "FR-INS-033",
       requiresConfirmation: true,
-      message: `That is about ${groupThousands(String(Math.round(perDay)))} ${units.distance} a day since the last reading. Check the digits.`,
+      // Names the reading it divides from: with one already taken today, the
+      // start screen shows only that one.
+      message: `That is about ${groupThousands(String(Math.round(perDay)))} ${units.distance} a day since the ${groupThousands(String(base))} ${units.distance} reading ${formatTreadAge(days)}. Check the digits.`,
       enteredValue: String(odometerKm),
     },
   ];

@@ -14,6 +14,7 @@ import { historyWarnings } from "./history";
 import { entryKey } from "./keypadKey";
 import { placeWords } from "./place";
 import { TreadGlyph } from "./TreadGlyph";
+import { groupThousands } from "../format/groupThousands";
 import { useUnitLabels } from "../units/units";
 import "./capture.css";
 
@@ -81,7 +82,7 @@ export function PositionSheet({
   const warnings = useMemo(
     () => [
       ...positionWarnings(entry, rig.position, ctx.config, labels),
-      // Frozen at open, like CaptureFlow/CaptureStart/CaptureReview:
+      // Frozen at open, like CaptureFlow/CaptureReview:
       // FR-INS-035's rate has elapsed time as its denominator, and a
       // render-time read would drift from the diagram's.
       ...historyWarnings(entry, rig.position, ctx, new Date(openedAt)),
@@ -282,7 +283,7 @@ export function PositionSheet({
         <Keypad
           // Next advances while the position is unfinished and finishes it
           // once it is complete. Wiring it straight to finish() strands a
-          // 0-3mm tread: those never settle (30 is still under the 35mm
+          // 1-3mm tread: those never settle (30 is still under the 35mm
           // ceiling, so another digit is possible), finish() returns early on
           // an incomplete position, and the driver has no way forward, on
           // the exact reading the product exists to catch.
@@ -314,7 +315,9 @@ export function PositionSheet({
         onSelect={(i) => press({ type: "focus", field: i })}
         unitText="mm"
         pressure={{
-          value: state.pressureKpa === null ? "" : String(state.pressureKpa),
+          // U55 with owner ruling B8 (TYRE-342): grouped as typed, as the
+          // odometer readout is.
+          value: state.pressureKpa === null ? "" : groupThousands(String(state.pressureKpa)),
           caption: "Press.",
           unitText: labels.pressure,
           ariaLabel: "Pressure",
