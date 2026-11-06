@@ -30,7 +30,9 @@ export interface CapturePosition {
   // FR-INS-034: the increase and the fitment that would excuse it.
   previousGoverningMm: number | null;
   previousReadingAt: string | null;
-  // FR-TYR-017: days since previousReadingAt in the tenant's calendar.
+  // FR-TYR-017: tenant calendar days from previousReadingAt to the read's
+  // day, the tenant day the server counted to when it answered (capture.go,
+  // captureAsAt).
   // Optional: the capture route must render against an API older than
   // the field, which then reads as absent.
   previousReadingAgeDays?: number | null;
@@ -82,13 +84,14 @@ export interface CaptureContext {
   unitKind: string;
   lastOdometerKm: number | null;
   lastOdometerAt: string | null;
-  // Days since lastOdometerAt in the tenant's calendar (rule 6, TYRE-342),
-  // counted by the server so no phone clock sets it. FR-INS-020 projects
-  // over it. Optional for the reason previousReadingAgeDays is.
+  // Tenant calendar days from lastOdometerAt to the read's day (as above;
+  // rule 6, TYRE-342), counted by the server, not the phone. FR-INS-020
+  // projects over it. Optional for the reason previousReadingAgeDays is.
   lastOdometerAgeDays?: number | null;
-  // FR-INS-033's base: the last reading on a day before the tenant's today,
-  // which DR-020's trigger judges against (000021), and its age, so at least
-  // one day. Null when no reading predates today; optional as above.
+  // FR-INS-033's base, the last reading on a day before the read's day, the
+  // day DR-020's trigger takes its prev from for a reading dated that day
+  // (000021), and its age, so at least one day. Null when no reading
+  // predates that day; optional as above.
   odometerBaseKm?: number | null;
   odometerBaseAgeDays?: number | null;
   // FR-INS-020's pre-fill projects from the last reading at this rate. Null

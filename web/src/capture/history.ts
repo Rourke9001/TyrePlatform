@@ -102,9 +102,16 @@ export function odometerWarnings(
   const days = ctx.odometerBaseAgeDays;
   if (odometerKm === null || base == null || days == null) return [];
 
-  // The trigger's pair in whole tenant days, so the driver is asked about
-  // the reading the timeline would refuse. They part for the hours UTC's
-  // date differs from the tenant's, until TYRE-244 dates the write.
+  // The trigger's pair in whole tenant days (000021), so the driver is asked
+  // about a reading the timeline would refuse as implausible (TY002). The
+  // phone judges against the start screen's copy, and the trigger against the
+  // timeline at the write and the ceiling in force at the end of the
+  // reading's UTC date, so they can part wherever those differ. Causes
+  // include this reading dated on another day than the copy counted to (UTC
+  // dating until TYRE-244, or a later submit such as a resumed draft's), an
+  // earlier-dated reading landing after the copy was read (an outbox, an
+  // import), a base day two sources share (TYRE-244), and a ceiling taking
+  // effect after the copy was read (TYRE-244 for one after the submit).
   const perDay = (odometerKm - base) / days;
   if (perDay <= ctx.config.odometerMaxDailyKm) return [];
 
