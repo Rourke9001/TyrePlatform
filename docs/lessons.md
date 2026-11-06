@@ -48,7 +48,7 @@ after Start and replacing that context.
 makes a general claim, test it on inputs outside the reviewer's examples,
 or narrow the claim.
 
-## 2026-11-06 - Go 1.27 compiles encoding/json from its v2 files, so decode.go is not the decoder (TYRE-379, #166)
+## 2026-11-06 - Go 1.27 compiles encoding/json from its v2 files, so its top-level decode.go is not the decoder (TYRE-379, #166)
 
 **What happened:** a stage 5 review agent on #166 cited `decode.go` and
 `encode.go` for Go 1.27 behaviour and raised a bug that does not exist on
@@ -58,9 +58,13 @@ default (`internal/buildcfg/exp.go`), both files carry
 files.
 
 **The rule:** Go 1.27 builds encoding/json from its v2 files (`JSONv2` on
-by default). Read `v2_inject.go` and `v2/` for decoder behaviour, never
-`decode.go` or `encode.go`, and confirm with
-`go list -f '{{.GoFiles}}' encoding/json`.
+by default). For decoder behaviour, read the `v2_*.go` files and the
+packages they build on: `v2/`, `jsontext/`, and `internal/` with its
+`jsonflags`, `jsonopts` and `jsonwire` (`jsonwire` holds `ParseUint`,
+which reads integer fields). Never read the top-level files that
+`go list -f '{{.IgnoredGoFiles}}' encoding/json` names (`decode.go`,
+`encode.go` and their v1 neighbours), and confirm the compiled set with
+`go list -deps -f '{{.ImportPath}} {{.GoFiles}}' encoding/json`.
 
 ## 2026-11-05 - A client copy of a SQL rule drifted in every review round, however carefully its inputs were read (#167)
 

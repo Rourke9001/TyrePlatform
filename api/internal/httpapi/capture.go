@@ -414,14 +414,20 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 			return
 		}
 
-		// Decoded so a vehicle_id string that is not a uuid is a 400 here; the
-		// scope check below hands the raw payload to the database, and the rest
-		// of it travels to app.submit_inspection unparsed (maxSubmitBytes above).
+		// Decoded so a top-level vehicle_id that is not null, and not a uuid
+		// string both uuid.Parse and the ::uuid cast read, is a 400 before any
+		// transaction opens (ADR-0013 decision 5). The scope check below and
+		// app.submit_inspection still read the raw payload (maxSubmitBytes
+		// above).
 		var body struct {
-			VehicleID uuid.UUID `json:"vehicle_id"`
+			VehicleID castableUUID `json:"vehicle_id"`
 		}
 		if err := json.Unmarshal(raw, &body); err != nil {
-			writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
+			message := "malformed json"
+			if errors.Is(err, errUUIDForm) {
+				message = "vehicle_id holds a uuid in a form this field does not accept"
+			}
+			writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, message)
 			return
 		}
 
