@@ -236,6 +236,15 @@ func TestSubmitRefusals(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		post(t, h, "/api/inspections", tenantID.String(), driverID.String(), "{not json").Code)
 
+	// This route decodes only vehicle_id, and it answers a vehicle_id of the
+	// wrong type with the generic refusal and no field name, which
+	// malformed_json's registry meaning says.
+	rec := post(t, h, "/api/inspections", tenantID.String(), driverID.String(), `{"vehicle_id":5}`)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, refusalBody{Code: "malformed_json", Message: "malformed json"}, ref)
+
 	// FR-INS-038 is a permanent refusal: the outbox must surface FR-OFF-013's
 	// recovery action rather than retry it for thirty minutes, which is why it
 	// cannot share a status with 422's malformed vehicle.
