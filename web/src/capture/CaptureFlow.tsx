@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 
 import { ApiError } from "../api/apiError";
-import { bearerMode } from "../api/token";
+import { bearerMode, stampSubject } from "../api/token";
 import { ACCESS_COPY, failureOf } from "../auth/actorContext";
 import { SignInButton } from "../auth/SignInButton";
 import { Button } from "../ui/Button";
@@ -16,7 +16,7 @@ import { ConfirmDiscard } from "./ConfirmDiscard";
 import type { RecordedWarning } from "./draft";
 import { saveHeader } from "./draft";
 import { useCaptureContext } from "./captureContext";
-import { attemptSend, listOutbox, queueDraft } from "./outbox";
+import { attemptSend, listOutbox, mayCarry, queueDraft } from "./outbox";
 import { absentCells, appVersion, capturedCells, deviceId } from "./payload";
 import { PositionSheet } from "./PositionSheet";
 import { deriveProgress } from "./rig";
@@ -30,6 +30,7 @@ interface Outcome {
   state: "sent" | "queued" | "failed";
   lastCode: string | null;
   lastStatus: number | null;
+  stampHeld: boolean;
 }
 
 // NFR-USE-005: a 403 answers the same on every reload, so it says who can
@@ -209,11 +210,12 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         const still = (await listOutbox()).find((e) => e.clientUuid === entry.clientUuid);
         setOutcome(
           still === undefined
-            ? { state: "sent", lastCode: null, lastStatus: null }
+            ? { state: "sent", lastCode: null, lastStatus: null, stampHeld: false }
             : {
                 state: still.state === "failed" ? "failed" : "queued",
                 lastCode: still.lastCode ?? null,
                 lastStatus: still.lastStatus,
+                stampHeld: !mayCarry(still, stampSubject()),
               },
         );
         setDraft(null);
@@ -234,6 +236,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         state={outcome.state}
         lastCode={outcome.lastCode}
         lastStatus={outcome.lastStatus}
+        stampHeld={outcome.stampHeld}
       />
     );
   } else if (

@@ -1541,3 +1541,47 @@ describe("a held 401 inside capture", () => {
     expect(await db.table("outbox").count()).toBe(1);
   });
 });
+
+describe("what the done screen says a queued submit waits on", () => {
+  // U104: a sign-in in another tab can leave another driver's credential
+  // here, and sendEntry then refuses the stamp without recording anything.
+  it("names the capturing driver's sign-in when the credential is another driver's", async () => {
+    const user = newUser();
+    const api = stubApi(201);
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await capturePosition(user);
+    await user.click(screen.getByRole("button", { name: /review and submit/i }));
+    setDevActorId("oid-driver-2");
+    await user.click(screen.getByRole("button", { name: /submit inspection/i }));
+
+    expect(await screen.findByRole("heading", { name: "Inspection saved" })).toBeInTheDocument();
+    expect(
+      screen.getByText("The driver who captured it needs to sign in here to send it."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/while the app is open with signal/)).toBeNull();
+    expect(api.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+    expect(await db.table("outbox").count()).toBe(1);
+  });
+
+  it("keeps the signal line for this driver's submit with no signal", async () => {
+    const user = newUser();
+    stubApi(201);
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await capturePosition(user);
+    await user.click(screen.getByRole("button", { name: /review and submit/i }));
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    await user.click(screen.getByRole("button", { name: /submit inspection/i }));
+
+    expect(await screen.findByRole("heading", { name: "Inspection saved" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "It sends by itself while the app is open with signal. You can close the app.",
+      ),
+    ).toBeInTheDocument();
+    expect(await db.table("outbox").count()).toBe(1);
+  });
+});

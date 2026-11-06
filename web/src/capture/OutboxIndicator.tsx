@@ -13,9 +13,10 @@ import {
   heldBy,
   isStale,
   mayCarry,
+  STAMP_HOLD_COPY,
   startOutboxHeartbeat,
 } from "./outbox";
-import { useOutbox, useSignInToSend } from "./useOutbox";
+import { holdsForSignIn, useOutbox, useSignInToSend } from "./useOutbox";
 import "./outbox.css";
 
 // Mounted in the app shell rather than inside capture: a driver who has walked
@@ -55,18 +56,18 @@ export function OutboxIndicator() {
   const blocked = entries.filter((e) => e.state === "failed");
   const stale = waiting.filter((e) => isStale(e));
   // FR-OFF-020 warns of a stale entry once, naming what it waits on. The
-  // clock and a sign-in this driver can make have lines of their own, which
-  // the warning prefixes; any other cause gets its own line. Another
-  // driver's sign-in hold is theirs to clear (U104).
+  // clock line and the band's sign-in line prefix the warning for the entries
+  // they cover. Any other stale entry gets a line per cause.
   const me = stampSubject();
-  const signsIn = (e: OutboxEntry) => needSignIn > 0 && e.lastStatus === 401 && mayCarry(e, me);
+  // U104: sendEntry sends nothing mayCarry refuses, so an entry `me` may not
+  // carry waits on its stamped driver's sign-in, whatever hold it last met.
+  const onClock = (e: OutboxEntry) => e.lastCode === "TY021" && mayCarry(e, me);
+  const signsIn = (e: OutboxEntry) => needSignIn > 0 && holdsForSignIn(e, me);
   const causeOf = (e: OutboxEntry) =>
-    e.lastStatus === 401 && !mayCarry(e, me)
-      ? "Another driver needs to sign in here to send it."
-      : heldBy(e.lastStatus, e.lastCode);
-  const staleClock = stale.some((e) => e.lastCode === "TY021");
+    mayCarry(e, me) ? heldBy(e.lastStatus, e.lastCode) : STAMP_HOLD_COPY;
+  const staleClock = stale.some(onClock);
   const staleSignIn = stale.some(signsIn);
-  const others = stale.filter((e) => e.lastCode !== "TY021" && !signsIn(e));
+  const others = stale.filter((e) => !onClock(e) && !signsIn(e));
   const staleOnSignal = others.some((e) => causeOf(e) === null);
   const staleCauses = [
     ...new Set(others.map(causeOf).filter((cause): cause is string => cause !== null)),
@@ -110,14 +111,17 @@ export function OutboxIndicator() {
             )}
           </div>
         ))}
-        {waiting.some((e) => e.lastCode === "TY021") && (
+        {waiting.some(onClock) && (
           <span className="cap-outbox-line cap-outbox-line--stop" role="alert">
             {staleClock && "Waiting over two days. "}
             {CLOCK_AHEAD_COPY}
           </span>
         )}
         {needSignIn > 0 && (
-          <span className="cap-outbox-line">
+          <span
+            className={staleSignIn ? "cap-outbox-line cap-outbox-line--stop" : "cap-outbox-line"}
+            role={staleSignIn ? "alert" : undefined}
+          >
             {staleSignIn && "Waiting over two days. "}
             Sign in to send {needSignIn}&nbsp;inspection{needSignIn === 1 ? "" : "s"}
           </span>

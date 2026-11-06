@@ -30,6 +30,24 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-06 - A fix's comment or message held for the reviewer's examples and was false outside them (#166, #167)
+
+**What happened:** #166's round 3 fix took the refusal message its review
+proposed ("is not a number this field can hold") and tested it on the cases
+that review named. Round 4's R6 found it false for a whole number written
+with an exponent or a decimal point (`1e3` or `5.0` into an `int64`).
+Round 3's report had listed exponent form among the causes, and the
+committed comment left it out. #167's round 4 commit message, PR
+Decisions, three code comments and TYRE-334 c14146 said the walk-around
+and the review read one context through to Done. Each of round 4's four
+new tests began from a query that had already settled, and round 5's
+finding 1 showed a renewal paused offline on the start screen resuming
+after Start and replacing that context.
+
+**The rule:** before committing a comment, message or PR sentence that
+makes a general claim, test it on inputs outside the reviewer's examples,
+or narrow the claim.
+
 ## 2026-11-05 - A client copy of a SQL rule drifted in every review round, however carefully its inputs were read (#167)
 
 **What happened:** #167's stage 5 round 1 prescribed dividing FR-INS-033 by

@@ -53,6 +53,10 @@ export const CLOCK_AHEAD_COPY =
 
 export const SERVER_HOLD_COPY = "The server could not take it yet. It will send by itself.";
 
+// U104: what the outbox band and the done screen say of an entry the phone's
+// subject may not carry. Only the driver its stamp names can send it.
+export const STAMP_HOLD_COPY = "The driver who captured it needs to sign in here to send it.";
+
 // What holds a queued entry when signal is not the cause, in the words the
 // done screen and the outbox band both use: a sign-in, the account, the
 // token store's latch, the phone's clock, or a server that answered. Null

@@ -1,16 +1,28 @@
 import { Icon } from "../ui/Icon";
 import { CheckIcon } from "../ui/icons/Check";
 import { CriticalIcon } from "../ui/icons/Critical";
-import { heldBy, SERVER_HOLD_COPY } from "./outbox";
+import { heldBy, SERVER_HOLD_COPY, STAMP_HOLD_COPY } from "./outbox";
 import "./capture.css";
+
+// Nothing sends while the app is closed (FR-OFF-009, ADR-0009), so the two
+// lines that let the driver close it say the send waits for it to be open.
+const SIGNAL_HOLD_DONE =
+  "It sends by itself while the app is open with signal. You can close the app.";
+const SERVER_HOLD_DONE =
+  "The server could not take it yet. It sends by itself while the app is open. You can close the app.";
 
 // A hold signal cannot clear says what clears it instead of promising a
 // send (spec section 4, The indicator).
-function waitingOn(lastStatus: number | null, lastCode: string | null): string {
+function waitingOn(lastStatus: number | null, lastCode: string | null, stampHeld: boolean): string {
+  // U104: sendEntry records nothing when it refuses the stamp, so the status
+  // cannot name this hold.
+  if (stampHeld) return STAMP_HOLD_COPY;
   const held = heldBy(lastStatus, lastCode);
-  // Both holds that send by themselves say the driver may walk away.
-  if (held === SERVER_HOLD_COPY) return `${held} You can close the app.`;
-  return held ?? "It will send by itself when you have signal. You can close the app.";
+  // FR-OFF-006 keeps the entry across a restart. Signal and the server are
+  // the two holds whose words ask nothing of the driver, so they alone add
+  // that the driver may close the app.
+  if (held === SERVER_HOLD_COPY) return SERVER_HOLD_DONE;
+  return held ?? SIGNAL_HOLD_DONE;
 }
 
 // A plain anchor, not a router Link. Nothing on a screen that offers it needs
@@ -32,10 +44,13 @@ export function CaptureDone({
   state,
   lastCode,
   lastStatus,
+  stampHeld = false,
 }: {
   state: "sent" | "queued" | "failed";
   lastCode: string | null;
   lastStatus: number | null;
+  // True when the phone's subject may not carry the entry (mayCarry, U104).
+  stampHeld?: boolean;
 }) {
   if (state === "sent") {
     return (
@@ -59,7 +74,7 @@ export function CaptureDone({
           <Icon icon={CheckIcon} size={48} />
         </p>
         <h1 className="cap-done-title">Inspection saved</h1>
-        <p className="cap-done-body">{waitingOn(lastStatus, lastCode)}</p>
+        <p className="cap-done-body">{waitingOn(lastStatus, lastCode, stampHeld)}</p>
         <BackToWork />
       </section>
     );

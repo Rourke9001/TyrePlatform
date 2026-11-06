@@ -45,6 +45,9 @@ vi.mock("../auth/oidc", () => ({
 beforeEach(async () => {
   await db.open();
   await outbox().clear();
+  // The fixtures are stamped for this driver, and the band words another
+  // driver's entry apart (U104).
+  window.localStorage.setItem("tyre.dev.user-id", "oid-driver-1");
   // The heartbeat and the mount flush both reach the network otherwise.
   vi.stubGlobal(
     "fetch",
@@ -54,6 +57,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllGlobals();
+  window.localStorage.clear();
   await outbox().clear();
 });
 
@@ -141,8 +145,8 @@ describe("OutboxIndicator", () => {
     expect(screen.queryByText(/find signal/i)).toBeNull();
   });
 
-  // The clock has a line of its own, so a stale TY021 entry prefixes that
-  // line rather than repeating it.
+  // The clock has a line of its own, so this driver's stale TY021 entry
+  // prefixes that line rather than repeating it.
   it("prefixes the clock line for a stale TY021 entry, once", async () => {
     await outbox().put({
       ...entry("u1", "queued"),
@@ -330,7 +334,7 @@ describe("the sign-in line", () => {
 
   // Another driver's held entry waits for them (U104), so this driver is not
   // told to sign in for it.
-  it("names another driver for their stale entry", async () => {
+  it("asks for the capturing driver's sign-in on another driver's stale entry", async () => {
     window.localStorage.setItem("tyre.auth.subject", "oid-driver-2");
     await outbox().put({
       ...entry("u1", "queued"),
@@ -341,10 +345,87 @@ describe("the sign-in line", () => {
 
     expect(
       await screen.findByText(
-        "Waiting over two days. Another driver needs to sign in here to send it.",
+        "Waiting over two days. The driver who captured it needs to sign in here to send it.",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Sign in to send/)).toBeNull();
+  });
+
+  // U104: sendEntry sends nothing mayCarry refuses, so another driver's entry
+  // waits on their sign-in whatever hold it last met.
+  it.each([
+    [null, null],
+    [503, null],
+    [422, "TY021"],
+    [403, "tenant_inactive"],
+  ])(
+    "asks for the capturing driver's sign-in on another driver's stale entry held by %s %s",
+    async (status, code) => {
+      window.localStorage.setItem("tyre.auth.subject", "oid-driver-2");
+      await outbox().put({
+        ...entry("u1", "queued"),
+        queuedAt: Date.now() - 49 * 3_600_000,
+        lastStatus: status,
+        lastCode: code,
+      });
+      render(<OutboxIndicator />);
+
+      await screen.findByText("1 inspection waiting to send");
+      expect(screen.getAllByText(/Waiting over two days/).map((line) => line.textContent)).toEqual([
+        "Waiting over two days. The driver who captured it needs to sign in here to send it.",
+      ]);
+      expect(screen.queryByText(/clock is ahead/)).toBeNull();
+    },
+  );
+
+  // The U104 undo leaves nobody signed in, and the next to open the app is
+  // usually the phone's owner (U115), so the line names no other driver.
+  it.each([[401], [null]])(
+    "names no other driver for a stale %s entry while nobody is signed in",
+    async (status) => {
+      window.localStorage.removeItem("tyre.auth.subject");
+      await outbox().put({
+        ...entry("u1", "queued"),
+        queuedAt: Date.now() - 49 * 3_600_000,
+        lastStatus: status,
+      });
+      render(
+        <ActorContext.Provider value={{ actor: null, settled: true, failure: "signed-out" }}>
+          <OutboxIndicator />
+        </ActorContext.Provider>,
+      );
+
+      await screen.findByText("1 inspection waiting to send");
+      expect(screen.getAllByText(/Waiting over two days/).map((line) => line.textContent)).toEqual([
+        "Waiting over two days. The driver who captured it needs to sign in here to send it.",
+      ]);
+      expect(screen.queryByText(/Another driver/)).toBeNull();
+    },
+  );
+
+  // The clock line says the entry will send later, which another driver's
+  // will not without their sign-in.
+  it("leaves another driver's TY021 entry off the clock line", async () => {
+    window.localStorage.setItem("tyre.auth.subject", "oid-driver-2");
+    await outbox().put({ ...entry("u1", "queued"), lastStatus: 422, lastCode: "TY021" });
+    render(<OutboxIndicator />);
+
+    await screen.findByText("1 inspection waiting to send");
+    expect(screen.queryByText(/clock is ahead/)).toBeNull();
+  });
+
+  // FR-OFF-020: a stale entry's warning is an alert on every line it prefixes.
+  it("warns with an alert when this driver's stale entry waits on a sign-in", async () => {
+    await outbox().put({
+      ...entry("u1", "queued"),
+      queuedAt: Date.now() - 49 * 3_600_000,
+      lastStatus: 401,
+    });
+    render(<OutboxIndicator />);
+
+    const line = await screen.findByText("Waiting over two days. Sign in to send 1 inspection");
+    expect(line).toHaveAttribute("role", "alert");
+    expect(line).toHaveClass("cap-outbox-line--stop");
   });
 
   it("asks this driver to sign in to send what a 401 is holding", async () => {
