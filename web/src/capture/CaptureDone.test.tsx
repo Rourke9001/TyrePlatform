@@ -21,7 +21,7 @@ describe("CaptureDone", () => {
     render(<CaptureDone state="queued" lastCode={code} lastStatus={status} />);
     expect(screen.getByRole("heading", { name: "Inspection saved" })).toBeInTheDocument();
     expect(screen.getByText(sentence)).toBeInTheDocument();
-    expect(screen.queryByText(/when you have signal/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/open with signal/)).not.toBeInTheDocument();
   });
 
   // TYRE-215: the phone's clock holds a TY021 entry, not signal, so the
@@ -34,7 +34,7 @@ describe("CaptureDone", () => {
         "This phone's clock is ahead, so the office could not accept it yet. It will send later. Check the time.",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/when you have signal/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/open with signal/)).not.toBeInTheDocument();
   });
 
   // The server answered, so signal is not what holds it.
@@ -46,21 +46,45 @@ describe("CaptureDone", () => {
     render(<CaptureDone state="queued" lastCode={code} lastStatus={status} />);
     expect(
       screen.getByText(
-        "The server could not take it yet. It will send by itself. You can close the app.",
+        "The server could not take it yet. It sends by itself while the app is open. You can close the app.",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/when you have signal/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/open with signal/)).not.toBeInTheDocument();
   });
 
   it("keeps the signal wording for any other hold", () => {
     render(<CaptureDone state="queued" lastCode={null} lastStatus={null} />);
-    expect(screen.getByText(/when you have signal/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "It sends by itself while the app is open with signal. You can close the app.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  // FR-OFF-009: nothing sends while the app is closed, so a line that lets the
+  // driver close it says the send waits for the app to be open.
+  it.each([
+    [null, null],
+    [500, null],
+  ])("says a %s %s hold sends while the app is open", (status, code) => {
+    render(<CaptureDone state="queued" lastCode={code} lastStatus={status} />);
+    expect(screen.getByText(/You can close the app\.$/)).toHaveTextContent(/while the app is open/);
+  });
+
+  // U104: a refused stamp leaves no status, so the caller says it is the hold.
+  it("names the capturing driver's sign-in when the stamp holds it", () => {
+    render(<CaptureDone state="queued" lastCode={null} lastStatus={null} stampHeld />);
+    expect(screen.getByRole("heading", { name: "Inspection saved" })).toBeInTheDocument();
+    expect(
+      screen.getByText("The driver who captured it needs to sign in here to send it."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/open with signal/)).not.toBeInTheDocument();
   });
 
   // CR-010/OR-LEG-001 (TYRE-207): every outcome a driver can be shown.
   it.each([
     ["sent", null, null, /inspection sent/],
-    ["queued", null, null, /when you have signal/],
+    ["queued", null, null, /open with signal/],
     ["queued", "TY021", 422, /clock is ahead/],
     ["failed", "TY003", 409, /already inspected/],
     ["failed", null, 422, /could not accept this inspection/],
