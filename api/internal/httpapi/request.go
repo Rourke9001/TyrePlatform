@@ -159,9 +159,10 @@ func decodeJSONStrict(w http.ResponseWriter, r *http.Request, into any) bool {
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 		return false
 	}
-	// A literal null is refused although json.Unmarshal accepts one. It
-	// fills the target with nothing, so the unit PATCH, the one caller, would
-	// run it as an edit naming no field (TYRE-94).
+	// A literal null is refused, as an array, string, number or boolean is,
+	// because the request is an object. Decode refuses those four itself but
+	// takes null as no change, so null needs this check, while {} is an
+	// object naming no field and is accepted (TYRE-94).
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 		return false
@@ -199,13 +200,9 @@ func unknownJSONField(err error) (string, bool) {
 
 // typeErrorMessage words a refusal for a value the field could not take, or
 // answers false when err is not a type error or typeErrorField cannot name
-// the field. Each message says what the field holds, not what it is, because
-// the name stops at a map and leaves out a slice's index, so the value may
-// sit inside the named field (ADR-0012). Three shapes get one of these
-// messages for text, though text is the kind they take: a field tagged
-// ,string given text it cannot parse, a []byte given text that is not
-// base64, and a numeric-keyed map's key that will not parse. No request type
-// has any of them.
+// the field. The name carries no caller key (ADR-0012), so it stops at a map.
+// It also leaves out a slice's index. Each message says what the field holds,
+// not what it is, since the value may sit inside the named field (TYRE-379).
 func typeErrorMessage(err error, into any) (string, bool) {
 	var typeErr *json.UnmarshalTypeError
 	if !errors.As(err, &typeErr) {
@@ -218,7 +215,7 @@ func typeErrorMessage(err error, into any) (string, bool) {
 	// A number past its type's range, or with a minus sign on an unsigned
 	// kind or an exponent or decimal point on an integer kind, is still a
 	// number, and calling it a value of the wrong type would send the caller
-	// to fix the wrong thing (ADR-0012).
+	// to fix the wrong thing (TYRE-379).
 	if strings.HasPrefix(typeErr.Value, "number ") && isNumber(deref(typeErr.Type)) {
 		return field + " holds a number this field does not accept", true
 	}
@@ -403,6 +400,44 @@ func uuidField(field, raw string) (uuid.UUID, error) {
 	return id, nil
 }
 
+// errUUIDForm is castableUUID's refusal, for a text uuid.Parse reads and a
+// ::uuid cast does not.
+var errUUIDForm = errors.New("a uuid in a form Postgres does not read")
+
+// castableUUID is a uuid.UUID whose text must also be a form a ::uuid cast
+// reads, for a body sent on to SQL unparsed (ADR-0013 decision 5). The check
+// is a decoding method, not a test of the decoded value, because the decoder
+// runs it on the string under every key that names the field, keys that
+// differ only in case included, and Unmarshal answers the first error. On
+// success the decoded value is the last key's, and Postgres reads the exact
+// key (TYRE-379).
+type castableUUID uuid.UUID
+
+func (id *castableUUID) UnmarshalText(text []byte) error {
+	if err := (*uuid.UUID)(id).UnmarshalText(text); err != nil {
+		return err
+	}
+	if !postgresReadsUUID(string(text)) {
+		return errUUIDForm
+	}
+	return nil
+}
+
+// postgresReadsUUID answers whether a ::uuid cast reads s, a text uuid.Parse
+// has accepted. Of uuid.Parse's four lengths, Postgres reads 32 and 36, and
+// 38 only as {...}, where uuid.Parse ignores the first and last bytes.
+// Postgres reads none of length 45, the urn:uuid: form (TYRE-379).
+func postgresReadsUUID(s string) bool {
+	switch len(s) {
+	case 32, 36:
+		return true
+	case 38:
+		return s[0] == '{' && s[37] == '}'
+	default:
+		return false
+	}
+}
+
 // requiredText refuses an absent value, never a badly shaped one. A tread is
 // carried as a string end to end and cast ::numeric in SQL, where the range
 // rule lives; an empty string would reach that cast as a 22P02 whose canned
@@ -452,10 +487,11 @@ func dateField(field string, raw *string) (*string, error) {
 	return &trimmed, nil
 }
 
-// optionalIDOrClear reads a nullable id with the three states above. A value
-// that is neither absent nor empty must parse as a uuid here rather than
-// reach the ::uuid cast as a 22P02 naming no field at all (ADR-0013
-// decision 5).
+// optionalIDOrClear reads one of patchUnitArgs's nullable ids, where nil
+// leaves the column alone and a blank one clears it. Any other value must
+// parse as a uuid, and is passed on as canonical text because uuid.Parse
+// accepts forms the ::uuid cast does not read. A value cannot then reach that
+// cast as a 22P02 naming no field (ADR-0013 decision 5).
 func optionalIDOrClear(field string, raw *string) (*string, error) {
 	if raw == nil {
 		return nil, nil
@@ -464,10 +500,12 @@ func optionalIDOrClear(field string, raw *string) (*string, error) {
 	if trimmed == "" {
 		return &trimmed, nil
 	}
-	if _, err := uuidField(field, trimmed); err != nil {
+	id, err := uuidField(field, trimmed)
+	if err != nil {
 		return nil, err
 	}
-	return &trimmed, nil
+	canonical := id.String()
+	return &canonical, nil
 }
 
 // cleanTags bounds the count, trims, refuses a blank name and drops repeats

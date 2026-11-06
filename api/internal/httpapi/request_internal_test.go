@@ -1,13 +1,17 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	req "github.com/stretchr/testify/require" // aliased: see ratelimit_test.go
 )
 
@@ -229,11 +233,25 @@ func TestTypeErrorFieldStopsOnANonIndexSliceSegment(t *testing.T) {
 	req.False(t, named)
 }
 
+// decodeJSONRefusal sends body through decodeJSON, requires a 400
+// malformed_json refusal, and answers its message.
+func decodeJSONRefusal(t *testing.T, body string, into any) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.False(t, decodeJSON(rec, r, into))
+	req.Equal(t, http.StatusBadRequest, rec.Code)
+	var refusal errorBody
+	req.NoError(t, json.Unmarshal(rec.Body.Bytes(), &refusal))
+	req.Equal(t, "malformed_json", refusal.Code)
+	return refusal.Message
+}
+
 // A number the field's type refuses, past its range or in a form the type does
 // not take, is still a number, so the refusal does not call it a value of the
-// wrong type (ADR-0012). Both wordings say what the field holds, which reads
+// wrong type (TYRE-379). Both wordings say what the field holds, which reads
 // true of a map or a slice as well as a scalar.
-func TestDecodeJSONSaysWhenANumberDoesNotFit(t *testing.T) {
+func TestDecodeJSONWordsAValueItCannotStore(t *testing.T) {
 	for _, tt := range []struct {
 		body string
 		want string
@@ -251,20 +269,112 @@ func TestDecodeJSONSaysWhenANumberDoesNotFit(t *testing.T) {
 		{`{"moves":"x"}`, "moves holds a value of the wrong type"},
 	} {
 		t.Run(tt.body, func(t *testing.T) {
-			rec := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
-			var into probeBody
-			req.False(t, decodeJSON(rec, r, &into))
-			req.Equal(t, http.StatusBadRequest, rec.Code)
-			var body struct {
-				Code    string `json:"code"`
-				Message string `json:"message"`
-			}
-			req.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-			req.Equal(t, "malformed_json", body.Code)
-			req.Equal(t, tt.want, body.Message)
+			req.Equal(t, tt.want, decodeJSONRefusal(t, tt.body, &probeBody{}))
 		})
 	}
+}
+
+// Three shapes take text and still get one of typeErrorMessage's two
+// messages for text they cannot read: a field tagged ,string, a []byte given
+// text that is not base64, and a map keyed by a number. In three of the rows
+// below the message misreads the text, calling "abc" a number twice and "!!"
+// a value of the wrong type.
+type probeTextShapes struct {
+	Count  int           `json:"count,string"`
+	Ratio  float32       `json:"ratio,string"`
+	Blob   []byte        `json:"blob"`
+	ByNum  map[int]int   `json:"byNum"`
+	ByByte map[uint8]int `json:"byByte"`
+}
+
+func TestDecodeJSONWordsTextTheseShapesCannotRead(t *testing.T) {
+	for _, tt := range []struct {
+		body string
+		want string
+	}{
+		{`{"count":"abc"}`, "count holds a number this field does not accept"},
+		{`{"ratio":"1e39"}`, "ratio holds a number this field does not accept"},
+		{`{"blob":"!!"}`, "blob holds a value of the wrong type"},
+		{`{"byNum":{"abc":1}}`, "byNum holds a number this field does not accept"},
+		{`{"byByte":{"300":1}}`, "byByte holds a number this field does not accept"},
+	} {
+		t.Run(tt.body, func(t *testing.T) {
+			req.Equal(t, tt.want, decodeJSONRefusal(t, tt.body, &probeTextShapes{}))
+		})
+	}
+}
+
+// postgresReadsUUID stands in for Postgres's uuid input on a text uuid.Parse
+// accepts, so it is held to the cast itself (TYRE-379). The 38-byte rows try
+// each ASCII first and last byte but NUL, which Postgres text cannot carry,
+// the 32 and 36 rows try each hex digit in either case at each position, and
+// the urn rows try each letter case of the prefix.
+func TestPostgresReadsUUIDAgreesWithTheCast(t *testing.T) {
+	appURL := os.Getenv("TEST_DATABASE_URL")
+	if appURL == "" {
+		t.Skip("TEST_DATABASE_URL not set; this check needs Postgres")
+	}
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, appURL)
+	req.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
+
+	const id = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+	const digits = "0123456789abcdefABCDEF"
+	var texts []string
+	for _, base := range []string{id, strings.ReplaceAll(id, "-", "")} {
+		for i := range len(base) {
+			for _, d := range digits {
+				texts = append(texts, base[:i]+string(d)+base[i+1:])
+			}
+		}
+	}
+	for first := byte(1); first < 128; first++ {
+		for last := byte(1); last < 128; last++ {
+			texts = append(texts, string([]byte{first})+id+string([]byte{last}))
+		}
+	}
+	const prefix = "urn:uuid:"
+	for mask := range 1 << len(prefix) {
+		var p strings.Builder
+		for i := range len(prefix) {
+			c := prefix[i : i+1]
+			if mask&(1<<i) != 0 {
+				c = strings.ToUpper(c)
+			}
+			p.WriteString(c)
+		}
+		texts = append(texts, p.String()+id)
+	}
+	accepted := texts[:0]
+	for _, s := range texts {
+		if _, err := uuid.Parse(s); err == nil {
+			accepted = append(accepted, s)
+		}
+	}
+
+	rows, err := conn.Query(ctx, `SELECT s, pg_input_is_valid(s, 'uuid') FROM unnest($1::text[]) AS s`, accepted)
+	req.NoError(t, err)
+	var checked, read int
+	var disagree []string
+	for rows.Next() {
+		var s string
+		var valid bool
+		req.NoError(t, rows.Scan(&s, &valid))
+		checked++
+		if valid {
+			read++
+		}
+		if postgresReadsUUID(s) != valid {
+			disagree = append(disagree, s)
+		}
+	}
+	req.NoError(t, rows.Err())
+	t.Logf("%d of %d texts parse as a uuid, and the cast reads %d of them", checked, len(texts), read)
+	req.Equal(t, len(accepted), checked)
+	req.Empty(t, disagree, "texts where postgresReadsUUID and the cast disagree")
+	req.NotZero(t, read, "a control: the cast reads some of these texts")
+	req.Less(t, read, checked, "a control: the cast refuses some of these texts")
 }
 
 // The unit PATCH's decoder answers a value it cannot store with the generic
