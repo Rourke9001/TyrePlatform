@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { formatTreadAge } from "./treadAge";
 
-// FR-TYR-017: the age is a count of the tenant's calendar days, sent by the
-// server (app.tenant_days_since); this only words it.
+// FR-TYR-017: the age is a count of the tenant's calendar days the server
+// sends (for example app.tenant_days_since, or capture.go's captureAsAt;
+// rule 6); this only words it.
 describe("formatTreadAge", () => {
   it("words a day count", () => {
     expect(formatTreadAge(0)).toBe("today");
