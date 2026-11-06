@@ -124,11 +124,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   // its own window and never asked of the server first at now (U148); the
   // seed in captureContext.ts says what that key serves.
   const startedAt = lifecycle.resumedStartedAt ?? undefined;
-  // Only the start screen renews a copy: past Start, the walk-around and the
-  // review read one context through to Done (U179).
-  const renew = lifecycle.screen === "start";
-  const motive = useCaptureContext(vehicleId, startedAt, resumed, renew);
+  const motive = useCaptureContext(vehicleId, startedAt, resumed);
 
+  // U186: past the start screen, the walk-around and the review read held contexts.
   const rigComp = useRigComposition(
     motive.data,
     vehicleId,
@@ -136,16 +134,19 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     attachedIds,
     setAttachedIds,
     startedAt,
-    renew,
+    screen !== "start",
+    draft?.startedAt,
   );
   const {
     confirmedIds,
     contexts,
+    heldMotive,
     membersError,
     membersRefreshing,
     refetchMembers,
     toggleAttached,
   } = rigComp;
+  const shownMotive = heldMotive ?? motive.data;
 
   // The tenant's unit words, read once for every position's warnings.
   const labels = useUnitLabels();
@@ -171,6 +172,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     const ctx = motive.data;
     if (!ctx) return;
     setAttachedIds(init.observedMemberVehicleIds);
+    rigComp.hold();
     void lifecycle.startDraftAndAdvance(ctx, init);
   }
 
@@ -236,12 +238,10 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     );
   } else if (
     !resumed ||
-    motive.isPending ||
-    // On the start screen, a context from an earlier day is renewing
-    // (captureContext.ts): its counts are not shown, and Start does not seed
-    // a draft's window from it. A failed or paused renewal falls through to
-    // the copy. No other screen renews, so none gives way to this.
-    (renew &&
+    // A held motive does not wait on its query (U186).
+    (heldMotive === undefined && motive.isPending) ||
+    // Only the start screen waits on a stale copy that is fetching (U179, U186).
+    (screen === "start" &&
       ((motive.data !== undefined && motive.isStale && motive.isFetching) || membersRefreshing))
   ) {
     body = <p className="cap-wait">Loading…</p>;
@@ -275,7 +275,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         />
       </section>
     );
-  } else if (!motive.data) {
+  } else if (!shownMotive) {
     // NFR-AVL-002: starting requires the server; every threshold and
     // warning depends on data that must have arrived. The storage-unavailable
     // alert is hoisted so its retry can sit beside this screen's own, each
@@ -293,7 +293,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   } else if (screen === "start") {
     body = (
       <CaptureStart
-        motive={motive.data}
+        motive={shownMotive}
         storageBlocked={storageFault === "unavailable"}
         attachedIds={confirmedIds ?? [vehicleId]}
         onToggleAttached={toggleAttached}

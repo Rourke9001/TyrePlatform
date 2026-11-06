@@ -32,9 +32,8 @@ export function useDraftLifecycle(
   // to match, never the other way round. A reload has to find the work.
   const [draft, setDraft] = useState<Draft | null>(null);
   const [resumed, setResumed] = useState(false);
-  // The resumed draft's startedAt, for the context reads (U148). Set only
-  // by the load: a Start must not change the read's key, or the capture
-  // screen waits on a fetch the lost signal never answers (FR-OFF-001).
+  // The resumed draft's startedAt, for the context reads (U148). A Start does
+  // not set it, since a fresh capture is read at now (FR-AUT-005).
   const [resumedStartedAt, setResumedStartedAt] = useState<string | null>(null);
   const [held, setHeld] = useState<Draft | null>(null);
   const [screen, setScreen] = useState<Screen>("start");
