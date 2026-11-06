@@ -1213,7 +1213,7 @@ func TestCaptureContextCountsADraftsOdometerToItsStartDay(t *testing.T) {
 }
 
 // U187: a resumed draft's read takes each position's previous reading from
-// the non-voided sheets submitted by its startedAt, or by now if that is
+// the non-voided sheets submitted by its startedAt, or by now if startedAt is
 // later, and counts its age to that instant's tenant day. The bound is the
 // instant, not its day, so a sheet submitted later that day is not the
 // previous one.
@@ -1346,5 +1346,110 @@ func TestCaptureContextServesADraftTheTreadHistoryItStartedOn(t *testing.T) {
 			}
 			require.True(t, served, "the fixture's 1L was not served")
 		})
+	}
+}
+
+// U186: a resumed draft's read serves the rig open at its startedAt, or at
+// now if startedAt is later, as the record dates the rig, so a rig ended or
+// replaced after that instant is the one served. A read with no startedAt
+// serves the rig with no end. A driver who held a trailer only through a rig
+// that ended before the start is refused the trailer's own read (FR-AUT-005).
+func TestCaptureContextServesADraftTheRigOpenAtItsStart(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	tenantID, horseID, trailerID := plantCaptureFixture(t, ctx, admin, "draft-rig")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTrip(t, ctx, admin, tenantID, horseID, driverID)
+	controllerID := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	// The fixture's rig, open from an hour ago, ends on a whole second, so a
+	// start can be sent at exactly that instant. Its replacement swaps the
+	// trailer and opens as it ends.
+	var first, second, swapID uuid.UUID
+	var ended time.Time
+	require.NoError(t, admin.QueryRow(ctx,
+		`UPDATE app.combination SET effective_to = date_trunc('second', now()) - interval '20 minutes'
+		  WHERE motive_vehicle_id = $1 RETURNING id, effective_to`, horseID).Scan(&first, &ended))
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+		 SELECT tenant_id, fleet_number || '-SWAP', configuration_id, unit_kind
+		   FROM app.vehicle WHERE id = $1 RETURNING id`, trailerID).Scan(&swapID))
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+		 VALUES ($1, $2, $3) RETURNING id`, tenantID, horseID, ended).Scan(&second))
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence, descriptor)
+		 VALUES ($1, $2, $3, 1, 'Horse'), ($1, $2, $4, 2, 'Swap')`,
+		tenantID, second, horseID, swapID)
+	require.NoError(t, err)
+
+	type rig struct {
+		ID      uuid.UUID `json:"id"`
+		Members []struct {
+			VehicleID uuid.UUID `json:"vehicleId"`
+			Sequence  int       `json:"sequence"`
+		} `json:"members"`
+	}
+	fromEnd := func(d time.Duration) *time.Time {
+		at := ended.Add(d)
+		return &at
+	}
+	later := time.Now().Add(72 * time.Hour)
+	firstRig := []uuid.UUID{horseID, trailerID}
+	secondRig := []uuid.UUID{horseID, swapID}
+	for _, row := range []struct {
+		name      string
+		startedAt *time.Time
+		want      *uuid.UUID
+		members   []uuid.UUID
+	}{
+		{"no start", nil, &second, secondRig},
+		{"started while the first rig was open", fromEnd(-20 * time.Minute), &first, firstRig},
+		{"started a second before it ended", fromEnd(-time.Second), &first, firstRig},
+		{"started the instant it ended", fromEnd(0), &second, secondRig},
+		{"started after it ended", fromEnd(10 * time.Minute), &second, secondRig},
+		{"started before any rig", fromEnd(-50 * time.Minute), nil, nil},
+		{"started after now", &later, &second, secondRig},
+	} {
+		for _, actor := range []struct {
+			name string
+			id   uuid.UUID
+		}{{"driver", driverID}, {"controller", controllerID}} {
+			t.Run(row.name+"/"+actor.name, func(t *testing.T) {
+				rec := get(t, h, contextPath(horseID, row.startedAt), tenantID.String(), actor.id.String())
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+				var body struct {
+					Combination *rig `json:"combination"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				if row.want == nil {
+					require.Nil(t, body.Combination, "a rig opened after the start was served")
+					return
+				}
+				require.NotNil(t, body.Combination, "no rig was served")
+				require.Equal(t, *row.want, body.Combination.ID, "the rig open at the start")
+				var got []uuid.UUID
+				for i, m := range body.Combination.Members {
+					require.Equal(t, i+1, m.Sequence, "members in sequence")
+					got = append(got, m.VehicleID)
+				}
+				require.Equal(t, row.members, got)
+			})
+		}
+	}
+
+	for _, row := range []struct {
+		name      string
+		actor     uuid.UUID
+		startedAt *time.Time
+		want      int
+	}{
+		{"driver, started while the first rig was open", driverID, fromEnd(-20 * time.Minute), http.StatusOK},
+		{"driver, started after it ended", driverID, fromEnd(10 * time.Minute), http.StatusForbidden},
+		{"controller, started after it ended", controllerID, fromEnd(10 * time.Minute), http.StatusOK},
+	} {
+		rec := get(t, h, contextPath(trailerID, row.startedAt), tenantID.String(), row.actor.String())
+		require.Equal(t, row.want, rec.Code, row.name+": "+rec.Body.String())
 	}
 }

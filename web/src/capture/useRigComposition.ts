@@ -24,6 +24,7 @@ export function useRigComposition(
   startedAt: string | undefined,
   holding: boolean,
   draftStartedAt: string | undefined,
+  draftCombinationId: string | null | undefined,
 ) {
   // U186: past Start, the contexts the walk-around and the review read are
   // held here. The map is read only off the start screen and for the vehicle
@@ -47,7 +48,12 @@ export function useRigComposition(
   // One GET per confirmed unit, all of them at start while the driver still
   // has signal (FR-OFF-001). Each unit keeps its own configuration and its own
   // thresholds; only the walk-around numbering is projected across the rig.
-  const memberIds = memberOrder(shownMotive, confirmedIds, vehicleId);
+  const memberIds = memberOrder(
+    shownMotive,
+    confirmedIds,
+    vehicleId,
+    startedAt === undefined ? undefined : draftCombinationId,
+  );
   // The motive's own window, so its query and its member query share a key.
   const client = useQueryClient();
   const timeZone = useActor()?.timezone ?? "UTC";
@@ -90,8 +96,8 @@ export function useRigComposition(
     }
   }, [units, draftStartedAt, client, timeZone]);
 
-  // In memberIds' order, the combination's sequence, not the order units were
-  // held in (FR-VEH-034).
+  // In memberIds' order (memberOrder), not the order units were held in
+  // (FR-VEH-034).
   const loaded = memberIds
     .map((id, i) => units?.get(id) ?? memberQueries[i].data)
     .filter((c): c is CaptureContext => c !== undefined);
@@ -139,15 +145,31 @@ export function useRigComposition(
   };
 }
 
-// Walk order, which is the combination's own sequence. The projection has to
-// follow the physical rig, not the order a checkbox happened to be ticked in
-// (FR-VEH-034). A unit with no combination is its own single member.
+// Walk order (FR-VEH-034), one rule per path. motive is the context the
+// screen shows, held or served, and draftRig is set only on a resumed
+// draft's read.
+// - Until the confirmed units are known (attachedIds null), nothing is
+//   walked.
+// - When draftRig, the draft's combinationId, is set and the loaded
+//   motive's rig id (null for none) differs from it, the walk is the list
+//   the draft resumed with (U186). The office ending the draft's rig with a
+//   date before the start is one way to reach this. A list the start screen
+//   wrote for a rig is in the sequence of the rig it listed, with a unit
+//   ticked there added last.
+// - Otherwise the walk is motive's rig in its recorded sequence, narrowed to
+//   the confirmed units, not the order a checkbox was ticked in. With no
+//   motive yet, no rig, or none of its units confirmed, this vehicle is
+//   walked alone.
 function memberOrder(
   motive: CaptureContext | undefined,
   attachedIds: string[] | null,
   vehicleId: string,
+  draftRig: string | null | undefined,
 ): string[] {
   if (attachedIds === null) return [];
+  if (draftRig !== undefined && motive && (motive.combination?.id ?? null) !== draftRig) {
+    return attachedIds;
+  }
   const members = motive?.combination?.members;
   if (!members) return [vehicleId];
   const ordered = [...members]

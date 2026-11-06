@@ -137,6 +137,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     startedAt,
     screen !== "start",
     draft?.startedAt,
+    draft?.combinationId,
   );
   const {
     confirmedIds,

@@ -101,9 +101,11 @@ type captureContextBody struct {
 	// recording last inspection's number as this one's.
 	AverageDailyKm *float64          `json:"averageDailyKm"`
 	Positions      []capturePosition `json:"positions"`
-	// Null unless this vehicle heads a current combination. A trailer asked
-	// for its own context gets null and is captured as a solo unit, which is
-	// correct: the rig is entered through its motive unit.
+	// Null unless this vehicle heads the rig loadCaptureContext serves, the
+	// one with no end or, on a read with startedAt, the one open at
+	// captureAsAt's instant. A trailer asked for its own context gets null
+	// and is captured as a solo unit, which is correct: the rig is entered
+	// through its motive unit.
 	Combination *captureCombination `json:"combination"`
 	Config      map[string]any      `json:"config"`
 
@@ -149,7 +151,7 @@ func captureContext(s *store.Store) http.HandlerFunc {
 // $2 for startedAt.
 //
 // U187: a resumed draft's startedAt sets the instant, so a cold reload counts
-// to the tenant day of the draft's startedAt, or of now if that is later
+// to the tenant day of the draft's startedAt, or of now if startedAt is later
 // (U183). A read with no startedAt counts to now.
 //
 // The instant is never later than now, since a phone clock set ahead can
@@ -159,7 +161,7 @@ const captureAsAt = `CROSS JOIN LATERAL (
 		         FROM (SELECT least(COALESCE($2::timestamptz, now()), now()) AS at) x) d`
 
 // loadCaptureContext runs five queries on the transaction: the vehicle
-// header, the positions, the cohort wear rates, the open rig, and the tenant
+// header, the positions, the cohort wear rates, the rig, and the tenant
 // configuration. It composes the matching scope view so a driver reads only
 // the units they hold, exactly as listVehicles and listMyVehicles already do
 // (ADR-0006).
@@ -343,14 +345,22 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	// Ordered by member sequence, which with each unit's own position
 	// sequence is all FR-VEH-034 needs to compute the rig's 1..n at render
 	// time. Nothing about that numbering is stored here or anywhere.
+	//
+	// A read with startedAt serves the rig open at captureAsAt's instant, so a
+	// cold reload is still served a rig whose recorded end falls after that
+	// instant (U186). A read with no startedAt serves the rig that has no end.
 	var combo captureCombination
 	mrows, err := tx.Query(ctx, `
 		SELECT c.id, cm.vehicle_id, mv.fleet_number, cm.sequence, cm.descriptor
 		  FROM app.combination c
+		  JOIN app.tenant tn ON tn.id = c.tenant_id
+		  `+captureAsAt+`
 		  JOIN app.combination_member cm ON cm.combination_id = c.id
 		  JOIN app.vehicle mv ON mv.id = cm.vehicle_id
-		 WHERE c.motive_vehicle_id = $1 AND c.effective_to IS NULL
-		 ORDER BY cm.sequence`, vehicleID)
+		 WHERE c.motive_vehicle_id = $1
+		   AND CASE WHEN $2::timestamptz IS NULL THEN c.effective_to IS NULL
+		            ELSE tstzrange(c.effective_from, c.effective_to, '[)') @> d.at END
+		 ORDER BY cm.sequence`, vehicleID, startedAt)
 	if err != nil {
 		return fmt.Errorf("loading combination: %w", err)
 	}

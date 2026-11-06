@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureDone } from "./CaptureDone";
+import { STAMP_HOLD_COPY } from "./outbox";
 
 describe("CaptureDone", () => {
   it("says the inspection is saved and asks for a sign-in when a 401 is holding it", () => {
@@ -79,6 +80,14 @@ describe("CaptureDone", () => {
       screen.getByText("The driver who captured it needs to sign in here to send it."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/open with signal/)).not.toBeInTheDocument();
+  });
+
+  // U104: the stamp is decided before the recorded status, so an entry the
+  // phone's subject may not carry gets the stamp line over a recorded 401.
+  it("names the capturing driver's sign-in over a recorded 401 when the stamp holds it", () => {
+    render(<CaptureDone state="queued" lastCode="signed_out" lastStatus={401} stampHeld />);
+    expect(screen.getByText(STAMP_HOLD_COPY)).toBeInTheDocument();
+    expect(screen.queryByText("Sign in to send it.")).not.toBeInTheDocument();
   });
 
   // CR-010/OR-LEG-001 (TYRE-207): every outcome a driver can be shown.

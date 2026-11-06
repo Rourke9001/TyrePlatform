@@ -1112,8 +1112,10 @@ const inFlight = (client: QueryClient, id: string) =>
     expect(client.getQueryState(captureContextQuery(id).queryKey)?.fetchStatus).toBe("fetching"),
   );
 
-// Rule 6: a context's day counts are the tenant's days on the day it was
-// fetched, and the cache keeps it for the tab's life (captureContextQuery).
+// Rule 6: a context read at now counts its days to the tenant's day it was
+// fetched on, and a draft's windowed read counts to the tenant day of its
+// start, or of now if the start is later (U187). The cache never
+// garbage-collects either (gcTime, captureContextQuery).
 describe("a vehicle loaded on an earlier day", () => {
   const askedForV1 = (api: ReturnType<typeof stubApi>) =>
     api.mock.calls.some(([url]) => url.split("?")[0].endsWith("/vehicles/v1"));
@@ -1521,6 +1523,111 @@ describe("the contexts held at Start", () => {
     } finally {
       onlineManager.setOnline(true);
     }
+  });
+});
+
+// U186: a cold reload holds no copy, so when the draft's read serves a rig
+// other than the one the draft was started on, the walk-around is the list
+// the draft was resumed with.
+describe("a cold reload of a rig draft after the office changed the rig", () => {
+  const unit = (vehicleId: string, fleetNumber: string): CaptureContext => ({
+    ...trailer,
+    vehicleId,
+    fleetNumber,
+    positions: trailer.positions.map((p) => ({ ...p, vehicleId })),
+  });
+  const member = (vehicleId: string, fleetNumber: string, sequence: number) => ({
+    vehicleId,
+    fleetNumber,
+    sequence,
+    descriptor: null,
+  });
+  const stamped = (observed: string[]) =>
+    startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-10-22T06:00:00.000Z",
+      fleetNumber: "BAC039SP",
+      combinationId: "c1",
+      observedMemberVehicleIds: observed,
+    });
+  const unitsRead = (api: ReturnType<typeof stubApi>) =>
+    contextReads(api)
+      .map((u) => u.split("?")[0].split("/").pop())
+      .sort();
+  // Each test asserts on the screen Loading gives way to, so a wrong screen
+  // fails on what it shows rather than on the test's timeout.
+  const settled = () => waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+
+  // The office ended the rig with a date before the start, so the read
+  // serves no rig.
+  it("walks every unit the draft observed when the read serves no rig", async () => {
+    await stamped(["v1", "v2"]);
+    const api = stubApi(201, [{ ...rigMotive, combination: null }, trailer]);
+    renderFlow();
+
+    await settled();
+    expect(screen.getByRole("heading", { name: /done$/ })).toHaveTextContent("0 of 3 done");
+    expect(screen.getAllByRole("button", { name: /, BAC711TR, / })).toHaveLength(2);
+    expect(unitsRead(api)).toEqual(["v1", "v2"]);
+  });
+
+  // The rig was replaced before Start while the phone's copy still showed
+  // the old one, so the read serves a rig that lacks v2 and adds v3.
+  it("walks the draft's units in the draft's order when the read serves another rig", async () => {
+    await stamped(["v1", "v2", "v4"]);
+    const api = stubApi(201, [
+      {
+        ...rigMotive,
+        combination: {
+          id: "c2",
+          members: [
+            member("v1", "BAC039SP", 1),
+            member("v4", "BAC744TR", 2),
+            member("v3", "BAC733TR", 3),
+          ],
+        },
+      },
+      trailer,
+      unit("v3", "BAC733TR"),
+      unit("v4", "BAC744TR"),
+    ]);
+    renderFlow();
+
+    await settled();
+    expect(screen.getByRole("heading", { name: /done$/ })).toHaveTextContent("0 of 5 done");
+    expect(screen.getByRole("button", { name: /^Position 1, BAC039SP,/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Position 3, BAC711TR,/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Position 5, BAC744TR,/ })).toBeInTheDocument();
+    expect(unitsRead(api)).toEqual(["v1", "v2", "v4"]);
+  });
+
+  // FR-AUT-005: a driver who held v2 only through a rig that ended before
+  // the start is refused it over the draft's window.
+  it("says a unit of the draft the read refuses is refused", async () => {
+    await stamped(["v1", "v2"]);
+    const json = (status: number, body: unknown) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.split("?")[0].endsWith("/v1")
+            ? json(200, { ...rigMotive, combination: null })
+            : json(403, { code: "forbidden", message: "x" }),
+        ),
+      ),
+    );
+    renderFlow();
+
+    await settled();
+    expect(screen.getByRole("alert").textContent).toBe(
+      "You do not have permission to inspect a unit on this rig. Ask your fleet office to check you are assigned to it. Your readings are saved.",
+    );
   });
 });
 

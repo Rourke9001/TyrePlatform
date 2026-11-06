@@ -99,8 +99,10 @@ export interface CaptureContext {
   // readings the same day); see history.projectedOdometerKm.
   averageDailyKm: number | null;
   positions: CapturePosition[];
-  // Null unless this unit heads a current combination: a solo rigid, or a
-  // trailer asked for its own context, simply has none.
+  // Null unless this unit heads the rig the read serves, which on a draft's
+  // windowed read is the one open at the read's instant (capture.go,
+  // captureAsAt): a solo rigid, or a trailer asked for its own context,
+  // simply has none.
   combination: CaptureCombination | null;
   config: CaptureConfig;
   // Keyed "AXLE_CLASS:AXLE_TYPE" (BR-ANL-006 cohorts by class, BR-ANL-009
