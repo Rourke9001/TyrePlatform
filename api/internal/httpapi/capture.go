@@ -45,8 +45,8 @@ type capturePosition struct {
 	PreviousMm           *float64   `json:"previousGoverningMm"`
 	PreviousAt           *time.Time `json:"previousReadingAt"`
 	FitmentSincePrevious bool       `json:"fitmentSincePrevious"`
-	// FR-TYR-017: days since PreviousAt in the tenant's calendar
-	// (app.tenant_days_since, rule 6); nil when PreviousAt is.
+	// FR-TYR-017: tenant calendar days from PreviousAt to the read's day
+	// (captureAsAt, rule 6); nil when PreviousAt is.
 	PreviousAgeDays *int `json:"previousReadingAgeDays"`
 
 	// FR-INS-037 and FR-INS-031a both need the position's own resolved
@@ -86,12 +86,13 @@ type captureContextBody struct {
 	UnitKind       string     `json:"unitKind"`
 	LastOdometerKm *int64     `json:"lastOdometerKm"`
 	LastOdometerAt *time.Time `json:"lastOdometerAt"`
-	// Days since LastOdometerAt in the tenant's calendar (rule 6, TYRE-342),
-	// counted here so no phone clock sets it; nil when LastOdometerAt is.
+	// Tenant calendar days from LastOdometerAt to the read's day (captureAsAt;
+	// rule 6, TYRE-342), counted here rather than on the phone; nil when
+	// LastOdometerAt is.
 	LastOdometerAgeDays *int `json:"lastOdometerAgeDays"`
-	// FR-INS-033's base: the reading DR-020's trigger judges against, the
-	// last one on a day before the tenant's today (000021), and its age.
-	// Nil when no reading predates today.
+	// FR-INS-033's base, the last reading on a day before the read's day,
+	// the day DR-020's trigger takes its prev from for a reading dated that
+	// day (000021), and its age. Nil when no reading predates that day.
 	OdometerBaseKm      *int64 `json:"odometerBaseKm"`
 	OdometerBaseAgeDays *int   `json:"odometerBaseAgeDays"`
 	// FR-INS-020's pre-fill is a PROJECTION: the last known reading carried
@@ -143,6 +144,20 @@ func captureContext(s *store.Store) http.HandlerFunc {
 	}
 }
 
+// captureAsAt joins d, the instant a capture read counts its day figures to
+// and that instant's tenant day, the read's day (rule 6). It reads tn, and
+// $2 for startedAt.
+//
+// U187: a resumed draft's startedAt sets the instant, so a cold reload counts
+// to the tenant day of the draft's startedAt, or of now if that is later
+// (U183). A read with no startedAt counts to now.
+//
+// The instant is never later than now, since a phone clock set ahead can
+// send a startedAt after it.
+const captureAsAt = `CROSS JOIN LATERAL (
+		       SELECT x.at, app.tenant_today(tn.timezone, x.at) AS day
+		         FROM (SELECT least(COALESCE($2::timestamptz, now()), now()) AS at) x) d`
+
 // loadCaptureContext runs five queries on the transaction: the vehicle
 // header, the positions, the cohort wear rates, the open rig, and the tenant
 // configuration. It composes the matching scope view so a driver reads only
@@ -155,7 +170,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	// reads the register. Refusing through
 	// an empty result is what keeps "you may not see this" and "this does not
 	// exist" indistinguishable (ADR-0011).
-	from, where, args := `app.vehicle v`, "", []any{vehicleID}
+	from, where, args := `app.vehicle v`, "", []any{vehicleID, startedAt}
 	if a.Scope() != auth.ScopeTenant {
 		// v_capture_vehicle, the capture set at now (000060): the trip's units
 		// and a nominee's, the trailers of a rig among them, or a superlink
@@ -171,7 +186,6 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 			where = ` AND app.user_could_capture(app.current_actor_id(), v.id,
 			              lower(app.capture_window_between($2::timestamptz, now())),
 			              upper(app.capture_window_between($2::timestamptz, now())))`
-			args = append(args, *startedAt)
 		}
 	}
 	// The average is derived from the odometer timeline (v_removal_forecast's
@@ -180,35 +194,43 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	// forecast's convention; a unit with one reading, or two on the same day,
 	// correctly yields no rate (FR-INS-020 then starts empty).
 	//
-	// reading_date is a date, not an instant, so its age is the tenant's
-	// today minus it (rule 6).
+	// reading_date is a date, not an instant, so its age is the read's day
+	// minus it (captureAsAt, rule 6).
 	err := tx.QueryRow(ctx, `
 		SELECT v.id, v.fleet_number, v.registration, v.unit_kind::text,
-		       o.odometer_km, o.reading_date, app.tenant_today(tn.timezone) - o.reading_date,
-		       b.odometer_km, app.tenant_today(tn.timezone) - b.reading_date,
+		       o.odometer_km, o.reading_date, d.day - o.reading_date,
+		       b.odometer_km, d.day - b.reading_date,
 		       avg_km.km
 		  FROM `+from+`
 		  JOIN app.tenant tn ON tn.id = v.tenant_id
+		  `+captureAsAt+`
 		  LEFT JOIN LATERAL (
 		       -- One reading per source per day is allowed, and an odometer only
 		       -- rises, so on a shared last day the higher reading is the later.
 		       SELECT vo.odometer_km, vo.reading_date
 		         FROM app.vehicle_odometer_reading vo
 		        WHERE vo.vehicle_id = v.id
+		          -- A read with no startedAt keeps a reading dated after today
+		          -- for FR-INS-032, which refuses below it. Until TYRE-244, UTC
+		          -- dating writes one for a tenant west of UTC.
+		          AND ($2::timestamptz IS NULL OR vo.reading_date <= d.day)
 		        ORDER BY vo.reading_date DESC, vo.odometer_km DESC LIMIT 1) o ON true
 		  LEFT JOIN LATERAL (
-		       -- The trigger's prev once TYRE-244 dates the write on the
-		       -- tenant's day; until then the write is dated on UTC's.
+		       -- From the day the trigger takes its prev from for a reading
+		       -- dated d.day (000021). On a day two sources share, this takes
+		       -- the higher, while the trigger, with no tiebreak, may take
+		       -- either. Until TYRE-244 the write is dated on UTC's day.
 		       SELECT vo.odometer_km, vo.reading_date
 		         FROM app.vehicle_odometer_reading vo
-		        WHERE vo.vehicle_id = v.id AND vo.reading_date < app.tenant_today(tn.timezone)
+		        WHERE vo.vehicle_id = v.id AND vo.reading_date < d.day
 		        ORDER BY vo.reading_date DESC, vo.odometer_km DESC LIMIT 1) b ON true
 		  LEFT JOIN LATERAL (
 		       SELECT round((max(vo.odometer_km) - min(vo.odometer_km))::numeric
 		                  / NULLIF(max(vo.reading_date) - min(vo.reading_date), 0), 2) AS km
 		         FROM app.vehicle_odometer_reading vo
 		        WHERE vo.vehicle_id = v.id
-		          AND vo.reading_date > (now() AT TIME ZONE 'UTC')::date - 90) avg_km ON true
+		          AND vo.reading_date > (d.at AT TIME ZONE 'UTC')::date - 90
+		          AND ($2::timestamptz IS NULL OR vo.reading_date <= d.day)) avg_km ON true
 		 WHERE v.id = $1`+where, args...).
 		Scan(&out.VehicleID, &out.FleetNumber, &out.Registration, &out.UnitKind,
 			&out.LastOdometerKm, &out.LastOdometerAt, &out.LastOdometerAgeDays,
@@ -228,10 +250,14 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	// disagree about a target. OFFSET 0 fences the LATERAL: five fields come
 	// from one resolved row, and without it the planner re-evaluates the
 	// resolver per reference (000045 header).
+	//
+	// The previous reading's age is app.tenant_days_since's count (000059),
+	// taken to the read's day (captureAsAt), which that function cannot do.
 	rows, err := tx.Query(ctx, `
 		SELECT p.id, v.id, p.code, p.sequence, p.axle_class::text, p.axle_type::text,
 		       p.side::text, p.axle_number, p.is_spare, p.unit_label, f.tyre_id, t.display_code,
-		       prev.governing_tread_mm, prev.submitted_at, app.tenant_days_since(prev.submitted_at),
+		       prev.governing_tread_mm, prev.submitted_at,
+		       d.day - app.tenant_today(tn.timezone, prev.submitted_at),
 		       EXISTS (SELECT 1 FROM app.fitment fx
 		                WHERE fx.position_id = p.id AND fx.vehicle_id = v.id
 		                  AND prev.submitted_at IS NOT NULL
@@ -240,6 +266,8 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		       tgt.target_kpa, tgt.warn_under_pct, tgt.critical_under_pct,
 		       tgt.warn_over_pct, tgt.critical_over_pct
 		  FROM app.vehicle v
+		  JOIN app.tenant tn ON tn.id = v.tenant_id
+		  `+captureAsAt+`
 		  JOIN app.position p ON p.configuration_id = v.configuration_id
 		  LEFT JOIN app.fitment f
 		         ON f.position_id = p.id AND f.vehicle_id = v.id AND f.removed_at IS NULL
@@ -249,6 +277,9 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		         FROM app.reading r
 		         JOIN app.inspection i ON i.id = r.inspection_id
 		        WHERE r.position_id = p.id AND r.vehicle_id = v.id AND i.state <> 'VOIDED'
+		          -- A read with no startedAt keeps the latest sheet, one
+		          -- submitted_at inside TYRE-166's skew after now included.
+		          AND ($2::timestamptz IS NULL OR i.submitted_at <= d.at)
 		        ORDER BY i.submitted_at DESC LIMIT 1) prev ON true
 		  LEFT JOIN LATERAL (
 		       SELECT tgt.target_kpa, tgt.warn_under_pct, tgt.critical_under_pct,
@@ -256,7 +287,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		         FROM app.target_pressure_for(v.tenant_id, t.size_id, p.axle_class, now()) tgt
 		       OFFSET 0) tgt ON true
 		 WHERE v.id = $1
-		 ORDER BY p.sequence`, vehicleID)
+		 ORDER BY p.sequence`, vehicleID, startedAt)
 	if err != nil {
 		return fmt.Errorf("loading capture positions: %w", err)
 	}
