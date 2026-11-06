@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { focusManager, onlineManager } from "@tanstack/react-query";
+import { focusManager, onlineManager, type QueryClient } from "@tanstack/react-query";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
@@ -1052,18 +1052,69 @@ describe("a vehicle that does not load", () => {
   });
 });
 
+const cachedAt = (
+  updatedAt: number,
+  units: CaptureContext[] = [{ ...context, lastOdometerAgeDays: 1 }],
+) => {
+  const client = testQueryClient();
+  for (const u of units) {
+    client.setQueryData(captureContextQuery(u.vehicleId).queryKey, u, { updatedAt });
+  }
+  return client;
+};
+const dayAgo = () => Date.now() - 86_400_000;
+
+// A renewal the walk-around must not show (U186): another fleet number, and a
+// 20mm removal threshold, which a 13mm tread is at or below.
+const renewed: CaptureContext = {
+  ...context,
+  fleetNumber: "RENEWED",
+  config: { ...context.config, removalThresholdMm: 20 },
+};
+
+// Waits for a renewal to land in the cache, so an assertion on the screen
+// after it cannot pass by racing it.
+const landed = (client: QueryClient, id: string, check: (c: CaptureContext) => boolean) =>
+  waitFor(() => {
+    const cached = client.getQueryData<CaptureContext>(captureContextQuery(id).queryKey);
+    expect(cached !== undefined && check(cached)).toBe(true);
+  });
+
+const heldOnScreen = () => {
+  expect(screen.queryByText("Loading…")).toBeNull();
+  expect(screen.getAllByText("BAC039SP")).not.toHaveLength(0);
+  expect(screen.queryAllByText(/RENEWED/)).toHaveLength(0);
+};
+
+// Answers each unit's GET at once, except the one held open until the test
+// answers it, so a screen can be asserted while that renewal is in flight.
+function serveOpen(open: string, answered: CaptureContext[] = []) {
+  let answer: (c: CaptureContext) => void = () => undefined;
+  const pending = new Promise<CaptureContext>((resolve) => (answer = resolve));
+  const byId = new Map(answered.map((c) => [c.vehicleId, c]));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) => {
+      const id = url.split("?")[0].split("/").pop() ?? "";
+      const reply = id === open ? pending : Promise.resolve(byId.get(id));
+      return reply.then((c) => ({ ok: true, status: 200, json: () => Promise.resolve(c) }));
+    }),
+  );
+  return (c: CaptureContext) => answer(c);
+}
+// Types digits on the open sheet and waits for the field they move it to.
+async function typeInto(user: UserEvent, digits: string[], next: string) {
+  for (const d of digits) await user.click(screen.getByRole("button", { name: d }));
+  await waitFor(() => expect(screen.getByLabelText(next)).toHaveAttribute("aria-current", "true"));
+}
+const inFlight = (client: QueryClient, id: string) =>
+  waitFor(() =>
+    expect(client.getQueryState(captureContextQuery(id).queryKey)?.fetchStatus).toBe("fetching"),
+  );
+
 // Rule 6: a context's day counts are the tenant's days on the day it was
 // fetched, and the cache keeps it for the tab's life (captureContextQuery).
 describe("a vehicle loaded on an earlier day", () => {
-  const cachedAt = (updatedAt: number) => {
-    const client = testQueryClient();
-    client.setQueryData(
-      captureContextQuery("v1").queryKey,
-      { ...context, lastOdometerAgeDays: 1 },
-      { updatedAt },
-    );
-    return client;
-  };
   const askedForV1 = (api: ReturnType<typeof stubApi>) =>
     api.mock.calls.some(([url]) => url.split("?")[0].endsWith("/vehicles/v1"));
 
@@ -1167,55 +1218,70 @@ describe("a vehicle loaded on an earlier day", () => {
       return (method === undefined || method === "GET") && String(url).includes("/vehicles/v1");
     }).length;
 
-  // Past Start the walk-around reads one context through to Done: a renewal
-  // would put Loading over the open sheet and split the reading it holds.
+  // U186: past Start the walk-around reads the context held at Start. While
+  // the renewal is open no Loading covers the sheet, and once it lands the
+  // sheet keeps its field and its threshold.
   it("keeps a fresh capture's walk-around through a focus once the day has turned", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       const user = newUser();
-      const api = stubApi(201, [{ ...context, lastOdometerAgeDays: 2 }]);
-      renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
-        client: cachedAt(Date.now()),
-      });
+      stubApi();
+      const client = cachedAt(Date.now());
+      renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, { client });
       await user.click(await screen.findByRole("button", { name: /start inspection/i }));
       await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
       await user.click(screen.getByRole("button", { name: "1" }));
-      const before = reads(api);
-      // A renewal that went out would stay open, as on weak signal.
-      api.mockImplementation(() => new Promise<never>((resolve) => void resolve));
+      const answer = serveOpen("v1");
 
       vi.setSystemTime(Date.now() + 86_400_000);
       focus();
-      await act(() => new Promise((r) => setTimeout(r, 20)));
-      await user.click(screen.getByRole("button", { name: "3" }));
-
+      await inFlight(client, "v1");
+      await typeInto(user, ["3"], "Tread reading 2 of 3");
       expect(screen.queryByText("Loading…")).toBeNull();
+
+      answer(renewed);
+      await landed(client, "v1", (c) => c.fleetNumber === "RENEWED");
+      await typeInto(user, ["1", "3"], "Tread reading 3 of 3");
+      await typeInto(user, ["1", "4"], "Pressure");
+
+      heldOnScreen();
       expect(screen.getByLabelText("Tread reading 1 of 3")).toHaveTextContent("13");
-      expect(reads(api)).toBe(before);
+      expect(screen.queryByText(/replacement point/)).toBeNull();
     } finally {
       focusManager.setFocused(undefined);
       vi.useRealTimers();
     }
   });
 
+  // The same after a failed start-screen renewal, whose copy stays stale, so
+  // a focus past Start renews it.
   it("keeps the walk-around on the copy after a failed start-screen renewal", async () => {
     try {
       const user = newUser();
       const api = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
       vi.stubGlobal("fetch", api);
-      renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
-        client: cachedAt(Date.now() - 86_400_000),
-      });
-      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
-      await screen.findAllByRole("button", { name: /^Position 1,/ });
-      const before = reads(api);
-      api.mockImplementation(() => new Promise<never>((resolve) => void resolve));
+      const client = cachedAt(dayAgo());
+      renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, { client });
+      const start = await screen.findByRole("button", { name: /start inspection/i });
+      expect(reads(api)).toBeGreaterThan(0);
+      await user.click(start);
+      await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
+      await user.click(screen.getByRole("button", { name: "1" }));
+      const answer = serveOpen("v1");
 
       focus();
-      await act(() => new Promise((r) => setTimeout(r, 20)));
-
+      await inFlight(client, "v1");
+      await typeInto(user, ["3"], "Tread reading 2 of 3");
       expect(screen.queryByText("Loading…")).toBeNull();
-      expect(reads(api)).toBe(before);
+
+      answer(renewed);
+      await landed(client, "v1", (c) => c.fleetNumber === "RENEWED");
+      await typeInto(user, ["1", "3"], "Tread reading 3 of 3");
+      await typeInto(user, ["1", "4"], "Pressure");
+
+      heldOnScreen();
+      expect(screen.getByLabelText("Tread reading 1 of 3")).toHaveTextContent("13");
+      expect(screen.queryByText(/replacement point/)).toBeNull();
     } finally {
       focusManager.setFocused(undefined);
     }
@@ -1254,6 +1320,207 @@ describe("a vehicle loaded on an earlier day", () => {
     });
 
     expect(await screen.findAllByRole("button", { name: /^Position 1,/ })).not.toHaveLength(0);
+  });
+});
+
+// U186: past Start the walk-around and the review read held contexts. A
+// renewal of a held unit that starts or resumes after Start reaches the cache
+// only.
+describe("the contexts held at Start", () => {
+  const mount = (client: QueryClient) =>
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, { client });
+
+  // The screen leaves Start once the draft is written, so a renewal that
+  // lands during that write must not be what the walk-around reads.
+  it("holds the contexts at the tap, before the draft write leaves the start screen", async () => {
+    const user = newUser();
+    stubApi();
+    const client = testQueryClient();
+    let release: () => void = () => undefined;
+    const written = new Promise<void>((resolve) => (release = resolve));
+    const put = db.drafts.put.bind(db.drafts);
+    vi.spyOn(db.drafts, "put").mockImplementationOnce(((...args: Parameters<typeof put>) =>
+      written.then(() => put(...args))) as never);
+    mount(client);
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    stubApi(201, [renewed]);
+    await act(() => client.invalidateQueries({ queryKey: ["capture-context"] }));
+    await landed(client, "v1", (c) => c.fleetNumber === "RENEWED");
+    release();
+
+    await screen.findAllByRole("button", { name: /^Position 1,/ });
+    heldOnScreen();
+  });
+
+  // FR-OFF-001, U186: offline, the start screen's renewal pauses, and the
+  // library resumes it when signal returns, after Start.
+  it("keeps the walk-around on its context when a renewal paused before Start lands", async () => {
+    const user = newUser();
+    stubApi(201, [renewed]);
+    const client = cachedAt(dayAgo());
+    onlineManager.setOnline(false);
+    try {
+      mount(client);
+      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+      await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
+      await user.click(screen.getByRole("button", { name: "1" }));
+      act(() => onlineManager.setOnline(true));
+      await landed(client, "v1", (c) => c.fleetNumber === "RENEWED");
+      await user.click(screen.getByRole("button", { name: "3" }));
+
+      heldOnScreen();
+      expect(screen.getByLabelText("Tread reading 1 of 3")).toHaveTextContent("13");
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  it("keeps a rig's trailer on its context when a renewal paused before Start lands", async () => {
+    const user = newUser();
+    const answer = serveOpen("v2", [rigMotive]);
+    const client = cachedAt(dayAgo(), [rigMotive, trailer]);
+    onlineManager.setOnline(false);
+    try {
+      mount(client);
+      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+      await screen.findAllByRole("button", { name: /, BAC711TR, / });
+      act(() => onlineManager.setOnline(true));
+      await inFlight(client, "v2");
+      expect(screen.queryByText("Loading…")).toBeNull();
+      answer({ ...trailer, fleetNumber: "RENEWED-TR" });
+      await landed(client, "v2", (c) => c.fleetNumber === "RENEWED-TR");
+
+      heldOnScreen();
+      expect(screen.getAllByText("BAC711TR")).not.toHaveLength(0);
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  // The member list is read from the held motive, so a combination changed
+  // at the office does not drop a unit from the open walk-around.
+  it("keeps every unit on the walk-around when a renewal after Start drops the combination", async () => {
+    const user = newUser();
+    stubApi(201, [{ ...rigMotive, combination: null }, trailer]);
+    const client = cachedAt(dayAgo(), [rigMotive, trailer]);
+    onlineManager.setOnline(false);
+    try {
+      mount(client);
+      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+      await screen.findAllByRole("button", { name: /, BAC711TR, / });
+      act(() => onlineManager.setOnline(true));
+      await landed(client, "v1", (c) => c.combination === null);
+
+      expect(screen.getByRole("heading", { name: "0 of 3 done" })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /, BAC711TR, / })).toHaveLength(2);
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  // U179: a member with a copy has not failed, so the reload asks only for
+  // the one that has none.
+  it("reloads only the rig member that has no copy", async () => {
+    const user = newUser();
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    mount(cachedAt(dayAgo(), [rigMotive]));
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await screen.findByRole("button", { name: "Reload rig" });
+    const api = stubApi(201, [{ ...rigMotive, fleetNumber: "RENEWED" }, trailer]);
+    await user.click(screen.getByRole("button", { name: "Reload rig" }));
+
+    await screen.findAllByRole("button", { name: /, BAC711TR, / });
+    expect(contextReads(api)).toEqual(["/api/capture/vehicles/v2"]);
+    heldOnScreen();
+  });
+
+  // A client-level call reaches the query whatever its refetch flags say, so
+  // the walk-around must not read the query past Start.
+  it.each([
+    ["an invalidate", (c: QueryClient) => c.invalidateQueries({ queryKey: ["capture-context"] })],
+    ["a refetch", (c: QueryClient) => c.refetchQueries({ queryKey: ["capture-context"] })],
+  ])("keeps the walk-around on its context through %s of the key", async (_name, call) => {
+    const user = newUser();
+    stubApi();
+    const client = testQueryClient();
+    mount(client);
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
+    await user.click(screen.getByRole("button", { name: "1" }));
+    stubApi(201, [renewed]);
+
+    await act(() => call(client));
+    await landed(client, "v1", (c) => c.fleetNumber === "RENEWED");
+    await user.click(screen.getByRole("button", { name: "3" }));
+
+    heldOnScreen();
+    expect(screen.getByLabelText("Tread reading 1 of 3")).toHaveTextContent("13");
+  });
+
+  // A reset empties the query, so the screen must not wait on its refetch.
+  it("keeps the walk-around on its context while a reset of the key refetches", async () => {
+    const user = newUser();
+    const api = stubApi();
+    const client = testQueryClient();
+    mount(client);
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
+    await user.click(screen.getByRole("button", { name: "1" }));
+    api.mockImplementation(() => new Promise<never>((resolve) => void resolve));
+
+    act(() => void client.resetQueries({ queryKey: ["capture-context"] }));
+    await waitFor(() =>
+      expect(client.getQueryState(captureContextQuery("v1").queryKey)?.status).toBe("pending"),
+    );
+    await user.click(screen.getByRole("button", { name: "3" }));
+
+    heldOnScreen();
+    expect(screen.getByLabelText("Tread reading 1 of 3")).toHaveTextContent("13");
+  });
+
+  // A reset whose refetch fails leaves the query with no data, which past
+  // Start is not a failure to load a held unit.
+  it("keeps a rig's walk-around when a reset of the key fails to refetch", async () => {
+    const user = newUser();
+    stubApi(201, [rigMotive, trailer]);
+    const client = testQueryClient();
+    mount(client);
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await screen.findAllByRole("button", { name: /, BAC711TR, / });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    await act(() => client.resetQueries({ queryKey: ["capture-context"] }));
+    await waitFor(() =>
+      expect(client.getQueryState(captureContextQuery("v2").queryKey)?.status).toBe("error"),
+    );
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getAllByRole("button", { name: /, BAC711TR, / })).toHaveLength(2);
+    heldOnScreen();
+  });
+
+  // U186 holds to Done. A remount in the same tab resumes through the
+  // draft's window, which a renewal of the at-now read after Start does not
+  // reach.
+  it("resumes a same-tab remount on the contexts held at Start", async () => {
+    const user = newUser();
+    stubApi(201, [renewed]);
+    const client = cachedAt(dayAgo());
+    onlineManager.setOnline(false);
+    try {
+      const first = mount(client);
+      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+      await screen.findAllByRole("button", { name: /^Position 1,/ });
+      act(() => onlineManager.setOnline(true));
+      await landed(client, "v1", (c) => c.fleetNumber === "RENEWED");
+      first.unmount();
+
+      mount(client);
+      await screen.findAllByRole("button", { name: /^Position 1,/ });
+      heldOnScreen();
+    } finally {
+      onlineManager.setOnline(true);
+    }
   });
 });
 

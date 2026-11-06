@@ -118,39 +118,40 @@ export function fetchCaptureContext(
   return apiGet<CaptureContext>(`/api/capture/vehicles/${vehicleId}${query}`);
 }
 
-// gcTime for the tab's life (FR-OFF-002), so no threshold drops mid-walk-
-// around. A context read at now is fresh for the tenant's day it was fetched
-// on, since its day counts are that day's (rule 6). A copy is renewed only
-// while renew holds, the start screen's, so once Start is tapped the
-// walk-around and the review read one context through to Done (U179). A
-// read with no copy is fetched again by a mount, focus or reconnect anywhere.
-// A failed or offline renewal keeps the copy. A draft's windowed read never
-// goes stale once loaded, since it answers for the window its submit will be
-// judged over (U148, U182). Options are a function, not inlined, because a
-// rig (useQueries) and a solo unit must produce the same queryKey or the
-// motive unit fetches twice.
-//
-// A windowed read is seeded from the entry this capture started on (FR-OFF-001,
-// U148): a remount keys on the draft's startedAt, which the first mount never
-// cached, and offline a query with no data does not fetch. The seed admits
-// nothing the first mount did not, and the submit is judged again over its own
-// window.
+function captureContextKey(vehicleId: string, startedAt?: string) {
+  return ["capture-context", getDevTenantId() ?? "default", vehicleId, startedAt ?? null];
+}
+
+// gcTime for the tab's life (FR-OFF-002), so an entry nothing observes stays,
+// such as the at-now copy across a route change or a draft's window across a
+// remount.
+// A read at now is fresh for the tenant's day it was fetched on, since its day
+// counts are that day's (rule 6, U179).
+// A failed or paused renewal keeps the copy (U179).
+// A draft's windowed read does not go stale with time, since it answers for
+// the window its submit is judged over (U148, U182).
+// Past the start screen, the walk-around and the review read held contexts,
+// not this query (U186).
+// One function for a rig (useQueries) and a solo unit, or their keys differ
+// and the motive fetches twice (FR-OFF-001).
+// A windowed read with no data of its own is seeded from the at-now entry,
+// since offline its own fetch pauses (FR-OFF-001, U148).
+// The seed admits no unit the first mount did not, and the submit is judged
+// again over its own window (U148).
 export function captureContextQuery(
   vehicleId: string,
   startedAt?: string,
   seed?: QueryClient,
   timeZone = "UTC",
-  renew = true,
 ) {
-  const queryKey = ["capture-context", getDevTenantId() ?? "default", vehicleId, startedAt ?? null];
-  const refetch = (query: { state: { data: unknown } }) => renew || query.state.data === undefined;
+  const queryKey = captureContextKey(vehicleId, startedAt);
   return {
     queryKey,
     queryFn: () => fetchCaptureContext(vehicleId, startedAt),
     initialData:
       startedAt === undefined || !seed
         ? undefined
-        : () => seed.getQueryData<CaptureContext>(captureContextQuery(vehicleId).queryKey),
+        : () => seed.getQueryData<CaptureContext>(captureContextKey(vehicleId)),
     staleTime:
       startedAt !== undefined
         ? Infinity
@@ -159,26 +160,15 @@ export function captureContextQuery(
               ? Infinity
               : 0,
     gcTime: Infinity,
-    refetchOnMount: refetch,
-    refetchOnWindowFocus: refetch,
-    refetchOnReconnect: refetch,
-    // A renewal with a copy in hand tries once: the copy is what the start
-    // screen falls back to, and each retry holds it on Loading.
+    // A renewal with a copy in hand tries once, since each retry holds the
+    // start screen on Loading over the copy it falls back to (U179).
     retry: (failures: number, error: unknown) =>
       seed?.getQueryData(queryKey) === undefined && retryQuery(failures, error),
   };
 }
 
-export function useCaptureContext(
-  vehicleId: string,
-  startedAt?: string,
-  enabled = true,
-  renew = true,
-) {
+export function useCaptureContext(vehicleId: string, startedAt?: string, enabled = true) {
   const client = useQueryClient();
   const timeZone = useActor()?.timezone ?? "UTC";
-  return useQuery({
-    ...captureContextQuery(vehicleId, startedAt, client, timeZone, renew),
-    enabled,
-  });
+  return useQuery({ ...captureContextQuery(vehicleId, startedAt, client, timeZone), enabled });
 }
