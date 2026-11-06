@@ -872,6 +872,45 @@ func TestPatchUnitEditsDescriptiveFields(t *testing.T) {
 			`{"description":"a technician may not edit this"}`).Code)
 }
 
+// ADR-0013 decision 5: uuid.Parse reads a urn:uuid: prefix, and a 38-byte
+// form, the id with any one byte on each side, where Postgres's ::uuid cast
+// reads no urn and the 38-byte form only in braces. Each id here is stored,
+// rather than reaching the cast as a 22P02 canned as a 422 that names no
+// field (TYRE-379).
+func TestPatchUnitStoresAnIDInAFormTheCastDoesNotRead(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, mine, _, _, _, _ := plantUnitFixture(t, ctx, admin, "patch-id-forms")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	depotID, _ := plantDepotOfType(t, ctx, admin, tenantID, "DEPOT")
+	groupID := plantOperatingGroup(t, ctx, admin, tenantID)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	for _, form := range []string{"urn:uuid:%s", "URN:UUID:%s", "[%s]", "x%sy"} {
+		for _, tc := range []struct {
+			key    string
+			id     uuid.UUID
+			stored func(unitBody) *string
+		}{
+			{"homeDepotId", depotID, func(u unitBody) *string { return u.HomeDepotID }},
+			{"operatingGroupId", groupID, func(u unitBody) *string { return u.OperatingGroupID }},
+		} {
+			sent := fmt.Sprintf(form, tc.id)
+			t.Run(tc.key+" "+sent, func(t *testing.T) {
+				// Cleared first, so a PATCH that stored nothing cannot pass on
+				// the value an earlier row left.
+				_, err := admin.Exec(ctx,
+					`UPDATE app.vehicle SET home_depot_id = NULL, operating_group_id = NULL WHERE id = $1`, mine)
+				require.NoError(t, err)
+				written := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
+					`{"`+tc.key+`":"`+sent+`"}`)
+				require.NotNil(t, tc.stored(written))
+				require.Equal(t, tc.id.String(), *tc.stored(written))
+			})
+		}
+	}
+}
+
 // D5: configuration_id and unit_kind are not fields of this request, in any
 // spelling, and the decoder is what says so, before a transaction opens, so
 // TY008 (000028's trigger) stays a pure database backstop no endpoint can
