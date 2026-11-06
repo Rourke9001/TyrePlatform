@@ -111,12 +111,13 @@ func TestRotateOdometerPayloadDistinguishesNoneFromEmpty(t *testing.T) {
 	req.Error(t, err)
 	req.Contains(t, err.Error(), "odometers.")
 
-	// The one refusal in this package built out of a key the caller chose, so
-	// the clip decodeJSONStrict states its reason for applies here too: the
-	// key is bounded only by maxWriteBytes on the way in, and refuseInvalid
-	// forwards this message to the wire verbatim. Driving it through the
-	// handler would only show the refusal, not the bound, because the whole
-	// point is what the message does NOT carry.
+	// This refusal is built out of a key the caller chose, as
+	// decodeJSONStrict's unknown-key refusal is, so decodeJSONStrict's clip
+	// applies here for the same reason. The key is bounded only by
+	// maxWriteBytes on the way in, and refuseInvalid forwards this message to
+	// the wire verbatim. Driving it through the handler would only show the
+	// refusal, not the bound, because the whole point is what the message does
+	// NOT carry.
 	long := strings.Repeat("k", maxTextLen*4)
 	_, err = rotateRequest{Odometers: map[string]int64{long: 1500}}.odometerPayload(anchor)
 	req.Error(t, err, "a key no uuid could be is still refused")

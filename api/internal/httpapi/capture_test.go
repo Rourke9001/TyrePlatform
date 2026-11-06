@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -235,6 +236,15 @@ func TestSubmitRefusals(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		post(t, h, "/api/inspections", tenantID.String(), driverID.String(), "{not json").Code)
 
+	// This route decodes only vehicle_id, and it answers a vehicle_id of the
+	// wrong type with the generic refusal and no field name, which
+	// malformed_json's registry meaning says.
+	rec := post(t, h, "/api/inspections", tenantID.String(), driverID.String(), `{"vehicle_id":5}`)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, refusalBody{Code: "malformed_json", Message: "malformed json"}, ref)
+
 	// FR-INS-038 is a permanent refusal: the outbox must surface FR-OFF-013's
 	// recovery action rather than retry it for thirty minutes, which is why it
 	// cannot share a status with 422's malformed vehicle.
@@ -244,6 +254,88 @@ func TestSubmitRefusals(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		post(t, h, "/api/inspections", tenantID.String(), driverID.String(),
 			captureFixture(t, ctx, admin, tenantID, vehicleID)).Code)
+}
+
+// ADR-0013 decision 5: the submit hands its payload to SQL unparsed, and
+// uuid.Parse reads two forms of the payload's vehicle_id that Postgres's
+// ::uuid cast does not, a urn:uuid: prefix and a 38-byte form, the id with
+// one byte on each side, unless those are { and }. Each body in the table
+// below is a 400 naming vehicle_id here, where a whole payload would
+// otherwise reach the cast as a 22P02 canned as a 422 that names no field
+// (TYRE-379).
+func TestSubmitRefusesAVehicleIDFormTheCastDoesNotRead(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "vehicle-id-forms")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	// A whole payload, so a body that got past Go would reach the cast and
+	// not stop at an earlier refusal for a missing field.
+	payload := func(set map[string]string) string {
+		var body map[string]any
+		require.NoError(t, json.Unmarshal([]byte(captureFixture(t, ctx, admin, tenantID, vehicleID)), &body))
+		for key, value := range set {
+			body[key] = value
+		}
+		raw, err := json.Marshal(body)
+		require.NoError(t, err)
+		return string(raw)
+	}
+	inspections := func() int {
+		var n int
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT count(*) FROM app.inspection WHERE vehicle_id = $1`, vehicleID).Scan(&n))
+		return n
+	}
+	planted := inspections()
+	id := vehicleID.String()
+	for _, tc := range []struct{ name, body string }{
+		{"a urn and no other field", `{"vehicle_id":"urn:uuid:` + id + `"}`},
+		{"a urn", payload(map[string]string{"vehicle_id": "urn:uuid:" + id})},
+		{"an upper-case urn", payload(map[string]string{"vehicle_id": "URN:UUID:" + strings.ToUpper(id)})},
+		{"square brackets", payload(map[string]string{"vehicle_id": "[" + id + "]"})},
+		{"parentheses", payload(map[string]string{"vehicle_id": "(" + id + ")"})},
+		{"a space each side", payload(map[string]string{"vehicle_id": " " + id + " "})},
+		{"an opening brace and a closing bracket", payload(map[string]string{"vehicle_id": "{" + id + "]"})},
+		// encoding/json matches the key without regard to case and Postgres
+		// reads the exact one, so this urn is the vehicle_id the cast meets.
+		{"a urn beside a canonical id under a key in capitals", payload(map[string]string{
+			"vehicle_id": "urn:uuid:" + id, "VEHICLE_ID": id,
+		})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := post(t, h, "/api/inspections", tenantID.String(), driverID.String(), tc.body)
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, refusalBody{
+				Code:    "malformed_json",
+				Message: "vehicle_id holds a uuid in a form this field does not accept",
+			}, ref)
+		})
+	}
+	require.Equal(t, planted, inspections(), "a refused submit lands no inspection")
+
+	// The controls: three forms the cast reads go past Go. The braced one is
+	// stored, and the two after it reach FR-INS-038's TY003, raised after
+	// app.actor_could_capture and app.submit_inspection's declarations have
+	// cast this payload's vehicle_id.
+	braced := post(t, h, "/api/inspections", tenantID.String(), driverID.String(),
+		payload(map[string]string{"vehicle_id": "{" + id + "}"}))
+	require.Equal(t, http.StatusCreated, braced.Code, braced.Body.String())
+	require.Equal(t, planted+1, inspections(), "the braced id is stored as the unit's own")
+	for _, form := range []string{strings.ToUpper(id), strings.ReplaceAll(id, "-", "")} {
+		t.Run(form, func(t *testing.T) {
+			rec := post(t, h, "/api/inspections", tenantID.String(), driverID.String(),
+				payload(map[string]string{"vehicle_id": form}))
+			require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "TY003", ref.Code, "a 409 from the window check, not a unique or exclusion violation")
+		})
+	}
 }
 
 // TestSubmitUnknownVehicleIsUnprocessable pins TY007 ("vehicle not visible"):

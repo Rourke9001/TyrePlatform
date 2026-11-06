@@ -30,6 +30,24 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-06 - Go 1.27 compiles encoding/json from its v2 files, so its top-level decode.go is not the decoder (TYRE-379, #166)
+
+**What happened:** a stage 5 review agent on #166 cited `decode.go` and
+`encode.go` for Go 1.27 behaviour and raised a bug that does not exist on
+the decoder that runs. In the pinned image (Go 1.27.3) `JSONv2` is on by
+default (`internal/buildcfg/exp.go`), both files carry
+`//go:build !goexperiment.jsonv2`, and `go list` lists only the `v2_*.go`
+files.
+
+**The rule:** Go 1.27 builds encoding/json from its v2 files (`JSONv2` on
+by default). For decoder behaviour, read the `v2_*.go` files and the
+packages they build on: `v2/`, `jsontext/`, and `internal/` with its
+`jsonflags`, `jsonopts` and `jsonwire` (`jsonwire` holds `ParseUint`,
+which reads integer fields). Never read the top-level files that
+`go list -f '{{.IgnoredGoFiles}}' encoding/json` names (`decode.go`,
+`encode.go` and their v1 neighbours), and confirm the compiled set with
+`go list -deps -f '{{.ImportPath}} {{.GoFiles}}' encoding/json`.
+
 ## 2026-11-03 - A text-matching gate patched one finding at a time opens a new hole each round (#151, #162)
 
 **What happened:** #151's colour gate was a regex scanner fixed finding by

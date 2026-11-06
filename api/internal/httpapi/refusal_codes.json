@@ -33,7 +33,7 @@
   "malformed_json": {
     "source": "go",
     "httpStatus": 400,
-    "meaning": "the request body is not valid JSON, is a literal null or carries a second value, or a field has the wrong type (the message names the field)"
+    "meaning": "the request body cannot be read as the request: on every route that answers this code, a body that is not valid JSON, carries a second value, or is an array, string, number or boolean rather than an object; on the routes that read the body through decodeJSON, a field that holds a value of the wrong type or a number it does not accept; on the unit PATCH (PATCH /api/vehicles/{id}), a field that holds a value of the wrong type, or a literal null; on the inspection submit (POST /api/inspections), which decodes only vehicle_id, a vehicle_id that is neither null nor a uuid string that both Go's uuid parser and Postgres read (the hyphenated, 32-hex and braced hyphenated forms). decodeJSON's message names the field when the API can name it from the request's json tags, the inspection submit's names vehicle_id when the first fault its decoder finds is a uuid Go's parser reads in a form Postgres does not (a urn:uuid: prefix on the hyphenated id, or the 38-byte form, the hyphenated id with one byte on each side, unless those are { and }), and every other refusal under this code says \"malformed json\""
   },
   "not_found": {
     "source": "go",

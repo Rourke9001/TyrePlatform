@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -120,8 +121,8 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, into any) bool {
 		return false
 	}
 	if err := json.Unmarshal(raw, into); err != nil {
-		if field, named := typeErrorField(err); named {
-			writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, field+" is the wrong type")
+		if message, named := typeErrorMessage(err, into); named {
+			writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, message)
 			return false
 		}
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
@@ -158,16 +159,20 @@ func decodeJSONStrict(w http.ResponseWriter, r *http.Request, into any) bool {
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 		return false
 	}
-	// A literal null and a value after the first are both refused: Decode
-	// alone accepts either and this decoder must not be laxer than
-	// json.Unmarshal (TYRE-72). Confirmed by asking for a second Decode's
-	// io.EOF, not dec.More(), which reports whether another *element*
-	// follows within an array or object and so answers false on a body that
-	// merely ends `}}` or `}]`.
+	// A literal null is refused, as an array, string, number or boolean is,
+	// because the request is an object. Decode refuses those four itself but
+	// takes null as no change, so null needs this check, while {} is an
+	// object naming no field and is accepted (TYRE-94).
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 		return false
 	}
+	// Anything but whitespace after the first value is refused, because
+	// Decode alone stops before it and this decoder must not be laxer than
+	// json.Unmarshal (TYRE-72). A second Decode must answer io.EOF. dec.More()
+	// would not do, since it reports whether another *element* follows within
+	// an array or object and so answers false on a body that merely ends `}}`
+	// or `}]`.
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 		return false
@@ -193,16 +198,165 @@ func unknownJSONField(err error) (string, bool) {
 	return name, true
 }
 
-// typeErrorField names the field whose value had the wrong type. The
-// decoder's own text is never forwarded (ADR-0012); the field name is safe
-// because encoding/json builds this path from this package's own json tags,
-// never caller text, so no length bound is needed here.
-func typeErrorField(err error) (string, bool) {
+// typeErrorMessage words a refusal for a value the field could not take, or
+// answers false when err is not a type error or typeErrorField cannot name
+// the field. The name carries no caller key (ADR-0012), so it stops at a map.
+// It also leaves out a slice's index. Each message says what the field holds,
+// not what it is, since the value may sit inside the named field (TYRE-379).
+func typeErrorMessage(err error, into any) (string, bool) {
 	var typeErr *json.UnmarshalTypeError
-	if !errors.As(err, &typeErr) || typeErr.Field == "" {
+	if !errors.As(err, &typeErr) {
 		return "", false
 	}
-	return typeErr.Field, true
+	field, named := typeErrorField(typeErr, into)
+	if !named {
+		return "", false
+	}
+	// A number past its type's range, or with a minus sign on an unsigned
+	// kind or an exponent or decimal point on an integer kind, is still a
+	// number, and calling it a value of the wrong type would send the caller
+	// to fix the wrong thing (TYRE-379).
+	if strings.HasPrefix(typeErr.Value, "number ") && isNumber(deref(typeErr.Type)) {
+		return field + " holds a number this field does not accept", true
+	}
+	return field + " holds a value of the wrong type", true
+}
+
+func isNumber(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64:
+		return true
+	default:
+		return false
+	}
+}
+
+// typeErrorField names the field whose value the decoder could not store, in
+// this package's json tags only, so no caller text reaches the refusal
+// (ADR-0012). From Go 1.27 the decoder's path carries the caller's map keys,
+// slice indexes and key spelling (TYRE-379), so the name is rebuilt by walking
+// that path through into's type, and it stops at a map, whose key is caller
+// text. A segment more than one field could answer, or a path the walk cannot
+// resolve, names nothing, and the refusal is the generic one.
+func typeErrorField(typeErr *json.UnmarshalTypeError, into any) (string, bool) {
+	if typeErr.Field == "" {
+		return "", false
+	}
+	names, leaf, ok := tagPath(reflect.TypeOf(into), strings.Split(typeErr.Field, "."))
+	if !ok || len(names) == 0 {
+		return "", false
+	}
+	// A backstop for a shape the count cannot see, such as an embedded
+	// pointer to an unexported struct, which the decoder reports as the
+	// outer struct's type.
+	if leaf != nil && typeErr.Type != nil && leaf != deref(typeErr.Type) {
+		return "", false
+	}
+	return strings.Join(names, "."), true
+}
+
+// tagPath answers the tag names along segments and the type the walk ends
+// on. A map stops the walk with no type to check, since what follows it in
+// the path is the caller's key, so typeErrorField's backstop does not reach
+// past a map.
+func tagPath(t reflect.Type, segments []string) ([]string, reflect.Type, bool) {
+	t = deref(t)
+	if t == nil {
+		return nil, nil, false
+	}
+	if len(segments) == 0 {
+		return nil, t, true
+	}
+	switch t.Kind() {
+	case reflect.Map:
+		return nil, nil, true
+	case reflect.Slice, reflect.Array:
+		// Go 1.27 writes every element's index into the path, so a segment
+		// that is not one resolves nothing.
+		if !isIndex(segments[0]) {
+			return nil, nil, false
+		}
+		return tagPath(t.Elem(), segments[1:])
+	case reflect.Struct:
+		name, field, ok := jsonField(t, segments[0])
+		if !ok {
+			return nil, nil, false
+		}
+		rest, leaf, ok := tagPath(field, segments[1:])
+		if !ok {
+			return nil, nil, false
+		}
+		return append([]string{name}, rest...), leaf, true
+	default:
+		return nil, nil, false
+	}
+}
+
+func deref(t reflect.Type) reflect.Type {
+	for t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t
+}
+
+func isIndex(segment string) bool {
+	_, err := strconv.ParseUint(segment, 10, 0)
+	return err == nil
+}
+
+type jsonMatch struct {
+	name string
+	typ  reflect.Type
+}
+
+// jsonField answers the one field whose name folds equal to segment, counted
+// through untagged embedded structs, by its tag's spelling rather than the
+// caller's. Two such fields answer nothing. The decoder chooses between them
+// (an exact name first, then the shallower field), and that choice is not
+// reproduced here.
+func jsonField(t reflect.Type, segment string) (string, reflect.Type, bool) {
+	found := foldMatches(t, segment, map[reflect.Type]bool{})
+	if len(found) != 1 {
+		return "", nil, false
+	}
+	return found[0].name, found[0].typ, true
+}
+
+// foldMatches skips the fields encoding/json skips: one tagged exactly "-",
+// and an unexported field that is not an embedded struct. A tagged embedded
+// struct is a named field whether or not its type is exported. seen stops a
+// type that embeds itself.
+func foldMatches(t reflect.Type, segment string, seen map[reflect.Type]bool) []jsonMatch {
+	if seen[t] {
+		return nil
+	}
+	seen[t] = true
+	var found []jsonMatch
+	for i := range t.NumField() {
+		f := t.Field(i)
+		tag := f.Tag.Get("json")
+		if tag == "-" {
+			continue
+		}
+		name, _, _ := strings.Cut(tag, ",")
+		embeddedStruct := f.Anonymous && deref(f.Type).Kind() == reflect.Struct
+		if embeddedStruct && name == "" {
+			found = append(found, foldMatches(deref(f.Type), segment, seen)...)
+			continue
+		}
+		if !f.IsExported() && !embeddedStruct {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		if strings.EqualFold(name, segment) {
+			found = append(found, jsonMatch{name, f.Type})
+		}
+	}
+	return found
 }
 
 // refuseInvalid answers a validation failure and reports whether it did, so a
@@ -244,6 +398,44 @@ func uuidField(field, raw string) (uuid.UUID, error) {
 		return uuid.Nil, invalid(field, "must be a uuid")
 	}
 	return id, nil
+}
+
+// errUUIDForm is castableUUID's refusal, for a text uuid.Parse reads and a
+// ::uuid cast does not.
+var errUUIDForm = errors.New("a uuid in a form Postgres does not read")
+
+// castableUUID is a uuid.UUID whose text must also be a form a ::uuid cast
+// reads, for a body sent on to SQL unparsed (ADR-0013 decision 5). The check
+// is a decoding method, not a test of the decoded value, because the decoder
+// runs it on the string under every key that names the field, keys that
+// differ only in case included, and Unmarshal answers the first error. On
+// success the decoded value is the last key's, and Postgres reads the exact
+// key (TYRE-379).
+type castableUUID uuid.UUID
+
+func (id *castableUUID) UnmarshalText(text []byte) error {
+	if err := (*uuid.UUID)(id).UnmarshalText(text); err != nil {
+		return err
+	}
+	if !postgresReadsUUID(string(text)) {
+		return errUUIDForm
+	}
+	return nil
+}
+
+// postgresReadsUUID answers whether a ::uuid cast reads s, a text uuid.Parse
+// has accepted. Of uuid.Parse's four lengths, Postgres reads 32 and 36, and
+// 38 only as {...}, where uuid.Parse ignores the first and last bytes.
+// Postgres reads none of length 45, the urn:uuid: form (TYRE-379).
+func postgresReadsUUID(s string) bool {
+	switch len(s) {
+	case 32, 36:
+		return true
+	case 38:
+		return s[0] == '{' && s[37] == '}'
+	default:
+		return false
+	}
 }
 
 // requiredText refuses an absent value, never a badly shaped one. A tread is
@@ -295,10 +487,11 @@ func dateField(field string, raw *string) (*string, error) {
 	return &trimmed, nil
 }
 
-// optionalIDOrClear reads a nullable id with the three states above. A value
-// that is neither absent nor empty must parse as a uuid here rather than
-// reach the ::uuid cast as a 22P02 naming no field at all (ADR-0013
-// decision 5).
+// optionalIDOrClear reads one of patchUnitArgs's nullable ids, where nil
+// leaves the column alone and a blank one clears it. Any other value must
+// parse as a uuid, and is passed on as canonical text because uuid.Parse
+// accepts forms the ::uuid cast does not read. A value cannot then reach that
+// cast as a 22P02 naming no field (ADR-0013 decision 5).
 func optionalIDOrClear(field string, raw *string) (*string, error) {
 	if raw == nil {
 		return nil, nil
@@ -307,10 +500,12 @@ func optionalIDOrClear(field string, raw *string) (*string, error) {
 	if trimmed == "" {
 		return &trimmed, nil
 	}
-	if _, err := uuidField(field, trimmed); err != nil {
+	id, err := uuidField(field, trimmed)
+	if err != nil {
 		return nil, err
 	}
-	return &trimmed, nil
+	canonical := id.String()
+	return &canonical, nil
 }
 
 // cleanTags bounds the count, trims, refuses a blank name and drops repeats
