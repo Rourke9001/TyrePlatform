@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -120,7 +119,7 @@ func listTyres(s *store.Store) http.HandlerFunc {
 		// Validated before any transaction opens (ADR-0013 decision 5), for
 		// the reason instantField's note gives (request.go).
 		if on != "" {
-			if _, err := time.Parse(isoDate, on); err != nil {
+			if !isISODate(on) {
 				refuseInvalid(w, r, invalid("on", "must be a date as YYYY-MM-DD"))
 				return
 			}
@@ -207,11 +206,12 @@ type receiveTyresRequest struct {
 	InvoiceNumber *string `json:"invoiceNumber"`
 }
 
-// payload builds app.receive_tyres's jsonb argument, snake_case and omitting
-// every field the caller did not send. A present key with a NULL value and
-// an absent key mean different things to the function's own COALESCE/NULLIF
-// logic, and quantity's default of 1 only applies when the key is missing
-// entirely. Every value the caller did send is forwarded verbatim, zero and
+// payload builds app.receive_tyres's jsonb argument, snake_case, with no key
+// for a field the caller left out or sent as null: the decoder reads null
+// into a nil pointer, and the function's ->> reads an absent key and a null
+// alike, so quantity's default of 1 applies to both. A blank display code or
+// invoice number is left out too. Every other field is forwarded in the form
+// receiveTyres leaves it after its checks, and a quantity as sent, zero and
 // negative included: refusing one here would be a bound check this struct
 // does not own (ADR-0013 decision 5), so an out-of-range quantity reaches
 // app.receive_tyres and comes back as its own TY011 rather than being
@@ -282,8 +282,24 @@ func receiveTyres(s *store.Store) http.HandlerFunc {
 
 		// ADR-0013 decision 5: a value that cannot be read as its type is
 		// refused here, naming the field, before a transaction opens. The
-		// validated (trimmed) text is what payload() forwards, so the date
-		// app.receive_tyres casts is the one checked (TYRE-174).
+		// checked text is what payload() forwards, a date trimmed (TYRE-174)
+		// and an id in canonical form (TYRE-379), so what app.receive_tyres
+		// casts is what was checked.
+		for _, id := range []struct {
+			field string
+			value **string
+		}{
+			{"sizeId", &body.SizeID},
+			{"patternId", &body.PatternID},
+			{"brandId", &body.BrandID},
+			{"depotId", &body.DepotID},
+		} {
+			canonical, err := optionalID(id.field, *id.value)
+			if refuseInvalid(w, r, err) {
+				return
+			}
+			*id.value = canonical
+		}
 		purchaseDate, err := dateField("purchaseDate", body.PurchaseDate)
 		if refuseInvalid(w, r, err) {
 			return

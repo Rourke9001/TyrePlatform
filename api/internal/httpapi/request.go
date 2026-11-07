@@ -200,7 +200,8 @@ func unknownJSONField(err error) (string, bool) {
 
 // typeErrorMessage words a refusal for a value the field could not take, or
 // answers false when err is not a type error or typeErrorField cannot name
-// the field. The name carries no caller key (ADR-0012), so it stops at a map.
+// the field. The name carries no caller key (TYRE-379, U181), so it stops at
+// a map.
 // It also leaves out a slice's index. Each message says what the field holds,
 // not what it is, since the value may sit inside the named field (TYRE-379).
 func typeErrorMessage(err error, into any) (string, bool) {
@@ -235,8 +236,8 @@ func isNumber(t reflect.Type) bool {
 
 // typeErrorField names the field whose value the decoder could not store, in
 // this package's json tags only, so no caller text reaches the refusal
-// (ADR-0012). From Go 1.27 the decoder's path carries the caller's map keys,
-// slice indexes and key spelling (TYRE-379), so the name is rebuilt by walking
+// (TYRE-379, U181). From Go 1.27 the decoder's path carries the caller's map
+// keys, slice indexes and key spelling, so the name is rebuilt by walking
 // that path through into's type, and it stops at a map, whose key is caller
 // text. A segment more than one field could answer, or a path the walk cannot
 // resolve, names nothing, and the refusal is the generic one.
@@ -409,8 +410,9 @@ var errUUIDForm = errors.New("a uuid in a form Postgres does not read")
 // is a decoding method, not a test of the decoded value, because the decoder
 // runs it on the string under every key that names the field, keys that
 // differ only in case included, and Unmarshal answers the first error. On
-// success the decoded value is the last key's, and Postgres reads the exact
-// key (TYRE-379).
+// success the decoded value is the last of those keys not holding null, and
+// Postgres reads the last key spelt exactly as the tag, so the two can differ
+// and a caller must not use the decoded value (TYRE-379).
 type castableUUID uuid.UUID
 
 func (id *castableUUID) UnmarshalText(text []byte) error {
@@ -481,17 +483,40 @@ func dateField(field string, raw *string) (*string, error) {
 		return nil, nil
 	}
 	trimmed := strings.TrimSpace(*raw)
-	if _, err := time.Parse(isoDate, trimmed); err != nil {
+	if !isISODate(trimmed) {
 		return nil, invalid(field, "must be a date as YYYY-MM-DD")
 	}
 	return &trimmed, nil
 }
 
+// isISODate answers whether s is a date as YYYY-MM-DD that a ::date cast
+// reads. time.Parse reads year 0000, which the cast refuses with 22008, so
+// the year is checked as well (TYRE-379, TestDateChecksAgreeWithTheCast).
+func isISODate(s string) bool {
+	t, err := time.Parse(isoDate, s)
+	return err == nil && t.Year() >= 1
+}
+
+// optionalID reads an optional id bound for a ::uuid cast inside a jsonb
+// payload. A present value must parse as a uuid, and is passed on as
+// canonical text because uuid.Parse accepts forms the cast does not read. A
+// value cannot then reach that cast as a 22P02 naming no field (ADR-0013
+// decision 5).
+func optionalID(field string, raw *string) (*string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	id, err := uuidField(field, *raw)
+	if err != nil {
+		return nil, err
+	}
+	canonical := id.String()
+	return &canonical, nil
+}
+
 // optionalIDOrClear reads one of patchUnitArgs's nullable ids, where nil
-// leaves the column alone and a blank one clears it. Any other value must
-// parse as a uuid, and is passed on as canonical text because uuid.Parse
-// accepts forms the ::uuid cast does not read. A value cannot then reach that
-// cast as a 22P02 naming no field (ADR-0013 decision 5).
+// leaves the column alone and a blank one clears it. Any other value is
+// trimmed and read as optionalID reads it.
 func optionalIDOrClear(field string, raw *string) (*string, error) {
 	if raw == nil {
 		return nil, nil
@@ -500,12 +525,7 @@ func optionalIDOrClear(field string, raw *string) (*string, error) {
 	if trimmed == "" {
 		return &trimmed, nil
 	}
-	id, err := uuidField(field, trimmed)
-	if err != nil {
-		return nil, err
-	}
-	canonical := id.String()
-	return &canonical, nil
+	return optionalID(field, &trimmed)
 }
 
 // cleanTags bounds the count, trims, refuses a blank name and drops repeats

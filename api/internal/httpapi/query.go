@@ -1,10 +1,10 @@
 package httpapi
 
 import (
+	"errors"
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -21,7 +21,7 @@ func dateParam(q url.Values, name string) (*string, error) {
 	if raw == "" {
 		return nil, nil
 	}
-	if _, err := time.Parse(isoDate, raw); err != nil {
+	if !isISODate(raw) {
 		return nil, invalid(name, "must be a date as YYYY-MM-DD")
 	}
 	return &raw, nil
@@ -39,16 +39,23 @@ func uuidParam(q url.Values, name string) (*uuid.UUID, error) {
 	return &id, nil
 }
 
+// positiveIntParam reads a count SQL binds as $n::int, so a number past
+// int4's range is refused here naming the field, where the bind would
+// otherwise fail as a 500 (TYRE-379).
 func positiveIntParam(q url.Values, name string) (*int, error) {
 	raw := strings.TrimSpace(q.Get(name))
 	if raw == "" {
 		return nil, nil
 	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n < 1 {
+	n, err := strconv.ParseInt(raw, 10, 32)
+	switch {
+	case errors.Is(err, strconv.ErrRange) && n > 0:
+		return nil, invalid(name, "must be a whole number of at most 2147483647")
+	case err != nil || n < 1:
 		return nil, invalid(name, "must be a whole number of at least 1")
 	}
-	return &n, nil
+	count := int(n)
+	return &count, nil
 }
 
 // oneOfParam refuses a value outside the list here rather than letting the

@@ -3,8 +3,10 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -373,6 +375,54 @@ func TestPostgresReadsUUIDAgreesWithTheCast(t *testing.T) {
 	t.Logf("%d of %d texts parse as a uuid, and the cast reads %d of them", checked, len(texts), read)
 	req.Equal(t, len(accepted), checked)
 	req.Empty(t, disagree, "texts where postgresReadsUUID and the cast disagree")
+	req.NotZero(t, read, "a control: the cast reads some of these texts")
+	req.Less(t, read, checked, "a control: the cast refuses some of these texts")
+}
+
+// dateField and dateParam stand in front of a ::date cast, so what each
+// passes on is held to the cast itself (TYRE-379). The grid tries every
+// month 00 to 13 and day 00 to 32 in year 0000, the years just after it, and
+// years each century leap rule decides. On it the checks and the cast must
+// agree both ways.
+func TestDateChecksAgreeWithTheCast(t *testing.T) {
+	appURL := os.Getenv("TEST_DATABASE_URL")
+	if appURL == "" {
+		t.Skip("TEST_DATABASE_URL not set; this check needs Postgres")
+	}
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, appURL)
+	req.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
+
+	var texts []string
+	for _, y := range []int{0, 1, 2, 3, 4, 100, 400, 1582, 1900, 2000, 2024, 2100, 9999} {
+		for m := 0; m <= 13; m++ {
+			for d := 0; d <= 32; d++ {
+				texts = append(texts, fmt.Sprintf("%04d-%02d-%02d", y, m, d))
+			}
+		}
+	}
+	rows, err := conn.Query(ctx, `SELECT s, pg_input_is_valid(s, 'date') FROM unnest($1::text[]) AS s`, texts)
+	req.NoError(t, err)
+	var checked, read int
+	var disagree []string
+	for rows.Next() {
+		var s string
+		var valid bool
+		req.NoError(t, rows.Scan(&s, &valid))
+		checked++
+		if valid {
+			read++
+		}
+		_, fieldErr := dateField("d", &s)
+		_, paramErr := dateParam(url.Values{"d": {s}}, "d")
+		if (fieldErr == nil) != valid || (paramErr == nil) != valid {
+			disagree = append(disagree, s)
+		}
+	}
+	req.NoError(t, rows.Err())
+	req.Equal(t, len(texts), checked)
+	req.Empty(t, disagree, "texts where a date check and the cast disagree")
 	req.NotZero(t, read, "a control: the cast reads some of these texts")
 	req.Less(t, read, checked, "a control: the cast refuses some of these texts")
 }

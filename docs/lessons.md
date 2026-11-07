@@ -30,6 +30,22 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-07 - A Go check in front of a Postgres cast passed texts the cast refuses (TYRE-379, #166)
+
+**What happened:** #166's stage 5 rounds 5 and 6 found one gap three times.
+`uuid.Parse` reads a urn and other forms the `::uuid` cast does not,
+`time.Parse` reads year 0000, which `::date` refuses with 22008, and
+`receiveTyres` sent four ids on with no check at all. Each gave a raw
+caller the canned 422 that names no field, beside comments saying the Go
+check names it.
+
+**The rule:** a Go check that guards a cast does one of two things. Either
+it accepts only texts the cast reads and sends them on, held to the cast by
+a test over `pg_input_is_valid`
+(`TestPostgresReadsUUIDAgreesWithTheCast`, `TestDateChecksAgreeWithTheCast`).
+Or it parses and sends on the parsed value or its canonical text, never the
+caller's (`optionalID`).
+
 ## 2026-11-06 - A fix's comment or message held for the reviewer's examples and was false outside them (#166, #167)
 
 **What happened:** #166's round 3 fix took the refusal message its review
