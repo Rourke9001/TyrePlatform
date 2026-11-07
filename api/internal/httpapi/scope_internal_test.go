@@ -51,7 +51,8 @@ func TestScopeForLabelsWhatWasSummed(t *testing.T) {
 }
 
 func TestQueryParamsRefuseWhatTheyCannotBind(t *testing.T) {
-	q := url.Values{"from": {"2026-08-01"}, "bad": {"01/08/2026"}, "n": {"7"}, "zero": {"0"}, "level": {"DEPOT"}, "flag": {"true"}}
+	q := url.Values{"from": {"2026-08-01"}, "bad": {"01/08/2026"}, "n": {"7"}, "zero": {"0"}, "level": {"DEPOT"}, "flag": {"true"},
+		"max": {"2147483647"}, "past": {"2147483648"}, "huge": {"99999999999999999999"}, "below": {"-99999999999999999999"}}
 	from, err := dateParam(q, "from")
 	req.NoError(t, err)
 	req.Equal(t, "2026-08-01", *from)
@@ -66,6 +67,15 @@ func TestQueryParamsRefuseWhatTheyCannotBind(t *testing.T) {
 	req.Equal(t, 7, *n)
 	_, err = positiveIntParam(q, "zero")
 	req.EqualError(t, err, "zero must be a whole number of at least 1")
+	largest, err := positiveIntParam(q, "max")
+	req.NoError(t, err)
+	req.Equal(t, 2147483647, *largest)
+	_, err = positiveIntParam(q, "past")
+	req.EqualError(t, err, "past must be a whole number of at most 2147483647")
+	_, err = positiveIntParam(q, "huge")
+	req.EqualError(t, err, "huge must be a whole number of at most 2147483647")
+	_, err = positiveIntParam(q, "below")
+	req.EqualError(t, err, "below must be a whole number of at least 1")
 
 	level, err := oneOfParam(q, "level", "TENANT", "DEPOT")
 	req.NoError(t, err)

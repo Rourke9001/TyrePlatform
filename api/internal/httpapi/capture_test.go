@@ -292,6 +292,16 @@ func TestSubmitRefusesAVehicleIDFormTheCastDoesNotRead(t *testing.T) {
 	}
 	planted := inspections()
 	id := vehicleID.String()
+	// json.Marshal writes VEHICLE_ID before vehicle_id, so this body is
+	// spliced by hand to put the urn first: the decoded value is then the
+	// canonical id, and the cast still meets the urn.
+	var capitalsOnly map[string]any
+	require.NoError(t, json.Unmarshal([]byte(payload(map[string]string{"VEHICLE_ID": id})), &capitalsOnly))
+	delete(capitalsOnly, "vehicle_id")
+	rest, err := json.Marshal(capitalsOnly)
+	require.NoError(t, err)
+	urnFirst := `{"vehicle_id":"urn:uuid:` + id + `",` + string(rest[1:])
+	require.True(t, strings.HasPrefix(urnFirst, `{"vehicle_id":"urn:uuid:`+id+`","VEHICLE_ID":"`+id+`",`), urnFirst)
 	for _, tc := range []struct{ name, body string }{
 		{"a urn and no other field", `{"vehicle_id":"urn:uuid:` + id + `"}`},
 		{"a urn", payload(map[string]string{"vehicle_id": "urn:uuid:" + id})},
@@ -305,6 +315,7 @@ func TestSubmitRefusesAVehicleIDFormTheCastDoesNotRead(t *testing.T) {
 		{"a urn beside a canonical id under a key in capitals", payload(map[string]string{
 			"vehicle_id": "urn:uuid:" + id, "VEHICLE_ID": id,
 		})},
+		{"a urn before a canonical id under a key in capitals", urnFirst},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := post(t, h, "/api/inspections", tenantID.String(), driverID.String(), tc.body)

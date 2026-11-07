@@ -325,6 +325,22 @@ func TestRemovalForecastPinsTheHorizonAtADate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Len(t, body.Tyres, 2)
 
+	// The largest horizon an int holds still answers, since the window
+	// cannot carry a date past Postgres's range, and one more is refused
+	// naming the field rather than failing the bind (TYRE-379).
+	rec = get(t, h, "/api/analytics/removal-forecast?from=2026-08-01&horizonDays=2147483647", bacTenant, nomsa)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, 2147483647, *body.HorizonDays)
+	require.GreaterOrEqual(t, len(body.Tyres), 6)
+	for _, n := range []string{"2147483648", "3000000000"} {
+		rec = get(t, h, "/api/analytics/removal-forecast?from=2026-08-01&horizonDays="+n, bacTenant, nomsa)
+		require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+		var ref refusalBody
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+		require.Equal(t, refusalBody{Code: "invalid_submission", Message: "horizonDays must be a whole number of at most 2147483647"}, ref)
+	}
+
 	// Without a horizon key the tile is not configured, never 30 by default.
 	bare, _ := plantTenant(t, ctx, admin, "forecast-bare")
 	user := plantUser(t, ctx, admin, bare, auth.RoleController)

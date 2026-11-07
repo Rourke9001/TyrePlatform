@@ -221,6 +221,12 @@ func TestListTyresCodeAndDateLookup(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
 	require.Equal(t, "invalid_submission", ref.Code)
 	require.Equal(t, "on must be a date as YYYY-MM-DD", ref.Message)
+
+	// Year 0000 parses in Go and fails ::date with 22008 (TYRE-379).
+	rec = get(t, h, "/api/tyres?code="+code+"&on=0000-01-01", tenantID.String(), controller.String())
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, refusalBody{Code: "invalid_submission", Message: "on must be a date as YYYY-MM-DD"}, ref)
 }
 
 // CFL-002: listTyres's doc comment (tyres.go, the awaitingCost filter and
@@ -375,14 +381,17 @@ func TestReceiveTyresHappyPath(t *testing.T) {
 // TYRE-174 / ADR-0013 decision 5: a value that cannot be read as its type is
 // refused in Go before the transaction opens, naming the field, the same
 // dateField every sibling date already goes through, for the reason
-// instantField's note gives (fitments.go). "yesterday" is deliberately NOT
+// instantField's note gives (request.go). "yesterday" is deliberately NOT
 // a probe value: Postgres accepts it as a date literal (lane 5's note).
+// Year 0000 is one: Go reads it and ::date does not (TYRE-379), so those
+// rows carry a whole receive that would otherwise reach the cast.
 func TestReceiveTyresRefusesAMalformedDateAs422(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
 	tenantID, _ := plantTenant(t, ctx, admin, "receive-dates")
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
 
 	tests := []struct {
 		name, body, wantMessage string
@@ -390,6 +399,10 @@ func TestReceiveTyresRefusesAMalformedDateAs422(t *testing.T) {
 		{"purchaseDate unparseable", `{"displayCode":"D-` + uuid.NewString()[:8] + `","purchaseDate":"soon"}`,
 			"purchaseDate must be a date as YYYY-MM-DD"},
 		{"receivedDate in a non-ISO layout", `{"displayCode":"D-` + uuid.NewString()[:8] + `","receivedDate":"31/12/2026"}`,
+			"receivedDate must be a date as YYYY-MM-DD"},
+		{"purchaseDate in year 0", cat.body(t, map[string]any{"displayCode": "D-" + uuid.NewString()[:8], "purchaseDate": "0000-01-01"}),
+			"purchaseDate must be a date as YYYY-MM-DD"},
+		{"receivedDate in year 0", cat.body(t, map[string]any{"displayCode": "D-" + uuid.NewString()[:8], "receivedDate": "0000-12-31"}),
 			"receivedDate must be a date as YYYY-MM-DD"},
 	}
 	for _, tt := range tests {
@@ -404,7 +417,6 @@ func TestReceiveTyresRefusesAMalformedDateAs422(t *testing.T) {
 	}
 
 	// control: the same shape with a well-formed date is minted
-	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
 	code := "D-" + uuid.NewString()[:8]
 	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
 		cat.body(t, map[string]any{"displayCode": code, "purchaseDate": " 2026-09-01 ", "receivedDate": "2026-09-02"}))
@@ -415,6 +427,70 @@ func TestReceiveTyresRefusesAMalformedDateAs422(t *testing.T) {
 		tenantID, code).Scan(&purchased, &received))
 	require.Equal(t, "2026-09-01", purchased, "the trimmed value is what was bound")
 	require.Equal(t, "2026-09-02", received)
+}
+
+// ADR-0013 decision 5: an id that does not parse is refused here, naming the
+// field, where app.receive_tyres' ::uuid cast would raise a 22P02 canned as
+// a 422 that names none (TYRE-379). An absent size or pattern id stays absent
+// for the function's own TY011 (TestReceiveTyresRefusesAnIncompleteReceiveAsTY011),
+// and an absent brand or depot stays absent too.
+func TestReceiveTyresRefusesAnIDThatDoesNotParseAs422(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-ids")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
+
+	for _, tc := range []struct{ field, value string }{
+		{"sizeId", "abc"},
+		{"patternId", "abc"},
+		{"brandId", "abc"},
+		{"depotId", "abc"},
+		{"sizeId", ""},
+		{"brandId", " "},
+	} {
+		t.Run(tc.field+"="+tc.value, func(t *testing.T) {
+			rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+				cat.body(t, map[string]any{"displayCode": "ID-" + uuid.NewString()[:8], tc.field: tc.value}))
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, refusalBody{Code: "invalid_submission", Message: tc.field + " must be a uuid"}, ref)
+		})
+	}
+}
+
+// A urn is a form uuid.Parse reads and the ::uuid cast does not, so each id
+// given as one is stored as the id it names only because the handler sends
+// the parsed id's canonical text on (TYRE-379).
+func TestReceiveTyresStoresAnIDGivenAsAURN(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-urn")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
+	var brandID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.tyre_brand (tenant_id, name) VALUES ($1, 'RECEIVE-URN') RETURNING id`,
+		tenantID).Scan(&brandID))
+	depotID, _ := plantDepotOfType(t, ctx, admin, tenantID, "STORE")
+
+	code := "URN-" + uuid.NewString()[:8]
+	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(), cat.body(t, map[string]any{
+		"displayCode": code,
+		"sizeId":      "urn:uuid:" + cat.sizeID.String(),
+		"patternId":   "URN:UUID:" + strings.ToUpper(cat.patternID.String()),
+		"brandId":     "urn:uuid:" + brandID.String(),
+		"depotId":     "urn:uuid:" + depotID.String(),
+	}))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var size, pattern, brand, depot uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT size_id, pattern_id, brand_id, current_depot_id FROM app.tyre WHERE tenant_id = $1 AND display_code = $2`,
+		tenantID, code).Scan(&size, &pattern, &brand, &depot))
+	require.Equal(t, []uuid.UUID{cat.sizeID, cat.patternID, brandID, depotID}, []uuid.UUID{size, pattern, brand, depot})
 }
 
 // FR-TYR-040 as amended (TYRE-418): a received date after the tenant's today

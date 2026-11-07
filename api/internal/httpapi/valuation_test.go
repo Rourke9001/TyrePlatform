@@ -210,6 +210,12 @@ func TestEstateIsGatedOnViewValuation(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
 	rec = get(t, h, "/api/valuation/estate?asAt=yesterday", tenantID.String(), user.String())
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	// Year 0000 parses in Go and fails ::date with 22008 (TYRE-379).
+	rec = get(t, h, "/api/valuation/estate?asAt=0000-01-01", tenantID.String(), user.String())
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, refusalBody{Code: "invalid_submission", Message: "asAt must be a date as YYYY-MM-DD"}, ref)
 }
 
 // Suite section 17 over HTTP: 27 tyres, tread R20,571.00, casing

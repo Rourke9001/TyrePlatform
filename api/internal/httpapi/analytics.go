@@ -343,9 +343,12 @@ type removalForecastJSON struct {
 // forecastWithinWhere is the predicate suite section 59e pins the count
 // with, and the one app.removal_forecast_within does not carry: FORECAST
 // rows only, since a tyre already at the threshold is the register's, not
-// the forecast's. $1 depot, $2 horizon, $3 from, $4 includeSpares.
+// the forecast's. $1 depot, $2 horizon, $3 from, $4 includeSpares. It
+// compares the gap in days with the horizon rather than adding the horizon
+// to a date: the same test wherever the sum is a date, and no 22008 for a
+// horizon up to int4's limit (TYRE-379).
 const forecastWithinWhere = `f.forecast_status = 'FORECAST'
-		   AND f.earliest_removal_date <= $3::date + $2::int
+		   AND f.earliest_removal_date - $3::date <= $2::int
 		   AND ($4::boolean OR NOT f.is_spare)`
 
 func removalForecast(s *store.Store) http.HandlerFunc {

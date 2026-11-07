@@ -154,6 +154,15 @@ its own (ADR-0013 decision 5). `newTreadMm` stays a JSON string, cast in SQL,
 because a JSON number decodes to a float64 and tread is `DECIMAL(4,1)`
 (DR-007, `request.go:248`).
 
+*Amended by the review of PR #166 (7 Nov 2026, TYRE-379). "Go adds no
+validation of its own" no longer holds. Go refuses, naming the field, a
+date that will not parse (TYRE-174), a display code or invoice number over
+the length bound (TYRE-180, TYRE-418), and a size, pattern, brand or depot
+id that will not parse as a uuid, which it forwards as canonical text. Each
+is a shape Go can know without the schema, which ADR-0013 decision 5, as
+narrowed by TYRE-128 decision 7, puts on Go's side. What a receive must
+carry stays `app.receive_tyres`'s rule.*
+
 ### 22003
 
 A value too large for its numeric column (a `newTreadMm` of "1234", an
