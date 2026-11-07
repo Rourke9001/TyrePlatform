@@ -72,7 +72,7 @@ jobs:
         run: |
           docker run --rm --network host \
             -v "$PWD/db/migrations:/migrations:ro" \
-            migrate/migrate:v4.19.1@sha256:cc4ad8e19d66791e3689405d9a028ce6e9614f32032db14acda1469f7201d6e4 \
+            migrate/migrate:v4.20.1@sha256:76cc2074cb6642631f34a898ced71e6aeaa6b1a4d78c4daa743275a22e0c5be7 \
             -path=/migrations \
             -database "postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable" up
 
@@ -105,7 +105,7 @@ jobs:
         env:
           PGPASSWORD: postgres
           PSQL: psql -h localhost -p 5433 -U postgres
-          MIGRATE: docker run --rm --network host -v ${{ github.workspace }}/db/migrations:/migrations:ro migrate/migrate:v4.19.1@sha256:cc4ad8e19d66791e3689405d9a028ce6e9614f32032db14acda1469f7201d6e4 -path=/migrations
+          MIGRATE: docker run --rm --network host -v ${{ github.workspace }}/db/migrations:/migrations:ro migrate/migrate:v4.20.1@sha256:76cc2074cb6642631f34a898ced71e6aeaa6b1a4d78c4daa743275a22e0c5be7 -path=/migrations
           PG_HOSTPORT: localhost:5433
           PYTHON: python3
         run: bash scripts/provision-tenant.test.sh
@@ -180,7 +180,7 @@ jobs:
           cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py && cd ../..
           docker run --rm --network host \
             -v "$PWD/db/migrations:/migrations:ro" \
-            migrate/migrate:v4.19.1@sha256:cc4ad8e19d66791e3689405d9a028ce6e9614f32032db14acda1469f7201d6e4 \
+            migrate/migrate:v4.20.1@sha256:76cc2074cb6642631f34a898ced71e6aeaa6b1a4d78c4daa743275a22e0c5be7 \
             -path=/migrations \
             -database "postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable" up
           PGURL="postgres://postgres:postgres@localhost:5433/tyre"
@@ -296,7 +296,7 @@ jobs:
           cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py && cd ../..
           docker run --rm --network host \
             -v "$PWD/db/migrations:/migrations:ro" \
-            migrate/migrate:v4.19.1@sha256:cc4ad8e19d66791e3689405d9a028ce6e9614f32032db14acda1469f7201d6e4 \
+            migrate/migrate:v4.20.1@sha256:76cc2074cb6642631f34a898ced71e6aeaa6b1a4d78c4daa743275a22e0c5be7 \
             -path=/migrations \
             -database "postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable" up
           PGURL="postgres://postgres:postgres@localhost:5433/tyre"
