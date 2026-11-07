@@ -187,7 +187,7 @@ record-consent: db-up ## Record or withdraw a tenant's consent locally (T=<tenan
 # Go runs in docker (no host toolchain on Windows), joined to the compose
 # network so integration tests reach tyre-pg. app_login's password here is
 # local-only; CI sets its own and staging's lives in Key Vault.
-GO_IMAGE ?= golang:1.24-alpine@sha256:8bee1901f1e530bfb4a7850aa7a479d17ae3a18beb6e09064ed54cfd245b7191
+GO_IMAGE ?= golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59
 GO_RUN   = MSYS_NO_PATHCONV=1 docker run --rm \
   -v "$(CURDIR)/api:/app" -w /app -v tyre-gomodcache:/go/pkg/mod
 GO_DOCKER = $(GO_RUN) --network tyreplatform_default \

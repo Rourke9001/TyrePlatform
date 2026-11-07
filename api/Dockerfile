@@ -1,7 +1,7 @@
 # Build and runtime are separate stages. The runtime image carries only a
 # static binary: no shell, no libc, no package manager. There is nothing to
 # exploit or patch in the final layer.
-FROM golang:1.24-alpine@sha256:8bee1901f1e530bfb4a7850aa7a479d17ae3a18beb6e09064ed54cfd245b7191 AS build
+FROM golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS build
 WORKDIR /src
 # go.sum comes with go.mod, before the rest of the tree: without it the cached
 # module fetch has no checksums to verify against, so this layer would accept
