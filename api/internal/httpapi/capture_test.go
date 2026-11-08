@@ -507,7 +507,7 @@ func TestSubmitEndpointIsRateLimited(t *testing.T) {
 }
 
 // TestSubmitUnretryableShapesAreClientErrors is the endpoint-level half of the
-// rule submitStatus states: a payload that can only ever fail must answer 4xx.
+// rule refusal.go states: a payload that can only ever fail must answer 4xx.
 // Per ADR-0009 the outbox retries a 5xx with backoff to a 30-minute ceiling
 // and never gives up, so a shape that reaches the transport unmapped is an
 // inspection that can never be delivered, a queue FR-OFF-020 will nag about
@@ -517,8 +517,8 @@ func TestSubmitEndpointIsRateLimited(t *testing.T) {
 // it can name (FR-INS-030/031's ranges, an absent readings array) as TY005;
 // what it cannot pre-empt, an id this tenant cannot see, a field that will
 // not parse as its column's type, which the function's own DECLARE casts
-// before any guard runs, arrives as a bare integrity SQLSTATE and is mapped
-// here. Both halves are only observable through the endpoint, which is the
+// before any guard runs, arrives as a bare SQLSTATE, an integrity violation
+// or a class-22 data exception, which refusalForPgError cans. Both halves are only observable through the endpoint, which is the
 // only surface the outbox ever sees. Since both kinds answer the same 422,
 // the code and the driver-facing message fragment together are what
 // distinguish a named guard from the constraint behind it.
@@ -556,7 +556,7 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 		}, "invalid_submission", "refused as invalid", true},
 		{"a client_uuid that is not a uuid", func(b map[string]any) {
 			b["client_uuid"] = "not-a-uuid"
-		}, "invalid_submission", "refused as invalid", false},
+		}, "invalid_submission", "refused as invalid", true},
 		// A NUL escaped as \u0000 in a key Go does not decode (any but a
 		// top-level vehicle_id, in any letter case) fails its jsonb cast as
 		// 22P05, a data exception canned by the class rule (TYRE-379, U189).

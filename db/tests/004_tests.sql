@@ -3327,12 +3327,10 @@ BEGIN
    WHERE vehicle_id = v_two AND odometer_km = 100;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL: an implausible odometer reached the timeline'; END IF;
 
-  -- Every payload shape that can ONLY ever fail must refuse by name.
-  -- ADR-0009's outbox retries a 5xx forever, so a generic integrity SQLSTATE
-  -- (which the transport can only call a 500) would retry a submit that can
-  -- never succeed, FR-OFF-020's queue would never drain, and only a database
-  -- support engineer could clear it. FR-OFF-013 gives the driver a named
-  -- refusal to act on instead.
+  -- Every payload shape that can ONLY ever fail must refuse by name. A
+  -- generic SQLSTATE answers the canned 422, which names no field and gives
+  -- the driver nothing to act on; FR-OFF-013 gives the driver a named refusal
+  -- to act on instead.
   FOR probe IN SELECT * FROM jsonb_array_elements(jsonb_build_array(
       jsonb_build_object('why', 'no client_uuid', 'payload', jsonb_build_object(
         'vehicle_id', v_probe, 'started_at', t_now, 'submitted_at', t_now,
@@ -5323,8 +5321,9 @@ BEGIN
   -- The two money parameters, past what numeric(12,2) can hold: bounded for
   -- the same reason the tread bound is (ADR-0012). Unbounded, the locals'
   -- column type would raise a bare 22003 at assignment, outside the TY
-  -- class, which the wire maps to a 500 the outbox retries forever. The
-  -- excess is one cent past the ceiling, not an absurd value.
+  -- class, which answers the canned 422 naming no field; the bound is a
+  -- TY014 that names the parameter. The excess is one cent past the
+  -- ceiling, not an absurd value.
   BEGIN
     PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F',
                                    10000000000.00, 16.0, 500.00);
