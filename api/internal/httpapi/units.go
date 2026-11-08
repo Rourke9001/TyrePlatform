@@ -503,9 +503,9 @@ func listOpenFitments(s *store.Store) http.HandlerFunc {
 // listDepots is the dispatch and return forms' picker (D6) and the
 // dashboard's depot filter (FR-DSH-011). Only active depots are returned. A
 // retired depot is not a valid destination for a new dispatch. An
-// unrecognised ?type= reaches the cast and is refused as 22P02, mapped in
-// submitStatus (TYRE-128 decision 7): the enum lives in the database and Go
-// holds no copy of it.
+// unrecognised ?type= reaches the cast and is refused as 22P02, canned by
+// refusalForPgError (TYRE-128 decision 7): the enum lives in the database and
+// Go holds no copy of it.
 func listDepots(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

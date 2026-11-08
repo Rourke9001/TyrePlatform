@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -15,14 +16,15 @@ import (
 	"tyreplatform/api/internal/store"
 )
 
-// submitInspection's SQLSTATEs sort into four groups: TY-prefixed (ADR-0012's
-// own vocabulary, never canned), the standard integrity violations below
-// (canned as 422/409 so a client mistake never reads as a 500 the outbox
-// retries forever, ADR-0009), a deadlock (40P01, canned as a 503 the same
-// request lands on a retry), and everything else (defaults to 500, the
-// honest answer for an invariant breach). TY001/TY002 (DR-020 odometer
-// plausibility) and TY010 never reach here by construction; see
-// docs/architecture.md's refusal-vocabulary section for the full account.
+// submitInspection's SQLSTATEs sort into five groups: TY-prefixed (ADR-0012's
+// own vocabulary, never canned), the standard integrity violations below and
+// the whole data-exception class 22 (canned as 422/409 so a client mistake
+// never reads as a 500 the outbox retries forever, ADR-0009), a deadlock
+// (40P01, canned as a 503 the same request lands on a retry), and everything
+// else (defaults to 500, the honest answer for an invariant breach).
+// TY001/TY002 (DR-020 odometer plausibility) and TY010 never reach here by
+// construction; see docs/architecture.md's refusal-vocabulary section for the
+// full account.
 
 // The refusal vocabulary (ADR-0012). A code names the reason, never the layer
 // that found it, which is why codeVehicleNotVisible is TY007's own: the Go
@@ -139,16 +141,8 @@ var submitStatus = map[string]int{
 	"23502": http.StatusUnprocessableEntity, // not-null violation
 	"23503": http.StatusUnprocessableEntity, // foreign key: an id this tenant cannot see
 	"23514": http.StatusUnprocessableEntity, // check: FR-INS-030/031's hard ranges
-	"22P02": http.StatusUnprocessableEntity, // a field that will not parse as its type
-	"22003": http.StatusUnprocessableEntity, // a value too large for its numeric column
-	"22023": http.StatusUnprocessableEntity, // a scalar where the payload promised an array
-	// 22007/22008: a date or instant Postgres cannot read or that is out of
-	// range. Every route validates its dates in Go first (dateField,
-	// instantField), so these are canned like 22P02 for the surface that
-	// forgets. The client mistake stays a 422, never a 500 the outbox
-	// retries forever (ADR-0012, TYRE-174).
-	"22007": http.StatusUnprocessableEntity, // invalid datetime format
-	"22008": http.StatusUnprocessableEntity, // datetime field overflow
+	// Class 22 has no entries here: refusalForPgError answers the whole
+	// class (isDataException).
 	// A duplicate client_uuid is FR-OFF-011's replay and app.submit_inspection
 	// answers it as one, including when two concurrent drains race for the
 	// same unique index. This entry catches any OTHER unique violation, which
@@ -236,6 +230,9 @@ func refusalForPgError(err error) (refusal, bool) {
 		return refusal{}, false
 	}
 	status, found := submitStatus[pgErr.Code]
+	if !found && isDataException(pgErr.Code) {
+		status, found = http.StatusUnprocessableEntity, true
+	}
 	if !found {
 		return refusal{}, false
 	}
@@ -252,6 +249,13 @@ func refusalForPgError(err error) (refusal, bool) {
 	default:
 		return refusal{status: status, code: codeInvalidSubmission, message: msgInvalidSubmission}, true
 	}
+}
+
+// isDataException is Postgres's class 22, which answers 422 as a class: one
+// code can come from a caller's value or from arithmetic on stored data, so
+// no list of the class's codes stays complete (ADR-0012 as amended, U189).
+func isDataException(code string) bool {
+	return strings.HasPrefix(code, "22")
 }
 
 // withActor is the one place a handler turns an identity into an actor. It
@@ -303,12 +307,17 @@ func writeActorTxError(ctx context.Context, w http.ResponseWriter, id Identity, 
 	case errors.As(err, &ref):
 		writeError(ctx, w, ref.status, ref.code, ref.message)
 	case isClient:
-		// TYRE-421: a 22003 can be a figure the server computed, not one the
-		// client sent, so it leaves the trace the other canned refusals do not.
+		// TYRE-421: a data exception can come from a figure the server
+		// computed, not one the client sent, so it leaves the trace the other
+		// canned refusals do not: its SQLSTATE and route. Not the error text,
+		// which can echo the caller's value (NFR-PRV-007).
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "22003" {
-			slog.WarnContext(ctx, "refusing a numeric overflow",
-				append(actorAttrs(ctx, id), "sqlstate", pgErr.Code, "err", err)...)
+		if errors.As(err, &pgErr) && isDataException(pgErr.Code) {
+			attrs := append(actorAttrs(ctx, id), "sqlstate", pgErr.Code)
+			if rc := chi.RouteContext(ctx); rc != nil {
+				attrs = append(attrs, "route", rc.RoutePattern())
+			}
+			slog.WarnContext(ctx, "refusing a data exception", attrs...)
 		}
 		// The client is told only to retry, so the lock cycle is traced here.
 		if errors.As(err, &pgErr) && pgErr.Code == "40P01" {

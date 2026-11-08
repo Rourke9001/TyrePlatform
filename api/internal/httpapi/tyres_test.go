@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -721,6 +722,92 @@ func TestReceiveTyresOutOfRangeQuantityIsRefusedNotCoerced(t *testing.T) {
 			require.NoError(t, admin.QueryRow(ctx,
 				`SELECT count(*) FROM app.tyre WHERE tenant_id = $1`, tenantID).Scan(&landed))
 			require.Zero(t, landed, "a refused receive must not have minted a tyre from the coerced default")
+		})
+	}
+}
+
+// The quantity is an int4 in app.receive_tyres, so its Go field is as wide:
+// the largest value an int4 holds reaches the function's TY011, and one past
+// it is the decoder's refusal (U185), never the cast's canned 422 (TYRE-379).
+func TestReceiveTyresQuantityIsReadAsAnInt4(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-qty-int4")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	for _, tc := range []struct {
+		quantity string
+		status   int
+		want     refusalBody
+	}{
+		{"2147483647", http.StatusUnprocessableEntity, refusalBody{Code: "TY011", Message: "a receive is between 1 and 200 tyres"}},
+		{"2147483648", http.StatusBadRequest, refusalBody{Code: "malformed_json", Message: "quantity holds a number this field does not accept"}},
+		{"3000000000", http.StatusBadRequest, refusalBody{Code: "malformed_json", Message: "quantity holds a number this field does not accept"}},
+	} {
+		t.Run(tc.quantity, func(t *testing.T) {
+			rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+				`{"quantity":`+tc.quantity+`,"displayCode":"QTY-`+uuid.NewString()[:8]+`"}`)
+			require.Equal(t, tc.status, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, tc.want, ref)
+		})
+	}
+}
+
+// Postgres stores no NUL in text, and the error it raises is a data
+// exception: 22P05 inside a jsonb payload, 22021 in a text parameter. Both
+// are a client mistake, so each answers the canned 422 by the class rule,
+// never a 500 the capture outbox retries forever, and leaves a warn line
+// carrying its SQLSTATE (TYRE-379, U189).
+func TestANULInTextIsRefusedAs422(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "nul-text")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	for _, tc := range []struct {
+		name, method, path, body, sqlstate string
+	}{
+		{"a display code", http.MethodPost, "/api/tyres",
+			cat.body(t, map[string]any{"displayCode": "A\x00B"}), "22P05"},
+		{"an invoice number", http.MethodPost, "/api/tyres",
+			cat.body(t, map[string]any{"displayCode": "NUL-" + uuid.NewString()[:8], "invoiceNumber": "I\x00N"}), "22P05"},
+		{"a code lookup", http.MethodGet, "/api/tyres?code=A%00B&on=2026-01-01", "", "22021"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			buf.Reset()
+			var rec *httptest.ResponseRecorder
+			if tc.method == http.MethodGet {
+				rec = get(t, h, tc.path, tenantID.String(), controller.String())
+			} else {
+				rec = post(t, h, tc.path, tenantID.String(), controller.String(), tc.body)
+			}
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, refusalBody{Code: "invalid_submission", Message: "the submission was refused as invalid"}, ref)
+
+			var logged map[string]any
+			for line := range strings.Lines(buf.String()) {
+				var entry map[string]any
+				require.NoError(t, json.Unmarshal([]byte(line), &entry), line)
+				if entry["sqlstate"] == tc.sqlstate {
+					logged = entry
+				}
+			}
+			require.NotNil(t, logged, "no log line names SQLSTATE %s: %s", tc.sqlstate, buf.String())
+			require.Equal(t, "WARN", logged["level"])
+			require.Equal(t, "/api/tyres", logged["route"])
+			require.NotContains(t, logged, "err", "Postgres's message can echo the caller's value (NFR-PRV-007)")
 		})
 	}
 }

@@ -9484,10 +9484,9 @@ BEGIN
   -- today would move with the calendar while the fixture stood still. Of the
   -- 17 tyres the two sheets yield a wear rate for, six fall due within 30
   -- days of 1 Aug 2026, and a dated override of seven moves the count to two.
-  -- What that pins is the resolution, not a wiring: nothing in db, api or web
-  -- reads forecast_horizon_days yet. The FR-DSH-009 tile and
-  -- /api/analytics/removal-forecast are B7.2's (spec D7), and the seeded
-  -- default is here so they have one to read.
+  -- What that pins is the resolution. /api/analytics/removal-forecast, when
+  -- the request names no horizonDays, and the dashboard's count read
+  -- forecast_horizon_days through resolveForecastWindow (analytics.go).
   horizon := (app.config_for('11111111-1111-1111-1111-111111111111', 'forecast_horizon_days', now()) #>> '{}')::int;
   IF horizon IS DISTINCT FROM 30 THEN RAISE EXCEPTION 'FAIL 59e: forecast_horizon_days resolved to %', horizon; END IF;
   SELECT count(*) INTO due FROM app.v_removal_forecast

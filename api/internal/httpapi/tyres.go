@@ -185,14 +185,14 @@ func listTyres(s *store.Store) http.HandlerFunc {
 // receiveTyresRequest is FR-TYR-040's intake body. What a receive must
 // carry (a size, a pattern, a new tread, and a source with any price) is
 // app.receive_tyres's rule, refused there as TY011; this struct requires
-// nothing (ADR-0013 decision 5). Quantity is *int so that "absent" and
+// nothing (ADR-0013 decision 5). Quantity is *int32 so that "absent" and
 // "zero" stay distinguishable: an absent key lets app.receive_tyres's own
 // COALESCE supply its default of 1, while an explicit 0 is forwarded and
 // comes back as that function's TY011. The 1..200 bound is its rule, not one
 // this struct duplicates (ADR-0013 decision 5, no threshold in a Go
 // validator).
 type receiveTyresRequest struct {
-	Quantity      *int    `json:"quantity"`
+	Quantity      *int32  `json:"quantity"`
 	DisplayCode   *string `json:"displayCode"`
 	SizeID        *string `json:"sizeId"`
 	BrandID       *string `json:"brandId"`
@@ -213,9 +213,10 @@ type receiveTyresRequest struct {
 // invoice number is left out too. Every other field is forwarded in the form
 // receiveTyres leaves it after its checks, and a quantity as sent, zero and
 // negative included: refusing one here would be a bound check this struct
-// does not own (ADR-0013 decision 5), so an out-of-range quantity reaches
+// does not own (ADR-0013 decision 5), so a quantity outside 1 to 200 reaches
 // app.receive_tyres and comes back as its own TY011 rather than being
-// silently coerced to the default and minting a tyre nobody asked for.
+// silently coerced to the default and minting a tyre nobody asked for. One
+// past int4 never reaches it: Quantity's int32 is the decoder's refusal.
 func (b receiveTyresRequest) payload() map[string]any {
 	p := map[string]any{}
 	if b.Quantity != nil {
@@ -280,26 +281,31 @@ func receiveTyres(s *store.Store) http.HandlerFunc {
 			return
 		}
 
-		// ADR-0013 decision 5: a value that cannot be read as its type is
-		// refused here, naming the field, before a transaction opens. The
-		// checked text is what payload() forwards, a date trimmed (TYRE-174)
-		// and an id in canonical form (TYRE-379), so what app.receive_tyres
-		// casts is what was checked.
-		for _, id := range []struct {
-			field string
-			value **string
-		}{
-			{"sizeId", &body.SizeID},
-			{"patternId", &body.PatternID},
-			{"brandId", &body.BrandID},
-			{"depotId", &body.DepotID},
-		} {
-			canonical, err := optionalID(id.field, *id.value)
-			if refuseInvalid(w, r, err) {
-				return
-			}
-			*id.value = canonical
+		// ADR-0013 decision 5: a date or an id that cannot be read as its
+		// type is refused here, naming the field, before a transaction opens.
+		// The checked text is what payload() forwards, a date trimmed
+		// (TYRE-174) and an id in canonical form (TYRE-379), so what
+		// app.receive_tyres casts is what was checked.
+		sizeID, err := optionalID("sizeId", body.SizeID)
+		if refuseInvalid(w, r, err) {
+			return
 		}
+		body.SizeID = sizeID
+		patternID, err := optionalID("patternId", body.PatternID)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		body.PatternID = patternID
+		brandID, err := optionalID("brandId", body.BrandID)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		body.BrandID = brandID
+		depotID, err := optionalID("depotId", body.DepotID)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		body.DepotID = depotID
 		purchaseDate, err := dateField("purchaseDate", body.PurchaseDate)
 		if refuseInvalid(w, r, err) {
 			return

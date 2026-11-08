@@ -118,7 +118,7 @@ The code table:
 | Source | `code` | Status |
 | --- | --- | --- |
 | Database, named refusals | `TY003`..`TY023` (`TY008`, `TY010`, `TY020`, `TY023` excepted), verbatim — `TY020` (000040) and `TY023` (000054) are defined, not mapped: unreachable through any route | 409 / 422 |
-| Database, integrity classes `23502` `23503` `23514` `22P02` `22023` `22007` `22008` | `invalid_submission` | 422 |
+| Database, integrity classes `23502` `23503` `23514`, and every data exception (class `22`, amended 2026-11-08) | `invalid_submission` | 422 |
 | Database, other unique violation `23505`, and `23P01` (`vehicle_driver_no_overlap`, 000026) | `conflict` | 409 |
 | `errVehicleNotVisible` (Go scope check) | `TY007` | 422 |
 
@@ -260,3 +260,27 @@ edited or dated before the transaction that writes it, stays out of the code
 table on `TY008`'s reasoning: no route writes `app.threshold_policy`. Its
 registry entry carries `httpStatus: null` and it has no `submitStatus`
 entry. The ledger in `docs/architecture.md` now names 23 codes.
+
+**Amended 2026-11-08 (TYRE-379, U189):** a Postgres data exception, any
+SQLSTATE in class `22`, answers `invalid_submission` 422 as a class, after
+the exact-code map misses. `submitStatus` no longer lists `22P02`, `22003`,
+`22023`, `22007` or `22008`. The list grew a code at a time (TYRE-67,
+TYRE-174, TYRE-318), and PR #166's review found two more answering 500:
+`22P05` and `22021`, a NUL in a jsonb payload and in a text parameter (R13).
+The same code can come from a caller's value or from arithmetic on stored
+data, so no list of the class stays complete, and an unlisted one answered
+500 is a submit the outbox retries forever, the outcome this ADR's Context
+ranks worst. Postgres groups the class so a client can act on it without
+knowing the code (postgresql.org/docs/16/errcodes-appendix.html), and
+PostgREST answers class 22 as a client error through its catch-all 400
+(docs.postgrest.org/en/v12/references/errors.html).
+Every class-22 refusal is logged at warn with its SQLSTATE and route
+(TYRE-421's line, widened), because a server-computed one is then visible.
+The line leaves out Postgres's message, which can echo the caller's value
+(NFR-PRV-007). Outside class 22
+nothing changes: `0A000`, `54xxx` and the rest stay 500. This reverses the
+unmapped half of the owner's decision 5 of 3 Sep 2026 ("22003 stays
+unmapped so an unbounded field surfaces loudly"), which the receive spec
+had already reversed on 13 Oct; its other half, a number bounded in SQL
+with a named TY code, stands. The audit is
+`.superpowers/sdd/2026-11-08-design-audit-go-cast-sqlstate/report.md`.

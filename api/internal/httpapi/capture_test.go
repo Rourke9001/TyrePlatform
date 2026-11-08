@@ -351,11 +351,11 @@ func TestSubmitRefusesAVehicleIDFormTheCastDoesNotRead(t *testing.T) {
 }
 
 // TestSubmitUnknownVehicleIsUnprocessable pins TY007 ("vehicle not visible"):
-// app.submit_inspection's own comment explains that SQLSTATE exists so an
-// unrecognised or cross-tenant vehicle_id never falls through to the
-// composite FK violation (23503), which is not in submitStatus and would
-// otherwise surface as a 500, telling the outbox to retry forever something
-// that will never succeed. A CONTROLLER (ScopeTenant) is used deliberately:
+// an unrecognised or cross-tenant vehicle_id is refused by name rather than
+// falling through to the composite FK violation (23503), which answers the
+// canned 422 that names nothing. The function's own comment calls that
+// fall-through a 500; it is a 422, and TYRE-469 corrects the comment.
+// A CONTROLLER (ScopeTenant) is used deliberately:
 // it skips the handler's own FR-AUT-005 v_capture_vehicle check, so this is
 // the one path that actually reaches submit_inspection's own guard.
 func TestSubmitUnknownVehicleIsUnprocessable(t *testing.T) {
@@ -556,6 +556,11 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 		}, "invalid_submission", "refused as invalid", true},
 		{"a client_uuid that is not a uuid", func(b map[string]any) {
 			b["client_uuid"] = "not-a-uuid"
+		}, "invalid_submission", "refused as invalid", false},
+		// A NUL anywhere in the payload fails its jsonb cast as 22P05, a
+		// data exception canned by the class rule (TYRE-379, U189).
+		{"a NUL in a note", func(b map[string]any) {
+			b["note"] = "a\x00b"
 		}, "invalid_submission", "refused as invalid", false},
 		// The five TY005 shapes share a code; the fragment is the driver-facing
 		// text FR-OFF-013 turns into a recovery action, and the only thing that

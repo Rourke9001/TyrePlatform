@@ -665,7 +665,7 @@ func TestDepotsFilterByType(t *testing.T) {
 	var ref refusalBody
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
 	require.Equal(t, "invalid_submission", ref.Code,
-		"TYRE-128 decision 7: the enum cast answers 22P02, mapped in submitStatus; Go holds no copy")
+		"TYRE-128 decision 7: the enum cast answers 22P02, canned by refusalForPgError; Go holds no copy")
 }
 
 // FR-DSH-011, U42: the dashboard's depot filter is a ViewFleet surface and
