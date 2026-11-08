@@ -32,12 +32,13 @@ date still finds it; each rule bullet carries its own source date.
 
 ## 2026-11-07 - A Go check in front of a Postgres cast passed texts the cast refuses (TYRE-379, #166)
 
-**What happened:** #166's stage 5 rounds 5 and 6 found one gap three times.
+**What happened:** #166's stage 5 rounds 5 and 6 found one gap four times.
 `uuid.Parse` reads a urn and other forms the `::uuid` cast does not,
-`time.Parse` reads year 0000, which `::date` refuses with 22008, and
-`receiveTyres` sent four ids on with no check at all. Each gave a raw
-caller the canned 422 that names no field, beside comments saying the Go
-check names it.
+`time.Parse` reads year 0000, which `::date` refuses with 22008,
+`receiveTyres` sent four ids on with no check at all, and
+`positiveIntParam` passed a number past int4 to a `$n::int` bind. A raw
+caller got the canned 422 that names no field, or a 500 for the int,
+beside comments saying Go's check prevents that.
 
 **The rule:** a Go check that guards a cast does one of two things. Either
 it accepts only texts the cast reads and sends them on, held to the cast by

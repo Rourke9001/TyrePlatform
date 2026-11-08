@@ -497,11 +497,11 @@ func isISODate(s string) bool {
 	return err == nil && t.Year() >= 1
 }
 
-// optionalID reads an optional id bound for a ::uuid cast inside a jsonb
-// payload. A present value must parse as a uuid, and is passed on as
-// canonical text because uuid.Parse accepts forms the cast does not read. A
-// value cannot then reach that cast as a 22P02 naming no field (ADR-0013
-// decision 5).
+// optionalID reads an optional id that SQL casts ::uuid from text, bound as
+// a parameter or carried in a jsonb payload. A present value must parse as a
+// uuid, and is passed on as canonical text because uuid.Parse accepts forms
+// the cast does not read. A value cannot then reach that cast as a 22P02
+// naming no field (ADR-0013 decision 5).
 func optionalID(field string, raw *string) (*string, error) {
 	if raw == nil {
 		return nil, nil
