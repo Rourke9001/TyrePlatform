@@ -779,6 +779,7 @@ func TestANULInTextIsRefusedAs422(t *testing.T) {
 	}{
 		{"a display code", http.MethodPost, "/api/tyres",
 			cat.body(t, map[string]any{"displayCode": "A\x00B"}), "22P05"},
+		// A second key into the same $1::jsonb cast as the display code.
 		{"an invoice number", http.MethodPost, "/api/tyres",
 			cat.body(t, map[string]any{"displayCode": "NUL-" + uuid.NewString()[:8], "invoiceNumber": "I\x00N"}), "22P05"},
 		{"a code lookup", http.MethodGet, "/api/tyres?code=A%00B&on=2026-01-01", "", "22021"},
