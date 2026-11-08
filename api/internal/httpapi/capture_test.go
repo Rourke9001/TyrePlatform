@@ -557,8 +557,9 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 		{"a client_uuid that is not a uuid", func(b map[string]any) {
 			b["client_uuid"] = "not-a-uuid"
 		}, "invalid_submission", "refused as invalid", false},
-		// A NUL anywhere in the payload fails its jsonb cast as 22P05, a
-		// data exception canned by the class rule (TYRE-379, U189).
+		// A NUL escaped as \u0000 in a key Go does not decode (any but a
+		// top-level vehicle_id, in any letter case) fails its jsonb cast as
+		// 22P05, a data exception canned by the class rule (TYRE-379, U189).
 		{"a NUL in a note", func(b map[string]any) {
 			b["note"] = "a\x00b"
 		}, "invalid_submission", "refused as invalid", false},

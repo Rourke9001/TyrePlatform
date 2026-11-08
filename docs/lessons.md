@@ -30,7 +30,7 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
-## 2026-11-07 - A Go check in front of a Postgres cast passed texts the cast refuses (TYRE-379, #166)
+## 2026-11-08 - A Go check in front of a Postgres cast passed texts the cast refuses (2026-11-07; TYRE-379, #166)
 
 **What happened:** #166's stage 5 rounds 5 to 7 found one gap five times.
 `uuid.Parse` reads a urn and other forms the `::uuid` cast does not,
@@ -43,14 +43,15 @@ beside comments saying Go's check prevents that.
 
 **The rule:** a Go check that guards a cast does one of two things. Either
 it accepts only texts the cast reads and sends them on, held to the cast by
-a test over `pg_input_is_valid`
-(`TestPostgresReadsUUIDAgreesWithTheCast`, `TestDateChecksAgreeWithTheCast`).
+a test over `pg_input_is_valid` (`castableUUID` and `isISODate`, held by
+`TestPostgresReadsUUIDAgreesWithTheCast` and `TestDateChecksAgreeWithTheCast`).
 Or it parses into a value no wider than the cast's type (`int32` for int4,
-a uuid, a date of year 1 or later) and sends that value or its canonical
-text, never the caller's (`optionalID`, `positiveIntParam`, `isISODate`).
-A key a function casts out of its own jsonb payload is the function's to
-check, with `pg_input_is_valid`, refused by name, because a raw call as the
-app role never passes through Go (TYRE-469).
+a uuid) and sends that value or its canonical text, never the caller's
+(`optionalID` and `positiveIntParam`, 2026-11-07; the receive `quantity`,
+2026-11-08). A key a function casts out of its own jsonb payload is the
+function's to check, with `pg_input_is_valid`, refused by name, because a
+raw call as the
+app role never passes through Go (TYRE-469, 2026-11-08).
 
 ## 2026-11-06 - A fix's comment or message held for the reviewer's examples and was false outside them (#166, #167)
 

@@ -116,12 +116,13 @@ closed.**
 `httpapi.refusalForPgError` sorts every SQLSTATE `submitInspection` can see
 into five groups: TY-prefixed codes (ADR-0012's own vocabulary, raised in
 SQL where a rule is evaluated, forwarded verbatim because the message is
-ours), the standard integrity violations (`23502`, `23503`, `23514`) and
-every data exception (class `22`, by its prefix, such as `22P02`, `22003`,
-`22008` and a NUL's `22P05` and `22021`), each canned as 422 so a client
-mistake never reads as a 500 the outbox retries forever (ADR-0009), a
-deadlock (`40P01`, below), and everything else (defaults to 500, the honest
-answer for an invariant breach). Class 22 answers as a class because one
+ours), the standard integrity violations (`23502`, `23503` and `23514` as
+422; `23505` and `23P01` as 409 `conflict`, or the code `conflictCodes`
+names for their constraint) and every data exception (class `22`, by its
+prefix, such as `22P02`, `22003`, `22008` and a NUL's `22P05` and `22021`,
+as 422), canned so a client mistake never reads as a 500 the outbox retries
+forever (ADR-0009), a deadlock (`40P01`, below), and everything else
+(defaults to 500, the honest answer for an invariant breach). Class 22 answers as a class because one
 code can come from a caller's value or from arithmetic on stored data, so
 no list of its codes stays complete (ADR-0012 as amended 8 Nov 2026, U189).
 A class-22 refusal is logged at warn with its SQLSTATE and route, since it

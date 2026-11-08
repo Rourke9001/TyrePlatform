@@ -282,5 +282,5 @@ nothing changes: `0A000`, `54xxx` and the rest stay 500. This reverses the
 unmapped half of the owner's decision 5 of 3 Sep 2026 ("22003 stays
 unmapped so an unbounded field surfaces loudly"), which the receive spec
 had already reversed on 13 Oct; its other half, a number bounded in SQL
-with a named TY code, stands. The audit is
-`.superpowers/sdd/2026-11-08-design-audit-go-cast-sqlstate/report.md`.
+with a named TY code, stands. The owner's ruling is U189 (TYRE-379 comment
+14155), from a design audit of 8 Nov 2026.
