@@ -32,20 +32,25 @@ date still finds it; each rule bullet carries its own source date.
 
 ## 2026-11-07 - A Go check in front of a Postgres cast passed texts the cast refuses (TYRE-379, #166)
 
-**What happened:** #166's stage 5 rounds 5 and 6 found one gap four times.
+**What happened:** #166's stage 5 rounds 5 to 7 found one gap five times.
 `uuid.Parse` reads a urn and other forms the `::uuid` cast does not,
 `time.Parse` reads year 0000, which `::date` refuses with 22008,
-`receiveTyres` sent four ids on with no check at all, and
-`positiveIntParam` passed a number past int4 to a `$n::int` bind. A raw
-caller got the canned 422 that names no field, or a 500 for the int,
+`receiveTyres` sent four ids on with no check at all, `positiveIntParam`
+parsed into a 64-bit `int` and passed a number past int4 to a `$n::int`
+bind, and the receive `quantity` decoded into a Go `int` for an int4 cast.
+A raw caller got the canned 422 that names no field, or a 500 for the bind,
 beside comments saying Go's check prevents that.
 
 **The rule:** a Go check that guards a cast does one of two things. Either
 it accepts only texts the cast reads and sends them on, held to the cast by
 a test over `pg_input_is_valid`
 (`TestPostgresReadsUUIDAgreesWithTheCast`, `TestDateChecksAgreeWithTheCast`).
-Or it parses and sends on the parsed value or its canonical text, never the
-caller's (`optionalID`).
+Or it parses into a value no wider than the cast's type (`int32` for int4,
+a uuid, a date of year 1 or later) and sends that value or its canonical
+text, never the caller's (`optionalID`, `positiveIntParam`, `isISODate`).
+A key a function casts out of its own jsonb payload is the function's to
+check, with `pg_input_is_valid`, refused by name, because a raw call as the
+app role never passes through Go (TYRE-469).
 
 ## 2026-11-06 - A fix's comment or message held for the reviewer's examples and was false outside them (#166, #167)
 

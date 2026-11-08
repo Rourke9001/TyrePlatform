@@ -138,6 +138,43 @@ func TestRefusalForPgError(t *testing.T) {
 			want:     refusal{status: http.StatusUnprocessableEntity, code: codeInvalidSubmission, message: msgInvalidSubmission},
 			isClient: true,
 		},
+		// The rest of class 22 by the class rule, with no entry of its own
+		// (TYRE-379, U189): a NUL in a jsonb payload and in a text
+		// parameter, a string too long for its column, a division by zero.
+		{
+			name:     "a NUL in a jsonb payload is canned identically",
+			sqlErr:   &pgconn.PgError{Code: "22P05", Message: "unsupported Unicode escape sequence"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: codeInvalidSubmission, message: msgInvalidSubmission},
+			isClient: true,
+		},
+		{
+			name:     "a NUL in a text parameter is canned identically",
+			sqlErr:   &pgconn.PgError{Code: "22021", Message: "invalid byte sequence for encoding \"UTF8\": 0x00"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: codeInvalidSubmission, message: msgInvalidSubmission},
+			isClient: true,
+		},
+		{
+			name:     "a string too long for its column is canned identically",
+			sqlErr:   &pgconn.PgError{Code: "22001", Message: "value too long for type character varying(2)"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: codeInvalidSubmission, message: msgInvalidSubmission},
+			isClient: true,
+		},
+		{
+			name:     "a division by zero is canned identically",
+			sqlErr:   &pgconn.PgError{Code: "22012", Message: "division by zero"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: codeInvalidSubmission, message: msgInvalidSubmission},
+			isClient: true,
+		},
+		{
+			name:     "a fault outside class 22 on stored data stays a 500",
+			sqlErr:   &pgconn.PgError{Code: "0A000", Message: "cannot convert infinity to integer"},
+			isClient: false,
+		},
+		{
+			name:     "a fault in class 25 stays a 500",
+			sqlErr:   &pgconn.PgError{Code: "25P02", Message: "current transaction is aborted"},
+			isClient: false,
+		},
 		{
 			name:     "a unique violation is a conflict the client can tell from TY003",
 			sqlErr:   &pgconn.PgError{Code: "23505", Message: `duplicate key value violates unique constraint "reading_pkey"`},

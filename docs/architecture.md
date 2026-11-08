@@ -114,13 +114,19 @@ closed.**
 ## The refusal vocabulary (ADR-0012)
 
 `httpapi.refusalForPgError` sorts every SQLSTATE `submitInspection` can see
-into four groups: TY-prefixed codes (ADR-0012's own vocabulary, raised in
+into five groups: TY-prefixed codes (ADR-0012's own vocabulary, raised in
 SQL where a rule is evaluated, forwarded verbatim because the message is
-ours), the standard integrity violations (`23502`, `23503`, `23514`,
-`22P02`, `22003`, `22023`, `22007`, `22008`, canned as 422 so a client
-mistake never reads as a 500 the outbox retries forever, ADR-0009), a
+ours), the standard integrity violations (`23502`, `23503`, `23514`) and
+every data exception (class `22`, by its prefix, such as `22P02`, `22003`,
+`22008` and a NUL's `22P05` and `22021`), each canned as 422 so a client
+mistake never reads as a 500 the outbox retries forever (ADR-0009), a
 deadlock (`40P01`, below), and everything else (defaults to 500, the honest
-answer for an invariant breach). A blanket `23503` is safe across every write path because the
+answer for an invariant breach). Class 22 answers as a class because one
+code can come from a caller's value or from arithmetic on stored data, so
+no list of its codes stays complete (ADR-0012 as amended 8 Nov 2026, U189).
+A class-22 refusal is logged at warn with its SQLSTATE and route, since it
+may be a server fault, and without Postgres's message, which can echo the
+caller's value (NFR-PRV-007). A blanket `23503` is safe across every write path because the
 message is canned: a foreign-key violation means the request named
 something that does not exist, and 422 with no schema object in it is the
 honest answer wherever it is raised. `TY001`/`TY002` (DR-020 odometer plausibility) never reach the
