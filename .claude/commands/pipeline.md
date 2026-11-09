@@ -317,7 +317,10 @@ a file the branch did not touch is re-run once before it counts as red.
    > `<state dir>/small-fix-plan.md`). `Review base: <base sha>`. Range:
    > `<from>...<HEAD sha>`; its files: <file list>. Raw findings:
    > `<state dir>/findings-<k>.md`. Previous report: `<path>`, or none.
-   > Owner answers so far: <from the state file>. Write the report to
+   > Owner answers so far: <from the state file>. Account for every raw
+   > item, whatever its severity: kept with its severity and class, dropped
+   > with why, or set aside with why; step 5's limit of five Minors does not
+   > apply to you. Write the report to
    > `<state dir>/review-<k>.md`; if the write fails, reply with the whole
    > report. End your reply with one line:
    > `VERDICT: <merge | merge after fixes | do not merge>`.
@@ -327,10 +330,12 @@ a file the branch did not touch is re-run once before it counts as red.
    database, since every agent here shares one local database.
 4. **Read `review-<k>.md` yourself.** You decide on its text, never on a
    count the verifier reports; take the counts from its class words. Every
-   Critical or Important item in `findings-<k>.md`, and every item an
-   auditor or the implementer gave, must appear in the report as kept, or
-   as dropped with a reason; if one is missing, dispatch the verifier again
-   once. Compare the files the report cites with the range's file list yourself. If a review cites nothing inside the range while the list is not empty and the raw findings are not empty, it read the wrong diff: set the range again and run the review once more. A verified finding that arrives from outside the range is classified like any other and does not widen the next review.
+   item in `findings-<k>.md`, whatever its severity and whoever gave it
+   (`/code-review`, an auditor or the implementer), must appear in the
+   report as kept with its severity and class, as dropped with a reason,
+   or as set aside with a reason: `/code-review` gives no severity, so the
+   verifier assigns it. Count the raw items against the report's entries;
+   if one is missing, dispatch the verifier again once. Compare the files the report cites with the range's file list yourself. If a review cites nothing inside the range while the list is not empty and the raw findings are not empty, it read the wrong diff: set the range again and run the review once more. A verified finding that arrives from outside the range is classified like any other and does not widen the next review.
    Record the `Review <k>:` line and, for a numbered review, stage
    `review <k>`.
 5. **Act on the classes**, recording each action in the state file as it
