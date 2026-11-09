@@ -126,8 +126,8 @@ document, extract, hooks or live.
 
 ## Constraints every branch carries
 
-A bug found on a branch is fixed on that branch (U146, CLAUDE.md); Set aside
-holds only what is not a bug.
+A bug found on a branch is handled by its class (CLAUDE.md, Which bugs a
+branch fixes, U191); Set aside holds only what is not a bug.
 
 The capture route's entry budget in `web/bundle-budget.json` was recorded
 on 31 Oct 2026 (CSS on 1 Nov) by TYRE-240, for Tread's capture set and

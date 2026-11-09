@@ -3,7 +3,7 @@
 <!-- One paragraph. The Jira ticket has the detail; say what changed and why
      a reviewer should care. -->
 
-Closes TYRE-
+Closes TYRE- <!-- one `Closes` line per key -->
 
 ## How it ran
 
@@ -13,8 +13,7 @@ docs-only PR does not use, and say which one it is.
 - Spec: `docs/superpowers/specs/`
 - Red team: verdict, and the Critical/Important findings fixed and ruled on
 - Small fix: the plan, in a few lines
-- [ ] Code review by a separate session (`/review-pr`): report path, and no
-      open Critical or Important finding
+- [ ] Code review: the run's review reports, or a separate session's `/review-pr` report; rounds run; nothing open (CLAUDE.md, The review loop)
 
 ## Checks
 
@@ -46,6 +45,6 @@ Tick only what this change actually touches; delete the rest.
 <!-- Findings this PR does not act on that are not bugs by CLAUDE.md's
      definition: nits, wording, untested paths that hide no bug, rejected
      alternatives, accepted trades, and improvements that fail the schedule
-     test. One line each with file:line. A bug is fixed in this PR and never
-     listed here; one that meets CLAUDE.md's exception is named under
-     Decisions with its ticket (U146). -->
+     test. One line each with file:line. An `introduced` or `on-path` bug is fixed in this PR and never
+     listed here; an `unrelated` one is named under Decisions with its
+     ticket (U191). -->

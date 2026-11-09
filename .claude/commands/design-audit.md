@@ -17,7 +17,8 @@ a different design, not another patch.
    mechanism only. Collect every signal, then group the hits by mechanism:
    - **Review rounds.** Commit subjects naming a later round
      (`git log --format="%h %s" | rg "round [2-9]"`; `--grep` also matches
-     bodies), and the reports under `.superpowers/sdd/*review-pr*/`. Those
+     bodies), and the reports under `.superpowers/sdd/*review-pr*/` and
+     `.superpowers/sdd/*-pipeline-*/review-*.md`. Those
      are gitignored, so read them in the main checkout; a worktree has none.
      Two rounds whose findings land in the same mechanism is the strongest
      signal.
