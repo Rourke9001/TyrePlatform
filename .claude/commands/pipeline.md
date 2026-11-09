@@ -44,9 +44,9 @@ stage would run as a plain subagent.
      (Hand-over step 5). To run these keys again for a second PR, the owner
      first deletes or renames that state directory and deletes that PR's
      branch (step 6).
-   - This job's file at `ended at the cap`: stop. It never blocks another
-     job, but these keys launch again only once its state directory and its
-     branch are both deleted (step 6); say so.
+   - This job's file at `ended at the cap`: stop. It never blocks a job that
+     shares no key with it, but these keys launch again only once its state
+     directory is deleted and its branch deleted or renamed (step 6); say so.
    - This job's file at any other stage: this is a resume (step 5).
    - None for this job: this is a fresh run.
 4. Run `git status --porcelain`.
@@ -67,10 +67,12 @@ stage would run as a plain subagent.
    (`git merge-base --is-ancestor <before> HEAD`) and the tree is clean,
    then if `fixer-<id>-report.md` exists, run the gate as in Review loop
    step 7; if not, dispatch a new fixer for the same round with the
-   round's `<report path>` and `git log <before>..HEAD`. The round keeps
-   its recorded `before`, so every fixer commit stays inside its re-review
-   range. HEAD not descending
-   from `before` is a mismatch. At stage `loop done`, go to Hand-over. At
+   round's `<report path>` and `git log <before>..HEAD`. If
+   `fixer-<id>-report.md` ends `STATUS: stopped` for a reason step 7 maps
+   to a stop, and no owner answer is recorded for it, raise that stop
+   first. The round keeps its recorded `before`, so every fixer commit
+   stays inside its re-review range. HEAD not descending from `before` is
+   a mismatch. At stage `loop done`, go to Hand-over. At
    `PR opened` or `CI fix`, once any round above is finished: if
    `git rev-list origin/<branch>..HEAD` is non-empty, run
    `git push -u origin <branch>`; then wait for CI on HEAD as in Hand-over
@@ -361,8 +363,12 @@ a file the branch did not touch is re-run once before it counts as red.
    else. Save its report verbatim to `<state dir>/fixer-<k>-report.md`.
    `STATUS: stopped` because a fix would break the small-fix definition is
    the stop Not a small fix, and because a fix would contradict the spec is
-   Live step or decision; neither fixer is dispatched again. A stop for any
-   other reason counts as a fixer that returned nothing. Then run `git status --porcelain`, `make lint` and `make test` yourself, unpiped, and read the exit codes. A non-zero exit goes to a new fixer with the gate's output, once, inside the same round; a second failure stops for the owner. A dirty tree is the owner's keep-or-discard call.
+   Live step or decision; neither fixer is dispatched again. After the
+   owner is told of a Not a small fix stop, the run ends as in step 9:
+   comment on each key, record `ended at the cap`, leave the branch, and
+   name the keys that can be relaunched. A stop for any other reason counts
+   as a fixer that returned nothing. If `git rev-list <before>..HEAD` is
+   empty, record `after=<before>` and go to step 6; no gate, no re-review. Then run `git status --porcelain`, `make lint` and `make test` yourself, unpiped, and read the exit codes. A non-zero exit goes to a new fixer with the gate's output, once, inside the same round; a second failure stops for the owner. A dirty tree is the owner's keep-or-discard call.
    For that new fixer, write `<state dir>/fix-<k>-input.md` holding the
    gate's output as one finding marked `on-path (red gate, <UTC time>)`;
    that file is its `<report path>`, and it also gets
@@ -380,10 +386,11 @@ a file the branch did not touch is re-run once before it counts as red.
    different design, or end the run. Either of the last two ends the run,
    for a large ticket or a bundle: comment the owner's choice, what is open
    and the audit report path on each key, record `ended at the cap`, and
-   leave the branch. A different design is not built in this run; the
-   ticket goes back through its spec. For a bundle, tell the owner the
-   other keys can be relaunched as a new job once this run's state
-   directory and branch are deleted. An `introduced` bug is never
+   leave the branch. If a PR is open, comment the same on it and name it to
+   the owner. A different design is not built in this run; the ticket goes
+   back through its spec. For a bundle, tell the owner the other keys can
+   be relaunched as a new job once this run's state directory is deleted
+   and its branch deleted or renamed. An `introduced` bug is never
    ticketed.
 
 **An out-of-round fix** (`owner-<n>`, `gate`, `ci`) is not one of the two
