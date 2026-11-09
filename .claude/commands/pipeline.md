@@ -62,14 +62,17 @@ stage would run as a plain subagent.
    (`gh pr view <n> --json state`). If any fact disagrees, stop and report
    the mismatch; never guess. If all agree, `git checkout <branch>`; a
    resume then restarts at the stage after the last finished one, with new
-   teammates, and in the loop never starts again at review 0. The
-   `Fix <id>:` lines place a resume inside the loop, for every round id. A
-   line with `started` and no `after` is an open round: HEAD must descend
-   from its `before` (`git merge-base --is-ancestor <before> HEAD`), or it
-   is a mismatch; then run Close a round `<id>` on it. A closed line whose
-   `after` differs from `before` and that has no `Review <id>:` line
-   resumes at Re-review `<id>` (Review loop step 8); any other closed line
-   resumes at step 6. At stage `loop done`, go to Hand-over. At
+   teammates, and in the loop never starts again at review 0. The last
+   `Fix <id>:` line in the file places a resume inside the loop, whatever
+   its round id. If it has `started` and no `after`, it is an open round:
+   HEAD must descend from its `before`
+   (`git merge-base --is-ancestor <before> HEAD`), or it is a mismatch;
+   then run Close a round `<id>` on it. If it is closed, its `after`
+   differs from `before` and it has no `Review <id>:` line, resume at
+   Re-review `<id>` (Review loop step 8). Otherwise resume at step 6, which
+   for a `Fix owner-<n>:`, `Fix gate:` or `Fix ci:` line is that round's
+   own judge (A round outside the two). At stage `loop done`, go to
+   Hand-over. At
    `PR opened` or `CI fix`, once any open round is closed: if
    `git rev-list origin/<branch>..HEAD` is non-empty, run
    `git push -u origin <branch>`; then wait for CI on HEAD as in Hand-over
