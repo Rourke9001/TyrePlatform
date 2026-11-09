@@ -32,7 +32,8 @@ does not use step 2: it runs the review and the auditors in place by
    the main checkout, or the previous report a verifier's caller gives. For
    a PR a `/pipeline` run opened, also read the run's reports: the
    `review-*.md` files in the `.superpowers/sdd/*-pipeline-*/` directory
-   whose `state.md` has a `PR:` line naming `#<n>`, and that file's
+   of the main checkout whose `state.md` has a `PR:` line naming `#<n>`,
+   and that file's
    `Owner answers`. A
    deviation that an owner ruling covers is not a finding, unless you show
    that the ruling itself is wrong.
@@ -79,7 +80,7 @@ does not use step 2: it runs the review and the auditors in place by
    first line is `Review: full, <range>`, or for a re-review
    `Review: fix round <k>, <range>`, where `<k>` is one more than the fix
    rounds this PR has had. Count the fix-round reports already under
-   `.superpowers/sdd/*-review-pr<n>/`, a fix-round report being one whose
+   `.superpowers/sdd/*-review-pr<n>/` in the main checkout, a fix-round report being one whose
    first line starts `Review: fix round`, and, for a PR a `/pipeline` run
    opened, the `Fix 1:`, `Fix 2:` and `Fix 3:` lines in the `state.md` step
    1 read; its other `Fix` lines are rounds outside the two and do not count.
