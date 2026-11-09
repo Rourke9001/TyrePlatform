@@ -394,8 +394,8 @@ a name without the key.
 `Fix <id>: before=<HEAD>; started` line if it is not there yet, dispatch
 one fresh fixer as in step 7 with that round's input file, then Close a
 round `<id>`. Its judge (step 6) reads only its own input file, fixer
-reports and re-review. Nothing open: go on from the step that started the
-round. Anything open: the cap (step 9). Once the PR is open, add the
+reports and re-review, and step 6's stage and next-round sentences do not
+apply to it. Nothing open: go on from the step that started the round. Anything open: the cap (step 9). Once the PR is open, add the
 round's Decisions lines and report paths to `pr-body.md` and run
 `gh pr edit <n> --body-file <state dir>/pr-body.md`.
 
