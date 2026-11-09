@@ -193,9 +193,10 @@ Clarified on 9 Nov 2026 (U196): the cap fires once the second fix round has
 closed, however it closed. A fix round that commits nothing gets no delta
 re-review, since an empty delta has nothing to review.
 
-Cut on 9 Nov 2026 after the whole-branch review: four reviews found their
-gaps in this mechanism. At the cap the run ends and the owner relaunches
-the other keys; a late finding is fixed on the manual path.
+Cut on 9 Nov 2026 after the whole-branch review, where four reviews found
+their gaps in it: taking one key out of a bundle at the cap. At the cap the
+owner may also end the run; a bundle's other keys are then relaunched as a
+new job.
 
 **Rules 1 to 3.** A verified finding against a non-negotiable rule 1 to 3
 stops the run once, whatever its class, with the evidence and the proposed
@@ -217,10 +218,9 @@ fixer and a delta re-review; a second red stops for the owner.
 
 `/review-pr` in a separate session and `/code-review ultra` stay available
 to the owner as an extra check. Neither is required to merge a run's PR.
-Cut on 9 Nov 2026 after the whole-branch review: four reviews found their
-gaps in this mechanism. At the cap the run ends and the owner relaunches
-the other keys; a late finding is fixed on the manual path. Close-out runs
-from the merge as today.
+Reopening the run from such a report was cut on 9 Nov 2026 after the
+whole-branch review; a late finding is fixed on the manual path. Close-out
+runs from the merge as today.
 
 A job stays in flight until its PR merges or closes, as today, because a
 late fix round works in the same checkout.
@@ -256,9 +256,9 @@ CLAUDE.md and `/review-pr`, not only in the pipeline.
   check sees it, which the red team reproduced.
 - `.claude/settings.json` already allows `git push`, and
   `merge-push-guard.sh` asks only for `develop` and `main`. The loop also
-  runs `git branch`, `git checkout`, `git rev-parse` and `timeout`, which
-  the allow list does not name. Whether to allow them is the owner's call;
-  until then a prompting permission mode asks at each.
+  runs `git branch`, `git checkout`, `git rev-parse` and `timeout`. The
+  owner added allow rules for the forms the loop runs (f3aa3298, narrowed
+  in 10020db8), so a prompting permission mode no longer asks at each.
 
 This change itself ships through today's process: `/ticket` or the current
 pipeline, then a separate-session `/review-pr` (U125 as it stands). The new
