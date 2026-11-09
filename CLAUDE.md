@@ -40,8 +40,8 @@ takes one of these three:
 - **`unrelated`.** It is older, and neither.
 
 An `introduced` or `on-path` bug is fixed on the branch with a regression
-test. It is never ticketed, and never merged open but for a Minor the owner
-accepts at the cap (below). The PR's Decisions name
+test. It is never ticketed and never merged open; a Minor the owner accepts
+at the cap (below) is closed, not open. The PR's Decisions name
 each fix, so the code review sees it.
 
 An `unrelated` bug is not fixed here. Its evidence goes as a comment on an
@@ -307,7 +307,8 @@ classified like any other. The loop ends as soon as a review leaves no open
 fixes). If one is still open once the second round has closed, however it
 closed, the loop is at its cap and stops for the owner, who chooses one more
 fix round, a different design for the mechanism (`/design-audit`), ending
-the run, or accepting what is open when all of it is Minor (U198). A round that commits nothing gets no re-review, since an empty
+the run, or accepting each open Minor that is not against rules 1 to 3
+(U198). A round that commits nothing gets no re-review, since an empty
 range has nothing to review (U196, owner, 9 Nov 2026).
 
 After the loop, a red gate (the lead's own `make lint` and `make test` before
