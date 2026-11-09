@@ -63,8 +63,10 @@ bug by the definition, but it is fixed on the branch like an `introduced`
 bug and counts toward the cap in The review loop.
 
 A finding is open until it is fixed, handed to a ticket, set aside under the
-schedule test (U130) or ruled on by the owner. An `introduced` bug is closed
-only by a fix; an owner ruling cannot close it.
+schedule test (U130) or ruled by the owner to stay as it is. An owner answer
+that orders or shapes a fix leaves the finding open, and the next fixer gets
+it with that answer. An `introduced` bug is closed only by a fix; an owner
+ruling cannot close it.
 
 A finding against rules 1 to 3 below is a bug at any severity. It is
 verified even when Minor, and stops for the owner once per finding, whatever
