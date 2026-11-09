@@ -310,8 +310,8 @@ deps-age: ## Assert nothing in the web lockfile is younger than the .npmrc windo
 ## ---------------------------------------------------------------- workflow
 
 .PHONY: pipeline
-pipeline: ## One ticket from triage to its PR with an agent team: make pipeline T=TYRE-123 (TYRE-412, ADR-0018)
-	@bash scripts/pipeline.sh "$(T)"
+pipeline: ## One job from triage to a reviewed PR with an agent team: make pipeline T=TYRE-123, or T="TYRE-1 TYRE-2" for a small-fix bundle (TYRE-412, TYRE-470)
+	@bash scripts/pipeline.sh "$$T"
 
 .PHONY: pipeline-launch-test
 pipeline-launch-test: ## The pipeline launcher's key check and launch shape, with a stub claude (TYRE-412)

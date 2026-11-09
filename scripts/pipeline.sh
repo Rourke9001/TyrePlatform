@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
-# Launches one ticket's pipeline (TYRE-412, ADR-0018).
+# Launches one ticket's pipeline, or a small-fix bundle (TYRE-412, TYRE-470, ADR-0018).
 set -euo pipefail
-if [ "$#" -ne 1 ] || [[ ! "$1" =~ ^TYRE-[0-9]+$ ]]; then
-  echo "usage: make pipeline T=TYRE-<number>" >&2
+usage='usage: make pipeline T="TYRE-<number> [TYRE-<number> ...]"'
+if [ "$#" -ne 1 ] || [[ ! "$1" =~ ^TYRE-[1-9][0-9]*(\ TYRE-[1-9][0-9]*)*$ ]]; then
+  echo "$usage" >&2
+  exit 2
+fi
+# A repeated key would run the same ticket twice in one bundle.
+read -ra keys <<<"$1"
+if [ -n "$(printf '%s\n' "${keys[@]}" | sort | uniq -d)" ]; then
+  echo "$usage" >&2
   exit 2
 fi
 # Exported here, never in settings: every named subagent would be a teammate.
