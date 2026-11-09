@@ -52,7 +52,8 @@ collect:
   `git diff --name-only <base>...HEAD`, none cited the base commit's file,
   and a planted unguarded `rm -rf` was the top finding. A committing
   subagent also ran `/verify` before its commit, which reset the local
-  database.
+  database. The source for these two details is TYRE-470, comment of
+  9 Nov 2026 on the red team and the spikes, since the plan is gitignored.
 
 The lead spike's review check has a limit. The base commit held nothing to
 flag, so the check shows the review stayed inside the range's files. Had

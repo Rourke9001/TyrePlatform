@@ -42,4 +42,9 @@ runs). Do not start a stage until the one before it is done.
 12. `make check`, then open the PR. Stop there. The code review is stage 5,
     and it runs in a separate session: tell the owner to run
     `/review-pr <n>` in a new session. Its fix rounds follow CLAUDE.md, The
-    review loop.
+    review loop. A fix round is a fresh session given the review report's
+    path and the brief under "The fixer brief" in
+    `.claude/commands/pipeline.md`. When that work is done, the same session
+    comments each `unrelated` finding's evidence on its ticket, adds the
+    Decisions lines to the PR body and pushes, which the brief leaves to its
+    caller. Then a separate session runs `/review-pr <n> <level> from <sha>`.
