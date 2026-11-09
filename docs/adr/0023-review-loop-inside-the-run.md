@@ -1,7 +1,7 @@
 # ADR-0023: The lead runs the review and fix loop inside the run
 
 - **Status:** Accepted (owner, 9 Nov 2026, with U191 to U195). Its PR is
-  the TYRE-470 PR, number not yet known. It supersedes ADR-0018's stage 5
+  #208. It supersedes ADR-0018's stage 5
   decision and its push stop.
 - **Date:** 2026-11-09
 - **Deciders:** Rourke (owner)
