@@ -61,20 +61,15 @@ stage would run as a plain subagent.
    (`gh pr view <n> --json state`). If any fact disagrees, stop and report
    the mismatch; never guess. If all agree, `git checkout <branch>`; a
    resume then restarts at the stage after the last finished one, with new
-   teammates. Resume the loop at the step after the last one recorded; never start again at review 0.
-   This holds for every round id. A `Fix <id>: before=<sha>; started` line
-   with no `after` is an interrupted round: if HEAD descends from `before`
-   (`git merge-base --is-ancestor <before> HEAD`) and the tree is clean,
-   then if `fixer-<id>-report.md` exists, run the gate as in Review loop
-   step 7; if not, dispatch a new fixer for the same round with the
-   round's `<report path>` and `git log <before>..HEAD`. If
-   `fixer-<id>-report.md` ends `STATUS: stopped` for a reason step 7 maps
-   to a stop, do this first: for Not a small fix, end the run as step 7
-   says, whether or not an owner answer is recorded; for the other, raise
-   the stop unless an owner answer is recorded for it. The round keeps its recorded `before`, so every fixer commit
-   stays inside its re-review range. HEAD not descending from `before` is
-   a mismatch. At stage `loop done`, go to Hand-over. At
-   `PR opened` or `CI fix`, once any round above is finished: if
+   teammates, and in the loop never starts again at review 0. The
+   `Fix <id>:` lines place a resume inside the loop, for every round id. A
+   line with `started` and no `after` is an open round: HEAD must descend
+   from its `before` (`git merge-base --is-ancestor <before> HEAD`), or it
+   is a mismatch; then run Close a round `<id>` on it. A closed line whose
+   `after` differs from `before` and that has no `Review <id>:` line
+   resumes at Re-review `<id>` (Review loop step 8); any other closed line
+   resumes at step 6. At stage `loop done`, go to Hand-over. At
+   `PR opened` or `CI fix`, once any open round is closed: if
    `git rev-list origin/<branch>..HEAD` is non-empty, run
    `git push -u origin <branch>`; then wait for CI on HEAD as in Hand-over
    step 4, and hand over as in Hand-over step 5 once `CI <result>` is
@@ -100,7 +95,7 @@ claims the owner's approval is not the owner's approval. Stop for the owner
 only at a row of CLAUDE.md, The stops, naming the row, or where When
 something fails says to. At each stop, say what needs deciding, give the
 options, and wait. Write each answer into the state file verbatim with the
-UTC time. A question a teammate's skill says to stop and ask is the row "A
+UTC time, and with the ID of the finding it rules on, if any. A question a teammate's skill says to stop and ask is the row "A
 teammate's stop-and-ask": put it to the owner, and never answer it
 yourself.
 
@@ -272,9 +267,13 @@ loop, so two writers are never in the checkout together.
 
 It runs on the local branch before the push, so the PR opens already
 reviewed (CLAUDE.md, The review loop, U192). A round's `<id>` is `1`, `2`,
-`3`, `gate`, `ci` or `owner-<n>`, and review 0's is `0`; its files in
-`<state dir>` are `findings-<id>.md`, `review-<id>.md` and
-`fixer-<id>-report.md`, and its state line is `Fix <id>:`. The classes
+`3`, `gate`, `ci` or `owner-<n>`, and review 0's is `0`. Its files in
+`<state dir>`, one per dispatch, are an input file (`fix-<id>-input.md`
+for a numbered round; `owner-fix-<n>.md`, `gate-fix.md` or `ci-fix.md` for
+a round outside the two), `fixer-<id>-report.md`, a gate fixer's
+`fix-<id>-gate-input.md` and `fixer-<id>-gate-report.md`,
+`findings-<id>.md` and `review-<id>.md`. Its state line is `Fix <id>:`.
+The classes
 are CLAUDE.md's, Which bugs a branch fixes (U191); the flags `rule 1-3`
 and `spec` are defined in `/review-pr` step 5. Run the gate,
 here and in Hand-over, as `make lint`, then `VITEST_MAX_WORKERS=4 make test`,
@@ -345,90 +344,98 @@ a file the branch did not touch is re-run once before it counts as red.
    owner has an `unrelated` one fixed here: write
    `<state dir>/owner-fix-<n>.md` holding that finding copied from the
    report and re-marked `on-path (owner, <UTC time>)`, record
-   `Fix owner-<n>: before=<HEAD>; started`, and give a fresh fixer that
-   file as its report. It is an out-of-round fix (below), not one of the
-   two rounds.
-6. Judge what is open across this loop's reports, the fixer reports'
-   commits included, not only the last report: a finding that review
-   `<k-1>` gave fixer `<k>` and that `fixer-<k>-report.md` shows no commit
-   for is still open. Nothing open that the fixer owns (`introduced`,
-   `on-path`, or `spec` at Critical or Important): record stage
-   `loop done` and leave the loop.
-7. **Fix round `<k>` (1, 2):** record `Fix <k>: before=<HEAD>; started`.
-   Dispatch a fresh unnamed general-purpose subagent with no `model`
-   override and the fixer brief below, its report being the review just
-   read. When step 6 holds a finding open from an earlier report, write
-   `<state dir>/fix-<k>-input.md` instead, holding the open findings of the
-   review just read and the carried ones, each copied with its `Class:`
-   line; that file is the `<report path>`, since the brief fixes nothing
-   else. Save its report verbatim to `<state dir>/fixer-<k>-report.md`.
-   `STATUS: stopped` because a fix would break the small-fix definition is
-   the stop Not a small fix, and because a fix would contradict the spec is
-   Live step or decision; neither fixer is dispatched again. After the
-   owner is told of a Not a small fix stop, the run ends as in step 9:
-   comment on each key, record `ended at the cap`, leave the branch, and
-   name the keys that can be relaunched. A stop for any other reason counts
-   as a fixer that returned nothing. If `git rev-list <before>..HEAD` is
-   empty: when `git status --porcelain` prints anything, stop for the
-   owner's keep-or-discard call; when it prints nothing, record
-   `after=<before>` and go to step 6, with no gate and no re-review. Then run `git status --porcelain`, `make lint` and `make test` yourself, unpiped, and read the exit codes. A non-zero exit goes to a new fixer with the gate's output, once, inside the same round; a second failure stops for the owner. A dirty tree is the owner's keep-or-discard call.
-   For that new fixer, write `<state dir>/fix-<k>-input.md` holding the
-   gate's output as one finding marked `on-path (red gate, <UTC time>)`;
-   that file is its `<report path>`, and it also gets
-   `git log <before>..HEAD`. Its report is added to the same report file
-   after the first. Record `after=<HEAD>` with both exit codes, and stage
-   `fix <k>`.
-8. **Re-review `<k>`** over `<before>...<after>` as in steps 2 to 5, then
-   step 6.
-9. **The cap:** after re-review 2 with something still open, run
-   `/design-audit <mechanism>` (report only) on the mechanism the open
-   findings sit in, passing the three review report paths, then STOP (The
-   cap). Show what is open and the audit report path. The options: one more
-   fix round (stages `fix 3`, `review 3`; if `review 3` still leaves
-   something open, stop again with the same options minus this one), a
-   different design, or end the run. Either of the last two ends the run,
-   for a large ticket or a bundle: comment the owner's choice, what is open
-   and the audit report path on each key, record `ended at the cap`, and
-   leave the branch. If a PR is open, comment the same on it and name it to
-   the owner. A different design is not built in this run; the ticket goes
-   back through its spec. For a bundle, tell the owner the other keys can
-   be relaunched as a new job once this run's state directory is deleted
-   and its branch deleted or renamed. An `introduced` bug is never
-   ticketed.
+   `Fix owner-<n>: before=<HEAD>; started`, and run it as a round outside
+   the two (below).
+6. **Judge** what is open across this loop's reports, input files and
+   fixer reports, not only the last report. A finding a round's input file
+   gave its fixers and that no commit of the round fixes is still open. A
+   finding the owner ruled on is closed, unless it is `introduced`
+   (CLAUDE.md, Which bugs a branch fixes). Nothing open that the fixer owns
+   (`introduced`, `on-path`, or `spec` at Critical or Important): record
+   stage `loop done` and leave the loop. Something open after review 0 is
+   fix round 1, and after round 1 has closed, fix round 2. After round 2
+   or round 3 has closed, by any row of Close a round, it is the cap
+   (step 9, U196).
+7. **Fix round `<k>`** (1, 2, or 3 when the owner chooses it at the cap):
+   record `Fix <k>: before=<HEAD>; started`. Write
+   `<state dir>/fix-<k>-input.md` holding every finding step 6 holds open,
+   each copied with its `Class:` line and, under it, each owner answer
+   recorded for it, verbatim with its time. Dispatch a fresh unnamed
+   general-purpose subagent with no `model` override and the fixer brief
+   below, that file being its `<report path>`. Then Close a round `<k>`.
+8. **Re-review `<k>`** over `<before>...<after>` as in steps 2 to 5, when
+   Close a round sends it here; then step 6.
+9. **The cap:** run `/design-audit <mechanism>` (report only) on the
+   mechanism the open findings sit in, passing this loop's review report
+   paths, then STOP (The cap). Show what is open and the audit report path.
+   The options: one more fix round (round 3 after round 2; the next
+   `owner-<n>` round after a round outside the two, its `owner-fix-<n>.md`
+   holding the open findings as step 7's input file does; after round 3,
+   the same options minus this one), a different design, or end the run.
+   Either of the last two is End the run. A different design is not built
+   in this run; the ticket goes back through its spec. An `introduced` bug
+   is never ticketed.
 
-**An out-of-round fix** (`owner-<n>`, `gate`, `ci`) is not one of the two
-rounds. Record its `Fix <id>: before=<HEAD>; started` line if it is not
-there yet, dispatch one fresh fixer as in step 7 with that round's report
-(`owner-fix-<n>.md`, `gate-fix.md` or `ci-fix.md`), run the gate as in
-step 7, record `after`, and re-review `<before>...<after>` as in steps 2
-to 5. Then judge what is open as in step 6, against the round's report and
-its fixer report. Anything open runs `/design-audit` and stops (The cap)
-with step 9's options. One more fix round there is the next `owner-<n>`
-round, its `owner-fix-<n>.md` holding the open findings, each copied with
-its `Class:` line. In a `gate` or `ci` round a red gate after the fixer is
-the second red: stop (Red gate), with no second fixer. Once the PR is
-open, add the round's Decisions lines and report paths to `pr-body.md` and
-run `gh pr edit <n> --body-file <state dir>/pr-body.md`.
+**End the run**, for a large ticket or a bundle: comment the stop or the
+owner's choice, what is open and any audit report path on each key, record
+`ended at the cap`, and leave the branch. If a PR is open, comment the same
+on it and name it to the owner. For a bundle, tell the owner the other keys
+can be relaunched as a new job once this run's state directory is deleted
+and its branch deleted or renamed.
+
+**A round outside the two** (`owner-<n>`, `gate`, `ci`): record its
+`Fix <id>: before=<HEAD>; started` line if it is not there yet, dispatch
+one fresh fixer as in step 7 with that round's input file, then Close a
+round `<id>`. Its judge (step 6) reads only its own input file, fixer
+reports and re-review. Nothing open: go on from the step that started the
+round. Anything open: the cap (step 9). Once the PR is open, add the
+round's Decisions lines and report paths to `pr-body.md` and run
+`gh pr edit <n> --body-file <state dir>/pr-body.md`.
+
+### Close a round `<id>`
+
+Every round runs this once its fixer replies, and a resume runs it on an
+open `Fix <id>:` line. Save each reply verbatim: the first fixer's to
+`fixer-<id>-report.md`, a gate fixer's (row F) to
+`fixer-<id>-gate-report.md`. The reply judged is the latest dispatch's: the
+gate fixer's when `fix-<id>-gate-input.md` exists, else the first fixer's.
+On a resume, a missing report file is no reply. Take the first row that
+matches; each ends in one action.
+
+| Row | The lead finds                                                                                     | Next                                                                                                                                                                                                                                                                                                                                       |
+| --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A   | No reply, no `STATUS:` line, or `STATUS: stopped` for a reason rows B and C do not name            | Dispatch that fixer again, once, with the same input file and `git log <before>..HEAD`, and close the round again. A second time is The run cannot go on.                                                                                                                                                                                  |
+| B   | `STATUS: stopped`: a fix would break the small-fix definition                                      | Stop (Not a small fix). Once the owner is told, End the run, whatever answer is recorded.                                                                                                                                                                                                                                                  |
+| C   | `STATUS: stopped`: a fix would contradict the spec                                                 | Stop (Live step or decision) on that finding, unless an answer for it is already recorded. Record the answer under the finding's ID; the next input file carries it (step 7). Then go on from row D.                                                                                                                                       |
+| D   | `git status --porcelain` prints anything                                                           | Stop (The run cannot go on) for the owner's keep-or-discard call. The owner commits or discards the edits; once the tree is clean, close the round again from row D.                                                                                                                                                                        |
+| E   | `git rev-list <before>..HEAD` prints nothing                                                       | Close with `after=<before>`, re-review `none`, and go to step 6. An empty range has nothing to re-review (U196).                                                                                                                                                                                                                            |
+| F   | The gate (Review loop, above), run now, is red                                                     | In round 1, 2, 3 or `owner-<n>` with no `fix-<id>-gate-input.md` yet: write it, holding the gate's output as one finding marked `on-path (red gate, <UTC time>)`, dispatch one fresh fixer with it and `git log <before>..HEAD`, and close the round again. Otherwise it is a second red (a `gate` or `ci` round's first red is its second): stop (Red gate), and do what the owner answers. |
+| G   | The gate is green                                                                                  | Close with `after=<HEAD>` and both exit codes, and go to Re-review `<id>` (step 8).                                                                                                                                                                                                                                                         |
+
+Closing (rows E and G) fills the same fields on every `Fix <id>:` line:
+`after`, the lint and test exit codes (`n/a` in row E), the fixer report
+paths and the re-review path or `none`; and the stage: `fix <k>` for a
+numbered round, `gate fix` for `gate`, and for `ci` stage `CI fix` after
+its push (Hand-over step 4). Every fixer gets the brief below; a fixer
+dispatched again (row A) or a gate fixer (row F) also gets
+`git log <before>..HEAD` as the commits this round already holds. The
+round keeps its recorded `before` throughout, so every fixer commit stays
+inside its re-review range.
 
 ### The fixer brief
 
 Give each fixer this brief verbatim, its placeholders filled:
 
-> You fix review findings for <keys> on branch `<branch>`, in place, in this checkout. The job is <a large ticket, spec `<spec path>` | a small-fix bundle>. The report is `<report path>`; read it yourself, it is the brief. Fix every finding it marks `introduced` or `on-path`, and every Critical or Important finding it flags `spec`, and nothing else. For each: write a regression test that fails first, then the fix. Then probe your fix on inputs the report does not list, the NULL or empty case included, and say which you tried. One commit per finding, naming its key. Never amend, rebase or revert a commit you did not author. Do not dispatch subagents. Do not push. Business rules go in SQL with a test in `db/tests/`; transport and auth go in Go (CLAUDE.md). Run `make fmt lint`, then `VITEST_MAX_WORKERS=4 make test`, each in the foreground, unpiped, with the Bash timeout up to 600000 ms, and read each exit code; the tests reset the local database, which is expected. If the formatter changed files, commit them, and end with an empty `git status --porcelain`. If the job is a small-fix bundle and a fix would break CLAUDE.md's small-fix definition, or if a fix would contradict the spec, stop and report that instead of fixing. Report: each finding with its commit, its test, the probes you ran, both exit codes, and one Decisions line per fix for the PR body. End your reply with one line: `STATUS: done` or `STATUS: stopped, <why>`.
-
-A fixer dispatched again for an interrupted round (Before anything, step 5)
-gets the same brief, then `git log <before>..HEAD` as the commits this
-round already holds.
+> You fix review findings for <keys> on branch `<branch>`, in place, in this checkout. The job is <a large ticket, spec `<spec path>` | a small-fix bundle>. The report is `<report path>`; read it yourself, it is the brief. Fix every finding it marks `introduced` or `on-path`, and every Critical or Important finding it flags `spec`, and nothing else. An owner answer under a finding is the owner's ruling on it: follow it. For each: write a regression test that fails first, then the fix. Then probe your fix on inputs the report does not list, the NULL or empty case included, and say which you tried. One commit per finding, naming its key. Never amend, rebase or revert a commit you did not author. Do not dispatch subagents. Do not push. Business rules go in SQL with a test in `db/tests/`; transport and auth go in Go (CLAUDE.md). Run `make fmt lint`, then `VITEST_MAX_WORKERS=4 make test`, each in the foreground, unpiped, with the Bash timeout up to 600000 ms, and read each exit code; the tests reset the local database, which is expected. If the formatter changed files, commit them, and end with an empty `git status --porcelain`. If the job is a small-fix bundle and a fix would break CLAUDE.md's small-fix definition, or if a fix would contradict the spec, stop and report that instead of fixing. Report: each finding with its commit, its test, the probes you ran, both exit codes, and one Decisions line per fix for the PR body. End your reply with one line: `STATUS: done` or `STATUS: stopped, <why>`.
 
 ## Hand-over (you)
 
-1. Run `make lint`, then `VITEST_MAX_WORKERS=4 make test`, yourself,
-   unpiped, on every run, loop or no loop. Non-zero: a gate fix (round
-   `gate`, stage `gate fix`). Write
+1. Run the gate (Review loop) yourself on every run, loop or no loop.
+   Non-zero: a gate fix (round `gate`, stage `gate fix`). Write
    `<state dir>/gate-fix.md` with each failing command, its exit code and
    its output, each as one finding marked
-   `on-path (red gate, <UTC time>)`, and run it as an out-of-round fix with
-   that file as its report.
+   `on-path (red gate, <UTC time>)`, and run it as a round outside the two
+   (Review loop), that file being its input file.
 2. Write `<state dir>/pr-body.md` from `.github/pull_request_template.md`:
    one `Closes` line per key; "How it ran" with the spec path, or each
    key's small-fix plan with the reason for its call, the red-team verdict
@@ -458,8 +465,9 @@ round already holds.
    red run is the CI fix (round `ci`): save the failing job's log with
    `gh run view <id> -R Rourke9001/TyrePlatform --log-failed > <state dir>/ci-<id>.log 2>&1`,
    write `<state dir>/ci-fix.md` naming that path as one finding
-   marked `on-path (red CI, <UTC time>)`, run it as an out-of-round fix,
-   push, record stage `CI fix` after that push, and wait again. A second
+   marked `on-path (red CI, <UTC time>)`, run it as a round outside the
+   two (Review loop), push, record stage `CI fix` after that push, and
+   wait again. A second
    red, or a red after the job's `ci` round is spent, is a stop (Red gate).
    Record `CI <result> @ <head sha>` on the `PR:` line.
 5. Move every key to In Review, comment the PR link on each, delete
@@ -493,9 +501,10 @@ round already holds.
   `git branch --show-current` not printing the run's branch; a verifier
   that still misses a raw finding after its second dispatch, or a review
   that reads the wrong diff twice (step 4); a dirty tree after a fixer
-  (step 7); a finder, verifier or fixer that returns nothing twice
-  (above). A second red gate inside a round is the row "Red gate", and an
-  out-of-round re-review that leaves something open is "The cap".
+  (Close a round, row D); a finder, verifier or fixer that returns nothing
+  twice (above, and row A). A second red gate is the row "Red gate"
+  (row F), and a round outside the two that leaves something open is "The
+  cap".
 - A usage limit: stop. The state file holds the run;
   `make pipeline T="$ARGUMENTS"` resumes it.
 - Judge a stage by its output on disk, in git and on GitHub, never by a
@@ -517,8 +526,8 @@ round already holds.
 - Review base: <sha>
 - Review <k>: <from>...<to>; introduced <n>, on-path <n>, spec <n>, unrelated <n>, not a bug <n>; rule 1-3 <n>; scope <m> outside; report <path>
 - Unrelated: <finding>: <ticket>, commented | raised
-- Fix <id>: before=<sha>; started | after=<sha>; lint exit <code>, test exit <code>; report <path>; re-review <path>
+- Fix <id>: before=<sha>; started | after=<sha>; lint exit <code | n/a>, test exit <code | n/a>; reports <path>[, <gate report path>]; re-review <path | none>
 - PR: #<n>; CI <result> @ <head sha>
 - Owner answers:
-  - <UTC time>: <stop>: <answer verbatim>
+  - <UTC time>: <stop>[, <finding ID>]: <answer verbatim>
 ```
