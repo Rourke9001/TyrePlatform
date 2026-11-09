@@ -147,8 +147,9 @@ final review is a self-review. It runs on the local branch, before the
 push, so the PR opens already reviewed.
 
 The range a review reads is set through the branch's upstream, the diff
-`/code-review` documents, and never through an argument: the skill has no
-range form, and a wrong diff would end the loop falsely.
+`/code-review` documents as its default and the one the 9 Nov spike ran. The
+lead checks the upstream ref before each review and the cited files after
+it, because a review of the wrong diff would end the loop falsely.
 
 **Who does what.** The reason behind U125 holds: nothing that wrote the code
 reviews it. The lead never edits code, so the lead may collect a review.
