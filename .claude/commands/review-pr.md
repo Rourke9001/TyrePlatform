@@ -29,7 +29,11 @@ does not use step 2: it runs the review and the auditors in place by
    body names and any ADR it cites. Read each ticket and its
    comments in Jira and the SRS IDs it cites in Confluence. Read the earlier
    review reports for this PR under `.superpowers/sdd/*-review-pr<n>/` in
-   the main checkout, or the previous report a verifier's caller gives. A
+   the main checkout, or the previous report a verifier's caller gives. For
+   a PR a `/pipeline` run opened, also read the run's reports: the
+   `review-*.md` files in the `.superpowers/sdd/*-pipeline-*/` directory
+   whose `state.md` has a `PR:` line naming `#<n>`, and that file's
+   `Owner answers`. A
    deviation that an owner ruling covers is not a finding, unless you show
    that the ruling itself is wrong.
 2. **Review.** Without `from`, run `/code-review <level> <n>` (default
