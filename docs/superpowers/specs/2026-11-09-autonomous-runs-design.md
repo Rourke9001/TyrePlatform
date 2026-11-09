@@ -248,8 +248,11 @@ CLAUDE.md and `/review-pr`, not only in the pipeline.
 - `make pipeline` passes `T` to the launcher as data. Today's recipe lets
   the shell run a backtick or `$(...)` inside `T` before the launcher's
   check sees it, which the red team reproduced.
-- No permission change: `.claude/settings.json` already allows `git push`,
-  and `merge-push-guard.sh` asks only for `develop` and `main`.
+- `.claude/settings.json` already allows `git push`, and
+  `merge-push-guard.sh` asks only for `develop` and `main`. The loop also
+  runs `git branch`, `git checkout`, `git rev-parse`, `git revert` and
+  `timeout`, which the allow list does not name. Whether to allow them is
+  the owner's call; until then a prompting permission mode asks at each.
 
 This change itself ships through today's process: `/ticket` or the current
 pipeline, then a separate-session `/review-pr` (U125 as it stands). The new
