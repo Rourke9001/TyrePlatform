@@ -49,8 +49,8 @@ executed; Important: a gap a careful implementer might still fall into; Minor),
 the plan section or task number, the evidence with `file:line`, and the
 change to the plan that closes it. A Minor is the planner's to take or skip
 in this round: it is never a ticket and is not carried to the next round. A
-bug the plan's tasks pass through is a finding whatever its age: the plan
-fixes it (CLAUDE.md, U146).
+bug the plan's tasks pass through is a finding, and the plan fixes it when
+its class calls for that (CLAUDE.md, Which bugs a branch fixes, U191).
 
 End with a verdict: `EXECUTE`, `EXECUTE AFTER FIXES` or `REPLAN`. If an item
 genuinely passes, say so; do not invent a finding to look thorough. If you

@@ -113,12 +113,14 @@ stage is not "handed over", stop: a pipeline is working in this checkout.
    what has stopped being about the queue. List every key checked and its
    status in the report, even when none changed.
 6. **Residuals.** The PR body's "Set aside" list is their record; chat is
-   not. Read it for bugs first, by CLAUDE.md's definition. A bug there
-   means the branch merged with one unfixed: raise no ticket for it, and
-   list it under Waiting on the owner with the PR's key, as a miss for the
-   owner to rule on (U146). Raise a ticket, linked to its parent, only for
-   an item that is not a bug and passes CLAUDE.md's schedule test, or is an
-   SRS change (U130). Search the board first, and comment on an open ticket
+   not. Read it for bugs first, by CLAUDE.md's definition. An `introduced`
+   or `on-path` bug there (CLAUDE.md, Which bugs a branch fixes) means the
+   branch merged with one unfixed: raise no ticket for it, and list it
+   under Waiting on the owner with the PR's key, as a miss for the owner to
+   rule on (U191). Raise a ticket, linked to its parent, only for an item
+   that is not a bug and passes CLAUDE.md's schedule test (U130). An SRS
+   change is a comment on the working ticket, never a ticket (U194). Search
+   the board first, and comment on an open ticket
    rather than raise a second. If more than two items qualify, raise none
    and list them in the report as a decision waiting on the owner.
 7. **Promote to production** if the owner asks, and never in cloud mode.
