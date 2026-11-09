@@ -42,11 +42,12 @@ stage would run as a plain subagent.
    - This job's file at `handed over`: stop. Close-out takes it from the
      merge, and a finding on its open PR is fixed outside the run
      (Hand-over step 5). To run these keys again for a second PR, the owner
-     first deletes or renames that state directory and deletes that PR's
-     branch (step 6).
+     first deletes that state directory, or moves it out of
+     `.superpowers/sdd/`, and deletes that PR's branch (step 6).
    - This job's file at `ended at the cap`: stop. It never blocks a job that
      shares no key with it, but these keys launch again only once its state
-     directory is deleted and its branch deleted or renamed (step 6); say so.
+     directory is deleted, or moved out of `.superpowers/sdd/`, and its
+     branch deleted, or renamed to a name without the key (step 6); say so.
    - This job's file at any other stage: this is a resume (step 5).
    - None for this job: this is a fresh run.
 4. Run `git status --porcelain`.
@@ -385,8 +386,9 @@ a file the branch did not touch is re-run once before it counts as red.
 owner's choice, what is open and any audit report path on each key, record
 `ended at the cap`, and leave the branch. If a PR is open, comment the same
 on it and name it to the owner. For a bundle, tell the owner the other keys
-can be relaunched as a new job once this run's state directory is deleted
-and its branch deleted or renamed.
+can be relaunched as a new job once this run's state directory is deleted,
+or moved out of `.superpowers/sdd/`, and its branch deleted, or renamed to
+a name without the key.
 
 **A round outside the two** (`owner-<n>`, `gate`, `ci`): record its
 `Fix <id>: before=<HEAD>; started` line if it is not there yet, dispatch
