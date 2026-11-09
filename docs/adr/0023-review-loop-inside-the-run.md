@@ -174,6 +174,9 @@ collects a review there.
   `/ticket` with a separate-session `/review-pr` is the fallback.
 - A fixer that commits can run `/verify` and reset the local database, as a
   spike subagent did.
+- A run cannot take one key out of a bundle or reopen after hand-over; both
+  were cut on 9 Nov 2026, so at the cap the run ends and the owner relaunches
+  the other keys, and a late finding is fixed on the manual path.
 - TYRE-395, a CI step that fails a code PR with no ticked review line, was
   closed unbuilt into TYRE-470. The review line in the PR template is still
   a written rule that nothing checks.

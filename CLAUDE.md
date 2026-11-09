@@ -284,10 +284,10 @@ not a small fix. `/ticket` waits for the owner to confirm the small-fix call;
 under `make pipeline` the lead makes it per key and states the reason in the
 PR body, and a key it calls not small stops, because it needs its own run.
 An `introduced` or `on-path` bug whose fix would break this definition stops
-for the owner: the key becomes a full ticket (for a bundle, taken out of the
-job). Related small fixes may share one PR, each with its own commit,
-regression test and short plan in the PR body; one stage 5 review covers
-them (U136, owner, 16 Oct 2026).
+for the owner: the key becomes a full ticket (for a bundle, the run ends and
+the owner relaunches the other keys). Related small fixes may share one PR,
+each with its own commit, regression test and short plan in the PR body;
+one stage 5 review covers them (U136, owner, 16 Oct 2026).
 
 ### The review loop
 
@@ -299,15 +299,14 @@ classified like any other. The loop ends as soon as a review leaves no open
 `introduced` or `on-path` bug and no open spec finding (Which bugs a branch
 fixes). If one is still open after the second round's re-review, the loop
 is at its cap and stops for the owner, who chooses one more fix round, a
-different design for the mechanism (`/design-audit`), or taking the ticket
-out of the job.
+different design for the mechanism (`/design-audit`), or ending the run.
 
 After the loop, a red gate (the lead's own `make lint` and `make test` before
 the push, or CI on the pushed head) gets one fresh fixer and a re-review of
 that fix's range, outside the two rounds; inside a fix round, a red gate
 gets one more fresh fixer in that round. A second red stops for the owner.
-An out-of-round re-review (an owner-ordered fix, a gate fix, a CI fix, a
-reopened round) that leaves something open stops for the owner.
+An out-of-round re-review (an owner-ordered fix, a gate fix or a CI fix)
+that leaves something open stops for the owner.
 
 ### The stops
 

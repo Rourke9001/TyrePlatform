@@ -186,12 +186,12 @@ arrives anyway is classified like any other.
 stops. Before stopping, the lead runs `/design-audit` on the mechanism the
 open findings sit in, report only. The owner sees the open findings and that
 report and chooses: one more fix round, a different design for the
-mechanism, or take the ticket out of the job. A bug the branch introduced is
-never ticketed and merged.
+mechanism, or end the run. A bug the branch introduced is never ticketed
+and merged.
 
-Taking a ticket out: in a bundle, every commit, the fixers' included, names
-one key, so one key's commits can be reverted and the rest carry on. For a
-large ticket it ends the run and leaves the branch for the owner.
+Cut on 9 Nov 2026 after the whole-branch review: four reviews found their
+gaps in this mechanism. At the cap the run ends and the owner relaunches
+the other keys; a late finding is fixed on the manual path.
 
 **Rules 1 to 3.** A verified finding against a non-negotiable rule 1 to 3
 stops the run once, whatever its class, with the evidence and the proposed
@@ -212,9 +212,11 @@ The lead then waits for CI on the head commit. A red CI gets one fresh
 fixer and a delta re-review; a second red stops for the owner.
 
 `/review-pr` in a separate session and `/code-review ultra` stay available
-to the owner as an extra check. Neither is required to merge a run's PR. If
-the owner brings findings back, relaunching the same job reopens the loop
-for one fix round from that report. Close-out runs from the merge as today.
+to the owner as an extra check. Neither is required to merge a run's PR.
+Cut on 9 Nov 2026 after the whole-branch review: four reviews found their
+gaps in this mechanism. At the cap the run ends and the owner relaunches
+the other keys; a late finding is fixed on the manual path. Close-out runs
+from the merge as today.
 
 A job stays in flight until its PR merges or closes, as today, because a
 late fix round works in the same checkout.
@@ -250,9 +252,9 @@ CLAUDE.md and `/review-pr`, not only in the pipeline.
   check sees it, which the red team reproduced.
 - `.claude/settings.json` already allows `git push`, and
   `merge-push-guard.sh` asks only for `develop` and `main`. The loop also
-  runs `git branch`, `git checkout`, `git rev-parse`, `git revert` and
-  `timeout`, which the allow list does not name. Whether to allow them is
-  the owner's call; until then a prompting permission mode asks at each.
+  runs `git branch`, `git checkout`, `git rev-parse` and `timeout`, which
+  the allow list does not name. Whether to allow them is the owner's call;
+  until then a prompting permission mode asks at each.
 
 This change itself ships through today's process: `/ticket` or the current
 pipeline, then a separate-session `/review-pr` (U125 as it stands). The new
@@ -309,7 +311,6 @@ Not said by the owner; each can be overruled:
 - A job stays in flight until its PR merges or closes.
 - The manual path keeps a separate-session review but takes the same scope
   rule and cap.
-- How a ticket is taken out of a job at the cap.
 
 ## How we will know it worked
 
