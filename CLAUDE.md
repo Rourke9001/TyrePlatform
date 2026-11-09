@@ -299,16 +299,18 @@ reads only the commits that round added. A re-review does not look outside
 that range, and a verified finding that arrives from outside it anyway is
 classified like any other. The loop ends as soon as a review leaves no open
 `introduced` or `on-path` bug and no open spec finding (Which bugs a branch
-fixes). If one is still open after the second round's re-review, the loop
-is at its cap and stops for the owner, who chooses one more fix round, a
-different design for the mechanism (`/design-audit`), or ending the run.
+fixes). If one is still open once the second round has closed, however it
+closed, the loop is at its cap and stops for the owner, who chooses one more
+fix round, a different design for the mechanism (`/design-audit`), or ending
+the run. A round that commits nothing gets no re-review, since an empty
+range has nothing to review (U196, owner, 9 Nov 2026).
 
 After the loop, a red gate (the lead's own `make lint` and `make test` before
 the push, or CI on the pushed head) gets one fresh fixer and a re-review of
 that fix's range, outside the two rounds; inside a fix round, a red gate
 gets one more fresh fixer in that round. A second red stops for the owner.
-An out-of-round re-review (an owner-ordered fix, a gate fix or a CI fix)
-that leaves something open stops for the owner.
+An out-of-round fix (an owner-ordered fix, a gate fix or a CI fix) that
+leaves something open stops for the owner.
 
 ### The stops
 
@@ -323,7 +325,7 @@ A `make pipeline` run waits for the owner at these points and no others:
 | Rules 1 to 3              | A verified finding against rule 1, 2 or 3, once per finding.                                                                                                                                 |
 | Live step or decision     | A fix needs a live environment step or a decision the branch cannot make.                                                                                                                    |
 | Not a small fix           | A key the lead calls not small in a launch of more than one key (a single such key is a large ticket), or an `introduced` or `on-path` fix that would break the small-fix definition.        |
-| The cap                   | The review loop reaches its cap, or an out-of-round re-review leaves something open.                                                                                                         |
+| The cap                   | The review loop reaches its cap, or an out-of-round fix leaves something open.                                                                                                               |
 | Red gate                  | A gate is red a second time, inside a fix round or after the loop (The review loop).                                                                                                         |
 | A teammate's stop-and-ask | A destructive step, a broken plan, failing baseline tests.                                                                                                                                   |
 | The run cannot go on      | A check, a review or an agent fails twice, or the checkout is not in the state the run recorded (wrong branch, dirty tree, a ref that moved). `/pipeline`, When something fails, lists each. |

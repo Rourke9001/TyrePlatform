@@ -189,6 +189,10 @@ report and chooses: one more fix round, a different design for the
 mechanism, or end the run. A bug the branch introduced is never ticketed
 and merged.
 
+Clarified on 9 Nov 2026 (U196): the cap fires once the second fix round has
+closed, however it closed. A fix round that commits nothing gets no delta
+re-review, since an empty delta has nothing to review.
+
 Cut on 9 Nov 2026 after the whole-branch review: four reviews found their
 gaps in this mechanism. At the cap the run ends and the owner relaunches
 the other keys; a late finding is fixed on the manual path.
