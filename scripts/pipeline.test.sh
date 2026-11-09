@@ -73,9 +73,9 @@ want2=$'1\n/pipeline TYRE-412 TYRE-413\n1\n/pipeline '
 launches "a bundle of two keys" "TYRE-412 TYRE-413" "$want2"
 launches "a key that is a prefix of another" "TYRE-1 TYRE-12" $'1\n/pipeline TYRE-1 TYRE-12\n1\n/pipeline '
 
-# Through make, as the owner types it: a value with shell syntax must reach
-# the script as data and be refused, never parsed by the recipe's shell. The
-# $$ is how make passes a literal $ on to the recipe.
+# Through make, as the owner types it: a value with shell or make syntax must
+# reach the script as data and be refused, never expanded by make or parsed by
+# the recipe's shell.
 make_refused() {
   local label=$1 arg=$2 out
   rm -f "$work/called"
@@ -91,6 +91,8 @@ make_refused "a shell suffix" 'T=TYRE-12;echo INJECTED'
 make_refused "a backtick substitution" 'T=TYRE-12`echo INJECTED >&2`'
 make_refused "a dollar-paren substitution" 'T=TYRE-12$$(echo INJECTED >&2)'
 make_refused "a quote breakout" 'T=TYRE-12"; echo INJECTED >&2; "'
+make_refused "a make function" 'T=TYRE-12$(shell echo INJECTED >&2)'
+make_refused "a make info call" 'T=TYRE-12$(info INJECTED)'
 
 rm -f "$work/called"
 if make -s -C "$here/.." pipeline 'T=TYRE-412 TYRE-413' && [ "$(cat "$work/called")" = "$want2" ]; then
