@@ -3,6 +3,15 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 
+# T is data the owner types (a key list or a tenant uuid). Make expands a
+# command-line variable when it exports it to a recipe, so a $(shell ...) in T
+# would run before any recipe checked it; held as a simple variable, it is
+# exported verbatim (TYRE-470).
+ifeq ($(origin T),command line)
+override T := $(value T)
+export T
+endif
+
 PG_CONTAINER ?= tyre-pg
 PG_PORT      ?= 5433
 PG_DB        ?= tyre
@@ -146,7 +155,7 @@ db-shell: ## Interactive psql as the application role
 # docs/runbooks/provision-a-tenant-catalogue.md (TYRE-369).
 .PHONY: provision-catalogue
 provision-catalogue: db-up ## Load a tenant's catalogue file locally (T=<tenant uuid> F=<file>, TYRE-369)
-	@[[ "$(T)" =~ ^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$$ ]] || { echo "usage: make provision-catalogue T=<tenant uuid> F=<catalogue file>"; exit 2; }
+	@[[ "$$T" =~ ^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$$ ]] || { echo "usage: make provision-catalogue T=<tenant uuid> F=<catalogue file>"; exit 2; }
 	@[ -f "$(F)" ] || { echo "no catalogue file at $(F)"; exit 2; }
 	$(PSQL_APP) -v ON_ERROR_STOP=1 -q -1 \
 	  -c "CREATE TEMP TABLE catalogue_file (n bigint GENERATED ALWAYS AS IDENTITY, line text)" \
