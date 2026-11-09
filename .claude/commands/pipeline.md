@@ -69,8 +69,9 @@ stage would run as a plain subagent.
    step 7; if not, dispatch a new fixer for the same round with the
    round's `<report path>` and `git log <before>..HEAD`. If
    `fixer-<id>-report.md` ends `STATUS: stopped` for a reason step 7 maps
-   to a stop, and no owner answer is recorded for it, raise that stop
-   first. The round keeps its recorded `before`, so every fixer commit
+   to a stop, do this first: for Not a small fix, end the run as step 7
+   says, whether or not an owner answer is recorded; for the other, raise
+   the stop unless an owner answer is recorded for it. The round keeps its recorded `before`, so every fixer commit
    stays inside its re-review range. HEAD not descending from `before` is
    a mismatch. At stage `loop done`, go to Hand-over. At
    `PR opened` or `CI fix`, once any round above is finished: if
@@ -368,7 +369,9 @@ a file the branch did not touch is re-run once before it counts as red.
    comment on each key, record `ended at the cap`, leave the branch, and
    name the keys that can be relaunched. A stop for any other reason counts
    as a fixer that returned nothing. If `git rev-list <before>..HEAD` is
-   empty, record `after=<before>` and go to step 6; no gate, no re-review. Then run `git status --porcelain`, `make lint` and `make test` yourself, unpiped, and read the exit codes. A non-zero exit goes to a new fixer with the gate's output, once, inside the same round; a second failure stops for the owner. A dirty tree is the owner's keep-or-discard call.
+   empty: when `git status --porcelain` prints anything, stop for the
+   owner's keep-or-discard call; when it prints nothing, record
+   `after=<before>` and go to step 6, with no gate and no re-review. Then run `git status --porcelain`, `make lint` and `make test` yourself, unpiped, and read the exit codes. A non-zero exit goes to a new fixer with the gate's output, once, inside the same round; a second failure stops for the owner. A dirty tree is the owner's keep-or-discard call.
    For that new fixer, write `<state dir>/fix-<k>-input.md` holding the
    gate's output as one finding marked `on-path (red gate, <UTC time>)`;
    that file is its `<report path>`, and it also gets
