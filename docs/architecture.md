@@ -326,8 +326,9 @@ on (U186).
 | [0015](adr/0015-ui-substrate.md) | UI substrate: tokens, plain CSS, three Radix primitives, inline SVG charts | Accepted; superseded in part by 0020 |
 | [0016](adr/0016-identity-provider-and-token-to-actor.md) | Identity provider and token-to-actor resolution | Accepted |
 | [0017](adr/0017-staging-and-production-environments.md) | Staging holds no real data; production is a second environment | Accepted |
-| [0018](adr/0018-ticket-orchestration.md) | An agent team runs each ticket to its PR; a routine runs close-out | Accepted |
+| [0018](adr/0018-ticket-orchestration.md) | An agent team runs each ticket to its PR; a routine runs close-out | Accepted; superseded in part by 0023 |
 | [0019](adr/0019-web-calls-api-over-cors.md) | The web calls the API at its own origin, over CORS | Accepted |
 | [0020](adr/0020-tread-design-system.md) | The Tread design system replaces the TYRE-238 kit | Accepted |
 | [0021](adr/0021-governing-tread-definer-owner.md) | The governing-tread definer runs as the migrating role | Accepted |
 | [0022](adr/0022-frontend-layers.md) | The web app is held to four layers: data, transform, domain, presentation | Accepted |
+| [0023](adr/0023-review-loop-inside-the-run.md) | The lead runs the review and fix loop inside the run | Accepted |
