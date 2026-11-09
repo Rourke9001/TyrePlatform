@@ -406,6 +406,14 @@ background fork, such as subagent-driven development, `/code-review` or
 lead waits for a teammate's explicit report and never reads silence as an
 answer.
 
+- 2026-11-09 (TYRE-470, Claude Code 2.1.319): a teammate's subagent result
+  is dropped, not rerouted to the lead. In one dispatch, not retried, the
+  teammate's Agent call returned "no report was delivered" and the lead
+  received nothing. A second spike that day found that the lead's own
+  subagents do reach it: three committing general-purpose subagents, an
+  `rls-auditor` and a `/code-review high` fork. Dispatch a review or a fixer
+  from the lead, never from a teammate (ADR-0023).
+
 ## 2026-10-12 - A routine's trigger filter and its Run now settings are not what the API or develop say (TYRE-412, TYRE-416)
 
 **What happened:**
@@ -575,6 +583,11 @@ identity (TYRE-317 comment 13468), never in the admin center.
   is (2026-09-03). An Agent-tool subagent cannot write a report file: its
   hand-back is its only report, so keep its brief narrow enough that a cut
   loses little, and never ask it for a report file (2026-11-03).
+  On 2026-11-09 (TYRE-470, Claude Code 2.1.319) general-purpose subagents
+  wrote report files under `.superpowers/sdd/` with no refusal, so the
+  2026-11-03 refusal is not general. Have a subagent write its file and also end its
+  hand-back with a terminal line; gate on that line, and save the hand-back
+  yourself when the file is missing (2026-11-09).
 - Give every parallel agent its own scratch subdirectory in the packet
   (`scratchpad/<slice>/`), and have it record its baseline inside the
   report, not only in a file (2026-09-09).
