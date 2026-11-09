@@ -275,7 +275,8 @@ reviewed (CLAUDE.md, The review loop, U192). A round's `<id>` is `1`, `2`,
 `<state dir>`, one per dispatch, are an input file (`fix-<id>-input.md`
 for a numbered round; `owner-fix-<n>.md`, `gate-fix.md` or `ci-fix.md` for
 a round outside the two), `fixer-<id>-report.md`, a gate fixer's
-`fix-<id>-gate-input.md` and `fixer-<id>-gate-report.md`,
+`fix-<id>-gate-input.md` and `fixer-<id>-gate-report.md`, a row A retry's
+`fixer-<id>-retry-report.md` or `fixer-<id>-gate-retry-report.md`,
 `findings-<id>.md` and `review-<id>.md`. Its state line is `Fix <id>:`.
 The classes
 are CLAUDE.md's, Which bugs a branch fixes (U191); the flags `rule 1-3`
@@ -408,14 +409,17 @@ round's Decisions lines and report paths to `pr-body.md` and run
 Every round runs this once its fixer replies, and a resume runs it on an
 open `Fix <id>:` line. Save each reply verbatim: the first fixer's to
 `fixer-<id>-report.md`, a gate fixer's (row F) to
-`fixer-<id>-gate-report.md`. The reply judged is the latest dispatch's: the
-gate fixer's when `fix-<id>-gate-input.md` exists, else the first fixer's.
-On a resume, a missing report file is no reply. Take the first row that
+`fixer-<id>-gate-report.md`, and a row A retry of either to
+`fixer-<id>-retry-report.md` or `fixer-<id>-gate-retry-report.md`. The
+reply judged is the latest dispatch's: the gate fixer's when
+`fix-<id>-gate-input.md` exists, else the first fixer's, and its retry's
+when that retry file exists. A missing report file, or a retry file that
+holds only its `dispatched` line, is no reply. Take the first row that
 matches; each ends in one action.
 
 | Row | The lead finds                                                                                                           | Next                                                                                                                                                                                                                                                                                                                                                                                         |
 | --- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A   | No reply, no `STATUS:` line, or `STATUS: stopped` for a reason rows B and C do not name                                  | Dispatch that fixer again, once, with the same input file and `git log <before>..HEAD`, and close the round again. A second time is The run cannot go on.                                                                                                                                                                                                                                    |
+| A   | No reply, no `STATUS:` line, or `STATUS: stopped` for a reason rows B and C do not name                                  | If the judged reply is already a retry's, stop (The run cannot go on). Otherwise write that fixer's retry file holding `dispatched <UTC time>`, which records the retry, dispatch it again with the same input file and `git log <before>..HEAD`, save its reply over that line, and close the round again.                                                                                  |
 | B   | `STATUS: stopped`: a fix would break the small-fix definition                                                            | Stop (Not a small fix). Once the owner is told, End the run, whatever answer is recorded.                                                                                                                                                                                                                                                                                                    |
 | C   | `STATUS: stopped`: a fix would contradict the spec, or needs a live environment step or a decision the fixer cannot make | Stop (Live step or decision) on that finding, unless an answer for it is already recorded. Record the answer under the finding's ID. An answer that orders or shapes a fix keeps the finding open, so the next input file carries it with the answer (step 7); one that leaves the finding as it is closes it (step 6). Then go on from row D.                                               |
 | D   | `git status --porcelain` prints anything                                                                                 | Stop (The run cannot go on) for the owner's keep-or-discard call. The owner commits or discards the edits; once the tree is clean, close the round again from row D.                                                                                                                                                                                                                         |
@@ -537,7 +541,7 @@ Give each fixer this brief verbatim, its placeholders filled:
 - Review base: <sha>
 - Review <k>: <from>...<to>; introduced <n>, on-path <n>, spec <n>, unrelated <n>, not a bug <n>; rule 1-3 <n>; scope <m> outside; report <path>
 - Unrelated: <finding>: <ticket>, commented | raised
-- Fix <id>: before=<sha>; started | after=<sha>; lint exit <code | n/a>, test exit <code | n/a>; reports <path>[, <gate report path>]; re-review <path | none>
+- Fix <id>: before=<sha>; started | after=<sha>; lint exit <code | n/a>, test exit <code | n/a>; reports <path>[, <retry path>][, <gate report path>][, <gate retry path>]; re-review <path | none>
 - PR: #<n>; CI <result> @ <head sha>
 - Owner answers:
   - <UTC time>: <stop>[, <finding ID>]: <answer verbatim>
