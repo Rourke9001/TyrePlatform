@@ -18,13 +18,7 @@ A requirement that does not fit, or a better approach than the SRS
 describes, stops the work and is put to the owner. On a yes, the change is
 recorded as a comment on the ticket being worked, and the SRS row is
 prepared for the owner's Cowork agent. No new ticket is raised, and the SRS
-is updated, never worked around (U194, owner, 9 Nov 2026). Anything found
-that is not a bug gets one test: would the owner schedule it before the
-pilot? If so, one ticket linked to the parent; if not, one line under "Set
-aside" in the PR body (U130). Search the board before raising any ticket,
-and add the evidence to an open one rather than raise a second. A question
-for the owner is a comment on the parent ticket, not a ticket, and a Minor
-that is not a bug never becomes a ticket on its own.
+is updated, never worked around (U194, owner, 9 Nov 2026).
 
 ## Which bugs a branch fixes
 
@@ -34,9 +28,9 @@ message; or a comment, runbook or doc line the code proves false. A missing
 feature, an untested path that hides no bug, a nit and a rejected
 alternative are not bugs.
 
-Each bug a branch finds takes one of three classes (U191, owner, 9 Nov
-2026). The branch's own work, its red team and its stage 5 review all count
-as finding it.
+Every finding takes one of four classes, whether the branch's own work, its
+red team or its stage 5 review made it (U191, owner, 9 Nov 2026). A bug
+takes one of these three:
 
 - **`introduced`.** The wrong behaviour does not exist at the merge base.
 - **`on-path`.** It is older, and the input that reaches it runs through
@@ -54,17 +48,28 @@ open ticket found by a board search for the file or function name, with the
 search used. Only when the search finds none is a new ticket raised, linked
 to the parent. Decisions names the bug and its ticket.
 
+A finding that is not a bug is `not a bug` and takes the schedule test
+(U130), except a spec finding, below: would the owner schedule it before
+the pilot? If so, one ticket linked to the parent; if not, one line under
+"Set aside" in the PR body. A Minor that is not a bug never becomes a ticket
+on its own. Search the board before raising any ticket, and add the evidence
+to an open one rather than raise a second. A question for the owner is a
+comment on the parent ticket, not a ticket.
+
 A Critical or Important finding that the branch does not do what its own
 spec, plan or definition of done requires is a spec finding. It is not a
 bug by the definition, but it is fixed on the branch like an `introduced`
 bug and counts toward the cap in The review loop.
 
 A finding is open until it is fixed, handed to a ticket, set aside under the
-schedule test (U130) or ruled on by the owner.
+schedule test (U130) or ruled on by the owner. An `introduced` bug is closed
+only by a fix; an owner ruling cannot close it.
 
 A finding against rules 1 to 3 below is a bug at any severity. It is
 verified even when Minor, and stops for the owner once per finding, whatever
-its class. A fix that needs a live environment step or a decision the
+its class. If the owner has an `unrelated` one fixed on this branch, that
+fix gets a re-review of its own range and is not one of the two rounds in
+The review loop. A fix that needs a live environment step or a decision the
 branch cannot make also stops for the owner.
 
 ## The capture target
@@ -275,13 +280,14 @@ By hand it does the same with a local gate.
 **Small fixes** skip stages 1 and 3 and keep a short plan in the PR body. A
 small fix is one defect with a regression test, no migration, no new endpoint,
 route or screen, and no change to a non-negotiable rule. When in doubt, it is
-not a small fix. A bug found on a small fix whose fix would break this
-definition stops for the owner: the PR becomes a full one, or, for an
-`unrelated` bug only, it goes to a ticket (U191). `/ticket` waits for the
-owner to confirm the call; under `make pipeline` the lead makes it and
-states the reason in the PR body. Related small fixes may share one PR, each
-with its own commit, regression test and short plan in the PR body; one stage 5
-review covers them (U136, owner, 16 Oct 2026).
+not a small fix. `/ticket` waits for the owner to confirm the small-fix call;
+under `make pipeline` the lead makes it per key and states the reason in the
+PR body, and a key it calls not small stops, because it needs its own run.
+An `introduced` or `on-path` bug whose fix would break this definition stops
+for the owner: the key becomes a full ticket (for a bundle, taken out of the
+job). Related small fixes may share one PR, each with its own commit,
+regression test and short plan in the PR body; one stage 5 review covers
+them (U136, owner, 16 Oct 2026).
 
 ### The review loop
 
@@ -296,23 +302,27 @@ is at its cap and stops for the owner, who chooses one more fix round, a
 different design for the mechanism (`/design-audit`), or taking the ticket
 out of the job.
 
+After the loop, a red gate (the lead's own `make lint` and `make test` before
+the push, or CI on the pushed head) gets one fresh fixer and a re-review of
+that fix's range, outside the two rounds. A second red stops for the owner.
+
 ### The stops
 
 A `make pipeline` run waits for the owner at these points and no others:
 
-| Stop                      | When                                                                      |
-| ------------------------- | ------------------------------------------------------------------------- |
-| Product questions         | Large ticket only. One batch, before the spec is written up.              |
-| Spec approval             | Large ticket only. The written spec, before planning.                     |
-| Red-team dispute          | Large ticket only. A product dispute, or a Critical open after round 3.   |
-| SRS change                | A requirement does not fit, or a better approach exists.                  |
-| Rules 1 to 3              | A verified finding against rule 1, 2 or 3, once per finding.              |
-| Outside the branch        | A fix needs a live environment step or a decision the branch cannot make. |
-| Not a small fix           | A bundle key is not a small fix, or a fix would break the definition.     |
-| The cap                   | The review loop reaches its cap.                                          |
-| Red gate                  | `make lint`, `make test` or CI is red again after its one fix.            |
-| A teammate's stop-and-ask | A destructive step, a broken plan, failing baseline tests.                |
-| The merge                 | Always the owner's.                                                       |
+| Stop                      | When                                                                                                           |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Product questions         | Large ticket only. One batch, before the spec is written up.                                                   |
+| Spec approval             | Large ticket only. The written spec, before planning.                                                          |
+| Red-team dispute          | Large ticket only. A product dispute, or a Critical open after round 3.                                        |
+| SRS change                | A requirement does not fit, or a better approach exists.                                                       |
+| Rules 1 to 3              | A verified finding against rule 1, 2 or 3, once per finding.                                                   |
+| Outside the branch        | A fix needs a live environment step or a decision the branch cannot make.                                      |
+| Not a small fix           | A key the lead calls not small, or an `introduced` or `on-path` fix that would break the small-fix definition. |
+| The cap                   | The review loop reaches its cap.                                                                               |
+| Red gate                  | A gate after the loop is red a second time (The review loop).                                                  |
+| A teammate's stop-and-ask | A destructive step, a broken plan, failing baseline tests.                                                     |
+| The merge                 | Always the owner's.                                                                                            |
 
 The push that opens the PR is not a stop (U193, owner, 9 Nov 2026).
 
