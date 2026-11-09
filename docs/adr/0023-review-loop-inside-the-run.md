@@ -154,7 +154,7 @@ collects a review there.
 - One launch takes a job to a reviewed PR, and no report passes through the
   owner.
 - The loop ends. It makes at most three review passes before the cap, where
-  #166 and #167 took eight or nine, and the two later passes read a fix's
+  #166 and #167 took about eight, and the two later passes read a fix's
   commits, not the whole branch.
 - The push is not a stop, so the owner is asked only where an answer is
   needed.
