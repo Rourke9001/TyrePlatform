@@ -382,10 +382,14 @@ a file the branch did not touch is re-run once before it counts as red.
    The options: one more fix round (round 3 after round 2; the next
    `owner-<n>` round after a round outside the two, its `owner-fix-<n>.md`
    holding the open findings as step 7's input file does; after round 3,
-   the same options minus this one), a different design, or end the run.
-   Either of the last two is End the run. A different design is not built
-   in this run; the ticket goes back through its spec. An `introduced` bug
-   is never ticketed.
+   the same options minus this one), a different design, end the run, or,
+   when every open finding is a Minor that is not against rules 1 to 3,
+   accept them (CLAUDE.md, Which bugs a branch fixes, U198). A different
+   design or end the run is End the run. A different design is not built
+   in this run; the ticket goes back through its spec. On accept, comment
+   the findings and the owner's answer on each key, add them to the PR
+   body's Decisions, record them closed under the owner's answers, and go
+   to step 6. An `introduced` bug is never ticketed.
 
 **End the run**, for a large ticket or a bundle: comment the stop or the
 owner's choice, what is open and any audit report path on each key, record
