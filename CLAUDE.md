@@ -304,25 +304,29 @@ out of the job.
 
 After the loop, a red gate (the lead's own `make lint` and `make test` before
 the push, or CI on the pushed head) gets one fresh fixer and a re-review of
-that fix's range, outside the two rounds. A second red stops for the owner.
+that fix's range, outside the two rounds; inside a fix round, a red gate
+gets one more fresh fixer in that round. A second red stops for the owner.
+An out-of-round re-review (an owner-ordered fix, a gate fix, a CI fix, a
+reopened round) that leaves something open stops for the owner.
 
 ### The stops
 
 A `make pipeline` run waits for the owner at these points and no others:
 
-| Stop                      | When                                                                                                           |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Product questions         | Large ticket only. One batch, before the spec is written up.                                                   |
-| Spec approval             | Large ticket only. The written spec, before planning.                                                          |
-| Red-team dispute          | Large ticket only. A product dispute, or a Critical open after round 3.                                        |
-| SRS change                | A requirement does not fit, or a better approach exists.                                                       |
-| Rules 1 to 3              | A verified finding against rule 1, 2 or 3, once per finding.                                                   |
-| Outside the branch        | A fix needs a live environment step or a decision the branch cannot make.                                      |
-| Not a small fix           | A key the lead calls not small, or an `introduced` or `on-path` fix that would break the small-fix definition. |
-| The cap                   | The review loop reaches its cap.                                                                               |
-| Red gate                  | A gate after the loop is red a second time (The review loop).                                                  |
-| A teammate's stop-and-ask | A destructive step, a broken plan, failing baseline tests.                                                     |
-| The merge                 | Always the owner's.                                                                                            |
+| Stop                      | When                                                                                                                                            |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Product questions         | Large ticket only. One batch, before the spec is written up.                                                                                    |
+| Spec approval             | Large ticket only. The written spec, before planning.                                                                                           |
+| Red-team dispute          | Large ticket only. A product dispute, or a Critical open after round 3.                                                                         |
+| SRS change                | A requirement does not fit, or a better approach exists.                                                                                        |
+| Rules 1 to 3              | A verified finding against rule 1, 2 or 3, once per finding.                                                                                    |
+| Live step or decision     | A fix needs a live environment step or a decision the branch cannot make.                                                                       |
+| Not a small fix           | A key the lead calls not small, or an `introduced` or `on-path` fix that would break the small-fix definition.                                  |
+| The cap                   | The review loop reaches its cap, or an out-of-round re-review leaves something open.                                                            |
+| Red gate                  | A gate is red a second time, inside a fix round or after the loop (The review loop).                                                            |
+| A teammate's stop-and-ask | A destructive step, a broken plan, failing baseline tests.                                                                                      |
+| The run cannot go on      | A check, a review or an agent fails in a way `/pipeline` does not recover (its When something fails section), or a fixer leaves the tree dirty. |
+| The merge                 | Always the owner's.                                                                                                                             |
 
 The push that opens the PR is not a stop (U193, owner, 9 Nov 2026).
 
