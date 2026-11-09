@@ -77,9 +77,12 @@ does not use step 2: it runs the review and the auditors in place by
    checkout first), because `/design-audit` and `/pipeline` read reports
    only there. A verifier writes to the report path its caller gives. The
    first line is `Review: full, <range>`, or for a re-review
-   `Review: fix round <k>, <range>`, where `<k>` is one more than the
-   fix-round reports already under `.superpowers/sdd/*-review-pr<n>/`, a
-   fix-round report being one whose first line starts `Review: fix round`.
+   `Review: fix round <k>, <range>`, where `<k>` is one more than the fix
+   rounds this PR has had. Count the fix-round reports already under
+   `.superpowers/sdd/*-review-pr<n>/`, a fix-round report being one whose
+   first line starts `Review: fix round`, and, for a PR a `/pipeline` run
+   opened, the `Fix 1:`, `Fix 2:` and `Fix 3:` lines in the `state.md` step
+   1 read; its other `Fix` lines are rounds outside the two and do not count.
    A verifier's first line is `Review: <range>`. For each surviving finding
    give the severity, `file:line`, what is wrong and why it matters, the
    evidence, and the fix, and on a line of its own `Class: <class>`, its
