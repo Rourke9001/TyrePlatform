@@ -68,26 +68,26 @@ does not use step 2: it runs the review and the auditors in place by
    only there. A verifier writes to the report path its caller gives. The
    first line is `Review: full, <range>`, or for a re-review
    `Review: fix round <k>, <range>`, where `<k>` is one more than the
-   fix-round reports already under `.superpowers/sdd/*-review-pr<n>/`. A
-   verifier's first line is `Review: <range>`. For each surviving finding
-   give the severity,
-   `file:line`, what is wrong and why it matters, the evidence, and the fix,
-   and on a line of its own `Class: <class>`, its class by CLAUDE.md, Which
-   bugs a branch fixes (U191): `introduced`, `on-path`, `unrelated` or
-   `not a bug`. Where that section says merge base, use
-   `git merge-base origin/<base branch> <PR head>`, or the verifier's review
-   base from step 1, never `<sha>`. After the class, add `rule 1-3`
-   to a finding against rules 1 to 3 and `spec` to a spec finding, as in
-   `Class: on-path rule 1-3`. Use the class words nowhere else in the
-   report. For an `unrelated` bug, give the open ticket found and the search
-   used, or "none found". A Minor that is not a bug is non-blocking: give at
-   most five, each with a one-line fix, and count the rest. It is fixed in
-   the PR or goes under the PR's "Set aside", never into a ticket of its own
-   (CLAUDE.md, U130). List what you set aside, with the reason, and what
-   step 4 dropped, with why. When a finding lands on a mechanism that an
-   earlier round of this PR, or an earlier PR, already fixed, say so in the
-   finding and recommend `/design-audit <mechanism>` before the next fix
-   round. Last, list each cited file that is not in
+   fix-round reports already under `.superpowers/sdd/*-review-pr<n>/`, a
+   fix-round report being one whose first line starts `Review: fix round`.
+   A verifier's first line is `Review: <range>`. For each surviving finding
+   give the severity, `file:line`, what is wrong and why it matters, the
+   evidence, and the fix, and on a line of its own `Class: <class>`, its
+   class by CLAUDE.md, Which bugs a branch fixes (U191): `introduced`,
+   `on-path`, `unrelated` or `not a bug`. Where that section says merge
+   base, use `git merge-base origin/<base branch> <PR head>`, or the
+   verifier's review base from step 1, never `<sha>`. After the class, add
+   `rule 1-3` to a finding against rules 1 to 3 and `spec` to a spec
+   finding, as in `Class: on-path rule 1-3`. Use the class words nowhere
+   else in the report. For an `unrelated` bug, give the open ticket found
+   and the search used, or "none found". For a Minor that is not a bug,
+   give at most five, each with a one-line fix, and count the rest. It is
+   fixed in the PR or goes under the PR's "Set aside", never into a ticket
+   of its own (CLAUDE.md, U130). List what you set aside, with the reason,
+   and what step 4 dropped, with why. When a finding lands on a mechanism
+   that an earlier round of this PR, or an earlier PR, already fixed, say so
+   in the finding and recommend `/design-audit <mechanism>` before the next
+   fix round. Last, list each cited file that is not in
    `git diff --name-only <range>`, and end with the line
    `Scope: <n> files cited, <m> outside the range`, where `<n>` here is the
    number of distinct files the report cites and `<m>` the number in the
@@ -101,7 +101,8 @@ open, by CLAUDE.md's meaning of open (Which bugs a branch fixes), means merge
 after fixes. A verifier replies with the report path only.
 
 For a PR, each fix round runs in a fresh session, and its re-review runs here
-as `/review-pr <n> <level> from <sha>` (CLAUDE.md, The review loop, U192). A
+as `/review-pr <n> <level> from <sha>` (CLAUDE.md, The review loop, U192),
+where `<sha>` is the short head sha in the previous report's filename. A
 re-review takes that round's range and does not look outside it; a verified
 finding that arrives from outside it anyway is classified like any other.
 After the second fix round's re-review, or a later one, what is still open
