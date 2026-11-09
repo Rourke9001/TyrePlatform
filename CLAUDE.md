@@ -40,7 +40,8 @@ takes one of these three:
 - **`unrelated`.** It is older, and neither.
 
 An `introduced` or `on-path` bug is fixed on the branch with a regression
-test. It is never ticketed and never merged open. The PR's Decisions name
+test. It is never ticketed, and never merged open but for a Minor the owner
+accepts at the cap (below). The PR's Decisions name
 each fix, so the code review sees it.
 
 An `unrelated` bug is not fixed here. Its evidence goes as a comment on an
@@ -65,8 +66,10 @@ bug and counts toward the cap in The review loop.
 A finding is open until it is fixed, handed to a ticket, set aside under the
 schedule test (U130) or ruled by the owner to stay as it is. An owner answer
 that orders or shapes a fix leaves the finding open, and the next fixer gets
-it with that answer. An `introduced` bug is closed only by a fix; an owner
-ruling cannot close it.
+it with that answer. An `introduced` bug is closed only by a fix, with one
+exception: at the cap, the owner may accept an open Minor that is not
+against rules 1 to 3. It goes as a comment on the working ticket and the
+PR's Decisions name it (U198, owner, 9 Nov 2026).
 
 A finding against rules 1 to 3 below is a bug at any severity. It is
 verified even when Minor, and stops for the owner once per finding, whatever
@@ -303,8 +306,8 @@ classified like any other. The loop ends as soon as a review leaves no open
 `introduced` or `on-path` bug and no open spec finding (Which bugs a branch
 fixes). If one is still open once the second round has closed, however it
 closed, the loop is at its cap and stops for the owner, who chooses one more
-fix round, a different design for the mechanism (`/design-audit`), or ending
-the run. A round that commits nothing gets no re-review, since an empty
+fix round, a different design for the mechanism (`/design-audit`), ending
+the run, or accepting what is open when all of it is Minor (U198). A round that commits nothing gets no re-review, since an empty
 range has nothing to review (U196, owner, 9 Nov 2026).
 
 After the loop, a red gate (the lead's own `make lint` and `make test` before
