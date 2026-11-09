@@ -39,28 +39,11 @@ stage would run as a plain subagent.
      While that PR is open, stop: a late fix round works in this checkout.
      Name the keys and the PR; the remedy is to merge or close that PR, or
      to delete its state directory.
-   - This job's file at `handed over`, its PR open (read as above): run
-     steps 4 and 5 first. A `Reopened from:` path with no
-     `Fix reopened-<m>` line, a `Fix reopened-<m>` line with no `after`, or
-     a non-empty `git rev-list origin/<branch>..<branch>`, is an interrupted
-     reopened round: resume it (step 5). With no `Fix reopened-<m>` line
-     yet, it resumes at acting on the report's classes, so an unanswered
-     rule 1 to 3 stop is put to the owner again before any fixer runs.
-     Otherwise look for `.superpowers/sdd/*-review-pr<n>/report*.md`
-     written after the `Handed over:` time (`date -u -r <file> +%FT%TZ`)
-     and not listed under `Reopened from:`. For the newest one, record its
-     path under `Reopened from:`, then act on its classes as in Review loop
-     step 5. Only then record `Fix reopened-<m>: before=<HEAD>; started`,
-     where `<m>` counts this job's reopened rounds. If the report leaves
-     nothing a fixer owns, record `after=<before>`; otherwise run one fix
-     round from it as an out-of-round fix (Review loop), record stage
-     `reopened fix`, push, and wait for CI as in Hand-over step 4. Then hand
-     over again as in Hand-over step 5, with a new `Handed over:` time. None
-     found: stop as for a closed PR, below.
-   - This job's file at `handed over`, its PR merged or closed: stop.
-     Close-out takes it from the merge. To run these keys again for a
-     second PR, the owner first deletes or renames that state directory and
-     deletes that PR's branch (step 6).
+   - This job's file at `handed over`: stop. Close-out takes it from the
+     merge, and a finding on its open PR is fixed outside the run
+     (Hand-over step 5). To run these keys again for a second PR, the owner
+     first deletes or renames that state directory and deletes that PR's
+     branch (step 6).
    - This job's file at `ended at the cap`: stop, and say that deleting its
      state directory frees the next launch.
    - This job's file at any other stage: this is a resume (step 5).
@@ -68,11 +51,10 @@ stage would run as a plain subagent.
 4. Run `git status --porcelain`.
    - Fresh run: if it prints anything, stop and show it. The checkout is
      shared, and a dirty tree is usually another session's work.
-   - Resume, a reopened round included: if it prints anything, show it as
-     possibly this run's own unfinished work and stop for the owner to say
-     keep or discard.
-5. Resume only, a reopened round included: check each fact that the
-   recorded stage implies against reality: the branch exists
+   - Resume: if it prints anything, show it as possibly this run's own
+     unfinished work and stop for the owner to say keep or discard.
+5. Resume only: check each fact that the recorded stage implies against
+   reality: the branch exists
    (`git rev-parse --verify <branch>`), the spec commit is on it, the plan
    file exists, and, from stage `PR opened` on, the PR is open
    (`gh pr view <n> --json state`). If any fact disagrees, stop and report
@@ -88,8 +70,8 @@ stage would run as a plain subagent.
    its recorded `before`, so every fixer commit stays inside its re-review
    range. HEAD not descending
    from `before` is a mismatch. At stage `loop done`, go to Hand-over. At
-   `PR opened`, `CI fix` or `reopened fix`, once any round above is
-   finished: if `git rev-list origin/<branch>..HEAD` is non-empty, run
+   `PR opened` or `CI fix`, once any round above is finished: if
+   `git rev-list origin/<branch>..HEAD` is non-empty, run
    `git push -u origin <branch>`; then wait for CI on HEAD as in Hand-over
    step 4, and hand over as in Hand-over step 5 once `CI <result>` is
    recorded for that head.
@@ -285,9 +267,9 @@ loop, so two writers are never in the checkout together.
 
 It runs on the local branch before the push, so the PR opens already
 reviewed (CLAUDE.md, The review loop, U192). A round's `<id>` is `1`, `2`,
-`3`, `gate`, `ci`, `reopened-<n>`, `owner-<n>` or `takeout`, and review 0's
-is `0`; its files in `<state dir>` are `findings-<id>.md`, `review-<id>.md`
-and `fixer-<id>-report.md`, and its state line is `Fix <id>:`. The classes
+`3`, `gate`, `ci` or `owner-<n>`, and review 0's is `0`; its files in
+`<state dir>` are `findings-<id>.md`, `review-<id>.md` and
+`fixer-<id>-report.md`, and its state line is `Fix <id>:`. The classes
 and flags are CLAUDE.md's, Which bugs a branch fixes (U191). Run the gate,
 here and in Hand-over, as `make lint`, then `VITEST_MAX_WORKERS=4 make test`,
 each in the foreground, unpiped, Bash timeout 600000 ms (docs/lessons.md,
@@ -310,8 +292,7 @@ a file the branch did not touch is re-run once before it counts as red.
    `git diff --name-only <from>...HEAD` as the range's file list; an empty
    list means there is nothing to review and is an error, not a clean
    review. A missing `pipeline-review-base` on a resume is recreated, not a
-   stop. Once the branch is on origin (for example a `ci` or
-   `reopened-<n>` round), run
+   stop. Once the branch is on origin (for example a `ci` round), run
    `git branch --set-upstream-to=origin/<branch>` after the review, and
    every push is `git push -u origin <branch>`, never a bare `git push`,
    which would follow an upstream that may be the local
@@ -392,44 +373,32 @@ a file the branch did not touch is re-run once before it counts as red.
    cap). Show what is open and the audit report path. The options: one more
    fix round (stages `fix 3`, `review 3`; if `review 3` still leaves
    something open, stop again with the same options minus this one), a
-   different design, or take the ticket out. A different design is not
-   built in this run: comment the audit report path and the owner's choice
-   on the ticket, record `ended at the cap`, and leave the branch; the
-   ticket goes back through its spec. An `introduced` bug is never
+   different design, or end the run. Either of the last two ends the run,
+   for a large ticket or a bundle: comment the owner's choice, what is open
+   and the audit report path on each key, record `ended at the cap`, and
+   leave the branch. A different design is not built in this run; the
+   ticket goes back through its spec. For a bundle, tell the owner the
+   other keys can be relaunched as a new job once this run's state
+   directory and branch are deleted. An `introduced` bug is never
    ticketed.
-10. **Taking a key out** (stage `take-out`). In a bundle with other keys
-    left, record `Fix takeout: before=<HEAD>; started`, dispatch a fresh unnamed
-    general-purpose subagent with the revert brief below, run the gate as
-    in step 7, and re-review that range as in steps 2 to 5. Remove the key
-    from `Keys:` and, if `pr-body.md` exists, from its `Closes` lines; move
-    it back to To Do and comment why. Nothing open afterwards: record
-    `loop done`. Something still open: stop at the cap again with the
-    remaining options. For a large ticket, or the last key of a bundle,
-    record stage `ended at the cap`, comment on the ticket, leave the
-    branch, and say that deleting the state directory frees the next
-    launch.
 
-**An out-of-round fix** (`owner-<n>`, `gate`, `ci`, `reopened-<n>`) is not
-one of the two rounds. Record its `Fix <id>: before=<HEAD>; started` line
-if it is not there yet, dispatch one fresh fixer as in step 7 with that
-round's report (`owner-fix-<n>.md`, `gate-fix.md`, `ci-fix.md`, or the
-`/review-pr` report), run the gate as in step 7, record `after`, and
-re-review `<before>...<after>` as in steps 2 to 5. Then judge what is open
-as in step 6, against the round's report and its fixer report. Anything
-open runs `/design-audit` and stops (The cap) with step 9's options. One
-more round takes the id `<id>-b`, once. In a `gate` or `ci` round a red
-gate after the fixer is the second red: stop (Red gate), with no second
-fixer. Once the PR is open, add the round's Decisions lines
-and report paths to `pr-body.md` and run
-`gh pr edit <n> --body-file <state dir>/pr-body.md`.
+**An out-of-round fix** (`owner-<n>`, `gate`, `ci`) is not one of the two
+rounds. Record its `Fix <id>: before=<HEAD>; started` line if it is not
+there yet, dispatch one fresh fixer as in step 7 with that round's report
+(`owner-fix-<n>.md`, `gate-fix.md` or `ci-fix.md`), run the gate as in
+step 7, record `after`, and re-review `<before>...<after>` as in steps 2
+to 5. Then judge what is open as in step 6, against the round's report and
+its fixer report. Anything open runs `/design-audit` and stops (The cap)
+with step 9's options. One more fix round there is the next `owner-<n>`
+round, its `owner-fix-<n>.md` holding the open findings, each copied with
+its `Class:` line. In a `gate` or `ci` round a red gate after the fixer is
+the second red: stop (Red gate), with no second fixer. Once the PR is
+open, add the round's Decisions lines and report paths to `pr-body.md` and
+run `gh pr edit <n> --body-file <state dir>/pr-body.md`.
 
 The fixer brief, verbatim:
 
 > You fix review findings for <keys> on branch `<branch>`, in place, in this checkout. The report is `<report path>`; read it yourself, it is the brief. Fix every finding it marks `introduced` or `on-path`, and every Critical or Important finding it flags `spec`, and nothing else. For each: write a regression test that fails first, then the fix. Then probe your fix on inputs the report does not list, the NULL or empty case included, and say which you tried. One commit per finding, naming its key. Never amend, rebase or revert a commit you did not author. Do not dispatch subagents. Do not push. Business rules go in SQL with a test in `db/tests/`; transport and auth go in Go (CLAUDE.md). Run `make fmt lint`, then `VITEST_MAX_WORKERS=4 make test`, each in the foreground, unpiped, with the Bash timeout up to 600000 ms, and read each exit code; the tests reset the local database, which is expected. If the formatter changed files, commit them, and end with an empty `git status --porcelain`. If a fix would need a migration, endpoint, route or screen the branch does not have, or contradicts the spec, stop and report that instead of fixing. Report: each finding with its commit, its test, the probes you ran, both exit codes, and one Decisions line per fix for the PR body. End your reply with one line: `STATUS: done` or `STATUS: stopped, <why>`.
-
-The revert brief, verbatim:
-
-> Take <key> out of branch `<branch>`, in place. Run `git log --format='%h %s' <base>..HEAD` and revert, newest first, every commit whose subject names <key> as a whole key (TYRE-1 is not TYRE-12: match `<key>` followed by a non-digit or the end), with `git revert --no-edit`; never rebase or reset. If a revert conflicts, stop and report the conflict. Run `make fmt lint`, then `VITEST_MAX_WORKERS=4 make test`, each in the foreground, unpiped, and read each exit code. Do not push. Report the commits reverted, the revert commits and both exit codes. End your reply with one line: `STATUS: done` or `STATUS: stopped, <why>`.
 
 A fixer dispatched again for an interrupted round (Before anything, step 5)
 gets the same brief, then `git log <before>..HEAD` as the commits this
@@ -478,14 +447,13 @@ round already holds.
    Record `CI <result> @ <head sha>` on the `PR:` line.
 5. Move every key to In Review, comment the PR link on each, delete
    `pipeline-review-base` (`git branch -D pipeline-review-base`), set
-   `Handed over:` and stage `handed over`, and tell the owner: the PR, the
-   rounds, what was fixed, the tickets touched, and the lead's calls. The
-   owner merges, and close-out runs by itself from the merge.
-   `/review-pr <n>` in a separate session and `/code-review ultra` are
-   optional; a `/review-pr` report plus a relaunch reopens one fix round
-   (Before anything, step 3). Until that PR merges or closes, a new
-   `make pipeline` for another job stops, because a late fix round works
-   in this checkout.
+   stage `handed over`, and tell the owner: the PR, the rounds, what was
+   fixed, the tickets touched, and the lead's calls. The owner merges, and
+   close-out runs by itself from the merge. `/review-pr <n>` in a separate
+   session and `/code-review ultra` are optional; a finding from either is
+   fixed outside the run, as on the manual path (`/ticket` step 12). Until
+   that PR merges or closes, a new `make pipeline` for another job stops,
+   because a late fix round works in this checkout.
 
 ## When something fails
 
@@ -521,9 +489,7 @@ round already holds.
 ```
 # Pipeline state: <keys>
 - Keys:
-- Last finished stage: none | triage | spec | plan | red team | implementation | review 0 | fix 1 | review 1 | fix 2 | review 2 | fix 3 | review 3 | take-out | loop done | gate fix | PR opened | CI fix | handed over | reopened fix | ended at the cap
-- Handed over: <UTC time>
-- Reopened from: <report path>
+- Last finished stage: none | triage | spec | plan | red team | implementation | review 0 | fix 1 | review 1 | fix 2 | review 2 | fix 3 | review 3 | loop done | gate fix | PR opened | CI fix | handed over | ended at the cap
 - Branch:
 - Small fix: <key>: yes/no, because (one line per key)
 - Spec: <path> @ <commit>
