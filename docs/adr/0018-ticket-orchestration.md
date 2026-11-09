@@ -1,6 +1,7 @@
 # ADR-0018: An agent team runs each ticket to its PR; a routine runs close-out
 
-- **Status:** Accepted. Its PR, #107, merged on 12 Oct 2026.
+- **Status:** Accepted. Its PR, #107, merged on 12 Oct 2026. Its stage 5
+  decision and its push stop are superseded by ADR-0023 (U192, U193).
 - **Date:** 2026-10-12
 - **Deciders:** Rourke
 - **Related:** TYRE-412, TYRE-394 (the five stages), TYRE-395 (the stage 5
