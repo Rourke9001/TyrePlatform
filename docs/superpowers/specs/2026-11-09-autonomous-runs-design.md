@@ -129,10 +129,26 @@ a bug still takes the schedule test (U130). The old exception paragraph
 (outside the branch's files and needing a migration or endpoint) goes: the
 Unrelated class covers it.
 
+Three clarifications from the plan's red team (9 Nov 2026):
+
+- A comment, doc or runbook line has no input that reaches it. It is On
+  the path when the diff touches it or it describes code the branch changes.
+- A Critical or Important finding that the branch does not do what its own
+  spec, plan or definition of done requires is fixed on the branch like an
+  Introduced bug and counts toward the cap, though it is not a bug by the
+  definition.
+- A rule 1 to 3 finding is verified whatever its severity, and stops for
+  the owner once per finding, not once per round.
+
 ## The review loop
 
-Runs for every job that touches `api/`, `db/`, `web/` or `infra/`. It runs
-on the local branch, before the push, so the PR opens already reviewed.
+Runs for every job that is not docs-only, because the implementer's own
+final review is a self-review. It runs on the local branch, before the
+push, so the PR opens already reviewed.
+
+The range a review reads is set through the branch's upstream, the diff
+`/code-review` documents, and never through an argument: the skill has no
+range form, and a wrong diff would end the loop falsely.
 
 **Who does what.** The reason behind U125 holds: nothing that wrote the code
 reviews it. The lead never edits code, so the lead may collect a review.
@@ -225,9 +241,12 @@ CLAUDE.md and `/review-pr`, not only in the pipeline.
   branch carries".
 - A new ADR that supersedes ADR-0018's stage 5 decision. A new ADR, not an
   amendment to 0018.
-- TYRE-395 (open, not built): a CI step that fails a code PR with no ticked
-  separate-review line. It folds into this work. If the gate is built, it
-  accepts either a run's review reports or a `/review-pr` report.
+- TYRE-395, a CI step that fails a code PR with no ticked separate-review
+  line, was closed unbuilt into TYRE-470 on 9 Nov 2026. It is not built
+  here; the review line stays a written rule.
+- `make pipeline` passes `T` to the launcher as data. Today's recipe lets
+  the shell run a backtick or `$(...)` inside `T` before the launcher's
+  check sees it, which the red team reproduced.
 - No permission change: `.claude/settings.json` already allows `git push`,
   and `merge-push-guard.sh` asks only for `develop` and `main`.
 
