@@ -1,6 +1,6 @@
 ---
 description: Stage 5 code review of a PR, run in a session that did not write it
-argument-hint: [PR number] [level, default high]
+argument-hint: [PR number] [level, default high] [from <sha> for a re-review]
 ---
 Review PR **$ARGUMENTS** before it merges (CLAUDE.md, How work runs, stage 5).
 Report only: do not fix, commit, push, comment on GitHub or touch Jira unless
@@ -9,38 +9,103 @@ the owner says so after reading the report.
 If this session wrote any of the PR's code, stop and say so. The review must
 come from a session that does not share the author's context.
 
-1. **Read first.** `gh pr view <n>` for the body, the Jira key and the base
-   branch. Then `CLAUDE.md`, the `CLAUDE.md` of each directory the diff
-   touches, `docs/comments.md`, the spec the PR body names and any ADR it
-   cites. Read the ticket and its comments in Jira and the SRS IDs it cites
-   in Confluence. A deviation that an owner ruling covers is not a finding,
-   unless you show that the ruling itself is wrong.
-2. **Review.** Run `/code-review <level> <n>` (default `high`). For a stacked
-   PR, review its own diff (`gh pr diff <n>`), not its diff against
-   `develop`. Stay read-only in this checkout and never switch branches here.
-   To run anything on the branch, use a worktree
-   (`git worktree add ../tp-review-<n> <branch>`) and remove it afterwards.
-3. **Run the auditors** whose trigger the diff meets: `rls-auditor`,
-   `append-only-auditor`, `valuation-verifier`.
-4. **Verify every Critical and Important finding** before keeping it. Try to
-   disprove it against the code, the spec and the installed library source,
-   citing `file:line`. Never rely on memory of how a library behaves
-   (docs/lessons.md, 2026-09-23). Drop what does not survive, and say why.
-5. **Report.** Write `.superpowers/sdd/<date>-review-pr<n>/report.md`. For
-   each surviving finding give the severity, `file:line`, what is wrong and
-   why it matters, the evidence, and the fix, and mark it bug or not a bug
-   by CLAUDE.md's definition. List every bug, whatever its severity and
-   whether or not it predates the PR: each one blocks the merge and is
-   fixed in the PR, unless it meets CLAUDE.md's exception, which the report
-   names with its reason (U146). A Minor that is not a bug is non-blocking:
-   give at most five, each with a one-line fix, and count the rest. It is
-   fixed in the PR or goes under the PR's "Set aside", never into a ticket
-   of its own (CLAUDE.md, U130). List what you set aside, with the reason.
-   When a finding lands on a mechanism that an earlier round of this PR,
-   or an earlier PR, already fixed, say so in the finding and recommend
-   `/design-audit <mechanism>` before the next fix round.
+The arguments are the PR number `<n>`, a level (default `high`) and, for the
+re-review of one fix round, `from <sha>`, where `<sha>` is the PR head the
+round started from. Without `from`, this is the full review of the PR.
 
-Reply with the counts by severity and the number of bugs, the merge verdict
-(merge, merge after fixes, or do not merge; any open bug means merge after
-fixes) and the report path. Fixes run in the authoring
-session or a fresh one, then a scoped re-review runs here.
+A pipeline lead's verifier has no PR and no arguments. It follows steps 1, 4
+and 5 only, on the raw findings in the file its caller gives. A pipeline lead
+does not use step 2: it runs the review and the auditors in place by
+`/pipeline`'s own steps, because nothing else is writing in the checkout.
+
+1. **Read first.** `gh pr view <n>` for the body, the Jira key and the base
+   branch, and `gh pr view <n> --json headRefName,headRefOid` for the head
+   branch and commit. With `from`, run step 2's worktree check now, before
+   reading on. A verifier takes the keys, the spec path, the review base and
+   the range from its caller instead; with no range given, the range is
+   `@{upstream}...HEAD`, and with no review base,
+   `git merge-base origin/develop HEAD`. Then `CLAUDE.md`, the `CLAUDE.md`
+   of each directory the diff touches, `docs/comments.md`, the spec the PR
+   body names and any ADR it cites. Read each ticket and its
+   comments in Jira and the SRS IDs it cites in Confluence. Read the earlier
+   review reports for this PR under `.superpowers/sdd/*-review-pr<n>/` in
+   the main checkout, or the previous report a verifier's caller gives. A
+   deviation that an owner ruling covers is not a finding, unless you show
+   that the ruling itself is wrong.
+2. **Review.** Without `from`, run `/code-review <level> <n>` (default
+   `high`). For a stacked PR, review its own diff (`gh pr diff <n>`), not its
+   diff against `develop`. Stay read-only in the main checkout and never
+   switch branches there. To run anything on the branch, use a worktree
+   (`git worktree add ../tp-review-<n> <branch>`) and remove it afterwards.
+
+   With `from <sha>`, review only `<sha>...<PR head>`. `/code-review` with no
+   target reviews the upstream of the directory the session started in, so
+   this session must have been started inside a worktree at the PR head. If
+   `git rev-parse --show-toplevel` is the main checkout (the first path
+   `git worktree list` prints), stop and give the owner these commands,
+   filled in, to run from the main checkout: `git fetch origin <head branch>`,
+   then `git worktree add -b review-pr<n> ../tp-review-<n> <PR head>`, then
+   start `claude "/review-pr <n> <level> from <sha>"` from `../tp-review-<n>`.
+   Inside the worktree, HEAD must be the PR head on branch `review-pr<n>`; if
+   it is not, stop and say so. Run `git branch -f review-pr<n>-base <sha>`
+   and `git branch --set-upstream-to=review-pr<n>-base`, the only refs this
+   form writes, and check that `git rev-parse @{upstream}` equals
+   `git rev-parse <sha>`. Then run `/code-review <level>` with no target.
+
+   Either way, wait for `/code-review`'s result before step 3.
+3. **Run the auditors** whose trigger the reviewed diff meets, each given
+   that diff's range: `rls-auditor`, `append-only-auditor`,
+   `valuation-verifier`.
+4. **Verify every Critical and Important finding, and every rule 1 to 3
+   finding whatever its severity,** before keeping it. Try to disprove it
+   against the code, the spec and the installed library source, citing
+   `file:line`. Never rely on memory of how a library behaves
+   (docs/lessons.md, 2026-09-23). Drop what does not survive, and say why.
+5. **Report.** Write
+   `.superpowers/sdd/<date>-review-pr<n>/report-<short head sha>.md` in the
+   main checkout, by absolute path (`git worktree list` prints the main
+   checkout first), because `/design-audit` and `/pipeline` read reports
+   only there. A verifier writes to the report path its caller gives. The
+   first line is `Review: full, <range>`, or for a re-review
+   `Review: fix round <k>, <range>`, where `<k>` is one more than the
+   fix-round reports already under `.superpowers/sdd/*-review-pr<n>/`. A
+   verifier's first line is `Review: <range>`. For each surviving finding
+   give the severity,
+   `file:line`, what is wrong and why it matters, the evidence, and the fix,
+   and on a line of its own `Class: <class>`, its class by CLAUDE.md, Which
+   bugs a branch fixes (U191): `introduced`, `on-path`, `unrelated` or
+   `not a bug`. Where that section says merge base, use
+   `git merge-base origin/<base branch> <PR head>`, or the verifier's review
+   base from step 1, never `<sha>`. After the class, add `rule 1-3`
+   to a finding against rules 1 to 3 and `spec` to a spec finding, as in
+   `Class: on-path rule 1-3`. Use the class words nowhere else in the
+   report. For an `unrelated` bug, give the open ticket found and the search
+   used, or "none found". A Minor that is not a bug is non-blocking: give at
+   most five, each with a one-line fix, and count the rest. It is fixed in
+   the PR or goes under the PR's "Set aside", never into a ticket of its own
+   (CLAUDE.md, U130). List what you set aside, with the reason, and what
+   step 4 dropped, with why. When a finding lands on a mechanism that an
+   earlier round of this PR, or an earlier PR, already fixed, say so in the
+   finding and recommend `/design-audit <mechanism>` before the next fix
+   round. Last, list each cited file that is not in
+   `git diff --name-only <range>`, and end with the line
+   `Scope: <n> files cited, <m> outside the range`, where `<n>` here is the
+   number of distinct files the report cites and `<m>` the number in the
+   list just above it. The range is `origin/<base branch>...<PR head>` for a
+   full review, `<sha>...<PR head>` for a re-review, and the verifier's range
+   from step 1.
+
+Reply with the counts by severity and by class, the merge verdict (merge,
+merge after fixes, or do not merge) and the report path. Any finding still
+open, by CLAUDE.md's meaning of open (Which bugs a branch fixes), means merge
+after fixes. A verifier replies with the report path only.
+
+For a PR, each fix round runs in a fresh session, and its re-review runs here
+as `/review-pr <n> <level> from <sha>` (CLAUDE.md, The review loop, U192). A
+re-review takes that round's range and does not look outside it; a verified
+finding that arrives from outside it anyway is classified like any other.
+After the second fix round's re-review, or a later one, what is still open
+goes to the owner, with a recommendation to run `/design-audit <mechanism>`
+on the mechanism it sits in. End a re-review by telling the owner to run,
+from the main checkout, `git worktree remove ../tp-review-<n>` and
+`git branch -D review-pr<n> review-pr<n>-base`.
