@@ -40,20 +40,23 @@ stage would run as a plain subagent.
      Name the keys and the PR; the remedy is to merge or close that PR, or
      to delete its state directory.
    - This job's file at `handed over`, its PR open (read as above): run
-     steps 4 and 5 first. A `Fix reopened-<m>` line with no `after`, or a
-     non-empty `git rev-list origin/<branch>..<branch>`, is an interrupted
-     reopened round: resume it (step 5). Otherwise look for
-     `.superpowers/sdd/*-review-pr<n>/report*.md` written after the
-     `Handed over:` time (`date -u -r <file> +%FT%TZ`) and not listed under
-     `Reopened from:`. For the newest one, record its path under
-     `Reopened from:` and, in the same write,
-     `Fix reopened-<m>: before=<HEAD>; started`, where `<m>` counts this
-     job's reopened rounds. Act on its classes as in Review loop step 5. If
-     that leaves nothing a fixer owns, record `after=<before>`; otherwise
-     run one fix round from it as an out-of-round fix (Review loop), record
-     stage `reopened fix`, push, and wait for CI as in Hand-over step 4.
-     Then hand over again as in Hand-over step 5, with a new
-     `Handed over:` time. None found: stop as for a closed PR, below.
+     steps 4 and 5 first. A `Reopened from:` path with no
+     `Fix reopened-<m>` line, a `Fix reopened-<m>` line with no `after`, or
+     a non-empty `git rev-list origin/<branch>..<branch>`, is an interrupted
+     reopened round: resume it (step 5). With no `Fix reopened-<m>` line
+     yet, it resumes at acting on the report's classes, so an unanswered
+     rule 1 to 3 stop is put to the owner again before any fixer runs.
+     Otherwise look for `.superpowers/sdd/*-review-pr<n>/report*.md`
+     written after the `Handed over:` time (`date -u -r <file> +%FT%TZ`)
+     and not listed under `Reopened from:`. For the newest one, record its
+     path under `Reopened from:`, then act on its classes as in Review loop
+     step 5. Only then record `Fix reopened-<m>: before=<HEAD>; started`,
+     where `<m>` counts this job's reopened rounds. If the report leaves
+     nothing a fixer owns, record `after=<before>`; otherwise run one fix
+     round from it as an out-of-round fix (Review loop), record stage
+     `reopened fix`, push, and wait for CI as in Hand-over step 4. Then hand
+     over again as in Hand-over step 5, with a new `Handed over:` time. None
+     found: stop as for a closed PR, below.
    - This job's file at `handed over`, its PR merged or closed: stop.
      Close-out takes it from the merge. To run these keys again for a
      second PR, the owner first deletes or renames that state directory and
@@ -299,7 +302,8 @@ a file the branch did not touch is re-run once before it counts as red.
    `git diff --name-only <from>...HEAD` as the range's file list; an empty
    list means there is nothing to review and is an error, not a clean
    review. A missing `pipeline-review-base` on a resume is recreated, not a
-   stop. Once the branch is on origin (a `ci` or `reopened-<n>` round), run
+   stop. Once the branch is on origin (for example a `ci` or
+   `reopened-<n>` round), run
    `git branch --set-upstream-to=origin/<branch>` after the review, and
    every push is `git push -u origin <branch>`, never a bare `git push`,
    which would follow an upstream that may be the local
@@ -347,14 +351,20 @@ a file the branch did not touch is re-run once before it counts as red.
    `Fix owner-<n>: before=<HEAD>; started`, and give a fresh fixer that
    file as its report. It is an out-of-round fix (below), not one of the
    two rounds.
-6. Nothing open that the fixer owns (`introduced`, `on-path`, or `spec` at
-   Critical or Important): record stage `loop done` and leave the loop.
+6. Judge what is open across this loop's reports, the fixer reports'
+   commits included, not only the last report: a finding that review
+   `<k-1>` gave fixer `<k>` and that `fixer-<k>-report.md` shows no commit
+   for is still open. Nothing open that the fixer owns (`introduced`,
+   `on-path`, or `spec` at Critical or Important): record stage
+   `loop done` and leave the loop.
 7. **Fix round `<k>` (1, 2):** record `Fix <k>: before=<HEAD>; started`.
    Dispatch a fresh unnamed general-purpose subagent with no `model`
    override and the fixer brief below, its report being the review just
-   read. Save its report verbatim to `<state dir>/fixer-<k>-report.md`.
+   read. A finding step 6 holds open from an earlier report goes with it:
+   add that report's path and the finding's `file:line` after the brief.
+   Save its report verbatim to `<state dir>/fixer-<k>-report.md`.
    `STATUS: stopped` is a stop under the row its reason meets (Not a small
-   fix, Outside the branch, SRS change, Rules 1 to 3); a reason that meets
+   fix, Live step or decision, SRS change, Rules 1 to 3); a reason that meets
    no row counts as a fixer that returned nothing. Then run `git status --porcelain`, `make lint` and `make test` yourself, unpiped, and read the exit codes. A non-zero exit goes to a new fixer with the gate's output, once, inside the same round; a second failure stops for the owner. A dirty tree is the owner's keep-or-discard call.
    That new fixer gets the same brief, then the gate's output saved to
    `<state dir>/gate-<k>.log`, and its report is added to the same report
@@ -391,8 +401,9 @@ if it is not there yet, dispatch one fresh fixer as in step 7 with that
 round's report (`owner-fix-<n>.md`, `gate-fix.md`, `ci-fix.md`, or the
 `/review-pr` report), run the gate as in step 7, record `after`, and
 re-review `<before>...<after>` as in steps 2 to 5.
-Anything that re-review leaves open stops for the owner. In a `gate` or
-`ci` round a red gate after the fixer is the second red: stop (Red gate),
+Anything that re-review leaves open stops for the owner (The cap). In a
+`gate` or `ci` round a red gate after the fixer is the second red: stop
+(Red gate),
 with no second fixer. Once the PR is open, add the round's Decisions lines
 and report paths to `pr-body.md` and run
 `gh pr edit <n> --body-file <state dir>/pr-body.md`.
@@ -477,13 +488,14 @@ round already holds.
   on that line, never on a file existing (docs/lessons.md, 2026-09-03 and
   2026-11-09). A verifier whose line is there but whose `review-<k>.md` is
   missing: write its hand-back to that path yourself before going on.
-- These stop for the owner too, though CLAUDE.md, The stops has no row for
-  them: the range assertion or an empty file list (Review loop step 2);
+- These stop for the owner under the row "The run cannot go on": the
+  range assertion or an empty file list (Review loop step 2);
   `git branch --show-current` not printing the run's branch; a verifier
   that still misses a raw finding after its second dispatch, or a review
-  that reads the wrong diff twice (step 4); a second red gate, or a dirty
-  tree, after a fixer inside a round (step 7); an out-of-round fix whose
-  re-review leaves something open.
+  that reads the wrong diff twice (step 4); a dirty tree after a fixer
+  (step 7); a finder, verifier or fixer that returns nothing twice
+  (above). A second red gate inside a round is the row "Red gate", and an
+  out-of-round re-review that leaves something open is "The cap".
 - A usage limit: stop. The state file holds the run;
   `make pipeline T="$ARGUMENTS"` resumes it.
 - Judge a stage by its output on disk, in git and on GitHub, never by a
