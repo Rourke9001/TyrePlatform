@@ -46,7 +46,8 @@ each fix, so the code review sees it.
 An `unrelated` bug is not fixed here. Its evidence goes as a comment on an
 open ticket found by a board search for the file or function name, with the
 search used. Only when the search finds none is a new ticket raised, linked
-to the parent. Decisions names the bug and its ticket.
+to the parent, the ticket whose work found the issue. Decisions names the
+bug and its ticket.
 
 A finding that is not a bug is `not a bug` and takes the schedule test
 (U130), except a spec finding, below: would the owner schedule it before
@@ -282,7 +283,8 @@ small fix is one defect with a regression test, no migration, no new endpoint,
 route or screen, and no change to a non-negotiable rule. When in doubt, it is
 not a small fix. `/ticket` waits for the owner to confirm the small-fix call;
 under `make pipeline` the lead makes it per key and states the reason in the
-PR body, and a key it calls not small stops, because it needs its own run.
+PR body. In a launch of more than one key, a key it calls not small stops,
+because it needs its own run; a single such key is a large ticket.
 An `introduced` or `on-path` bug whose fix would break this definition stops
 for the owner: the key becomes a full ticket (for a bundle, the run ends and
 the owner relaunches the other keys). Related small fixes may share one PR,
@@ -312,20 +314,20 @@ that leaves something open stops for the owner.
 
 A `make pipeline` run waits for the owner at these points and no others:
 
-| Stop                      | When                                                                                                                                            |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Product questions         | Large ticket only. One batch, before the spec is written up.                                                                                    |
-| Spec approval             | Large ticket only. The written spec, before planning.                                                                                           |
-| Red-team dispute          | Large ticket only. A product dispute, or a Critical open after round 3.                                                                         |
-| SRS change                | A requirement does not fit, or a better approach exists.                                                                                        |
-| Rules 1 to 3              | A verified finding against rule 1, 2 or 3, once per finding.                                                                                    |
-| Live step or decision     | A fix needs a live environment step or a decision the branch cannot make.                                                                       |
-| Not a small fix           | A key the lead calls not small, or an `introduced` or `on-path` fix that would break the small-fix definition.                                  |
-| The cap                   | The review loop reaches its cap, or an out-of-round re-review leaves something open.                                                            |
-| Red gate                  | A gate is red a second time, inside a fix round or after the loop (The review loop).                                                            |
-| A teammate's stop-and-ask | A destructive step, a broken plan, failing baseline tests.                                                                                      |
-| The run cannot go on      | A check, a review or an agent fails in a way `/pipeline` does not recover (its When something fails section), or a fixer leaves the tree dirty. |
-| The merge                 | Always the owner's.                                                                                                                             |
+| Stop                      | When                                                                                                                                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Product questions         | Large ticket only. One batch, before the spec is written up.                                                                                                                                 |
+| Spec approval             | Large ticket only. The written spec, before planning.                                                                                                                                        |
+| Red-team dispute          | Large ticket only. A product dispute, or a Critical open after round 3.                                                                                                                      |
+| SRS change                | A requirement does not fit, or a better approach exists.                                                                                                                                     |
+| Rules 1 to 3              | A verified finding against rule 1, 2 or 3, once per finding.                                                                                                                                 |
+| Live step or decision     | A fix needs a live environment step or a decision the branch cannot make.                                                                                                                    |
+| Not a small fix           | A key the lead calls not small in a launch of more than one key (a single such key is a large ticket), or an `introduced` or `on-path` fix that would break the small-fix definition.        |
+| The cap                   | The review loop reaches its cap, or an out-of-round re-review leaves something open.                                                                                                         |
+| Red gate                  | A gate is red a second time, inside a fix round or after the loop (The review loop).                                                                                                         |
+| A teammate's stop-and-ask | A destructive step, a broken plan, failing baseline tests.                                                                                                                                   |
+| The run cannot go on      | A check, a review or an agent fails twice, or the checkout is not in the state the run recorded (wrong branch, dirty tree, a ref that moved). `/pipeline`, When something fails, lists each. |
+| The merge                 | Always the owner's.                                                                                                                                                                          |
 
 The push that opens the PR is not a stop (U193, owner, 9 Nov 2026).
 

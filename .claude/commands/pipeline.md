@@ -44,8 +44,9 @@ stage would run as a plain subagent.
      (Hand-over step 5). To run these keys again for a second PR, the owner
      first deletes or renames that state directory and deletes that PR's
      branch (step 6).
-   - This job's file at `ended at the cap`: stop, and say that deleting its
-     state directory frees the next launch.
+   - This job's file at `ended at the cap`: stop. It never blocks another
+     job, but these keys launch again only once its state directory and its
+     branch are both deleted (step 6); say so.
    - This job's file at any other stage: this is a resume (step 5).
    - None for this job: this is a fresh run.
 4. Run `git status --porcelain`.
@@ -183,7 +184,8 @@ Spawn a teammate named `planner` (general-purpose) with:
 
 For a bundle, the prompt instead asks for one short plan per key, each
 under its key, in `<state dir>/small-fix-plan.md`, written for the PR body.
-Once it reports, ask `planner` to shut down and wait for its confirmation.
+For a bundle, once it reports, ask `planner` to shut down and wait for its
+confirmation.
 
 ## Red team. Skipped for a small fix.
 
@@ -191,12 +193,12 @@ For round r = 1, 2, 3:
 
 1. Dispatch the `plan-red-team` agent as an ordinary subagent of yours,
    without a name, so its findings come back to you as its result: the path
-   Task 0 proved, and the one `/ticket` uses. Give it the spec path, the
-   plan path and `<keys>`, as `/ticket` does. From round 2 on, add every
-   earlier Critical and Important finding, each marked fixed (with what
-   changed), ruled (with the owner ruling's U-number) or "lead's ruling
-   (<source>)". A ruled finding is not a finding again unless the agent
-   shows the ruling itself is wrong.
+   ADR-0023's lead spike proved, and the one `/ticket` uses. Give it the
+   spec path, the plan path and `<keys>`, as `/ticket` does. From round 2
+   on, add every earlier Critical and Important finding, each marked fixed
+   (with what changed), ruled (with the owner ruling's U-number) or
+   "lead's ruling (<source>)". A ruled finding is not a finding again
+   unless the agent shows the ruling itself is wrong.
 2. Record its verdict and its findings by severity in the state file.
 3. Send every Critical and Important finding to `planner`. Sort each one
    the planner disputes or cannot close as product or engineering, as in
@@ -270,7 +272,8 @@ reviewed (CLAUDE.md, The review loop, U192). A round's `<id>` is `1`, `2`,
 `3`, `gate`, `ci` or `owner-<n>`, and review 0's is `0`; its files in
 `<state dir>` are `findings-<id>.md`, `review-<id>.md` and
 `fixer-<id>-report.md`, and its state line is `Fix <id>:`. The classes
-and flags are CLAUDE.md's, Which bugs a branch fixes (U191). Run the gate,
+are CLAUDE.md's, Which bugs a branch fixes (U191); the flags `rule 1-3`
+and `spec` are defined in `/review-pr` step 5. Run the gate,
 here and in Hand-over, as `make lint`, then `VITEST_MAX_WORKERS=4 make test`,
 each in the foreground, unpiped, Bash timeout 600000 ms (docs/lessons.md,
 2026-10-01); never `make fmt`, which rewrites files. A web-test timeout in
@@ -356,9 +359,10 @@ a file the branch did not touch is re-run once before it counts as red.
    review just read and the carried ones, each copied with its `Class:`
    line; that file is the `<report path>`, since the brief fixes nothing
    else. Save its report verbatim to `<state dir>/fixer-<k>-report.md`.
-   `STATUS: stopped` is a stop under the row its reason meets (Not a small
-   fix, Live step or decision, SRS change, Rules 1 to 3); a reason that meets
-   no row counts as a fixer that returned nothing. Then run `git status --porcelain`, `make lint` and `make test` yourself, unpiped, and read the exit codes. A non-zero exit goes to a new fixer with the gate's output, once, inside the same round; a second failure stops for the owner. A dirty tree is the owner's keep-or-discard call.
+   `STATUS: stopped` because a fix would break the small-fix definition is
+   the stop Not a small fix, and because a fix would contradict the spec is
+   Live step or decision; neither fixer is dispatched again. A stop for any
+   other reason counts as a fixer that returned nothing. Then run `git status --porcelain`, `make lint` and `make test` yourself, unpiped, and read the exit codes. A non-zero exit goes to a new fixer with the gate's output, once, inside the same round; a second failure stops for the owner. A dirty tree is the owner's keep-or-discard call.
    For that new fixer, write `<state dir>/fix-<k>-input.md` holding the
    gate's output as one finding marked `on-path (red gate, <UTC time>)`;
    that file is its `<report path>`, and it also gets
@@ -396,9 +400,11 @@ the second red: stop (Red gate), with no second fixer. Once the PR is
 open, add the round's Decisions lines and report paths to `pr-body.md` and
 run `gh pr edit <n> --body-file <state dir>/pr-body.md`.
 
-The fixer brief, verbatim:
+### The fixer brief
 
-> You fix review findings for <keys> on branch `<branch>`, in place, in this checkout. The report is `<report path>`; read it yourself, it is the brief. Fix every finding it marks `introduced` or `on-path`, and every Critical or Important finding it flags `spec`, and nothing else. For each: write a regression test that fails first, then the fix. Then probe your fix on inputs the report does not list, the NULL or empty case included, and say which you tried. One commit per finding, naming its key. Never amend, rebase or revert a commit you did not author. Do not dispatch subagents. Do not push. Business rules go in SQL with a test in `db/tests/`; transport and auth go in Go (CLAUDE.md). Run `make fmt lint`, then `VITEST_MAX_WORKERS=4 make test`, each in the foreground, unpiped, with the Bash timeout up to 600000 ms, and read each exit code; the tests reset the local database, which is expected. If the formatter changed files, commit them, and end with an empty `git status --porcelain`. If a fix would need a migration, endpoint, route or screen the branch does not have, or contradicts the spec, stop and report that instead of fixing. Report: each finding with its commit, its test, the probes you ran, both exit codes, and one Decisions line per fix for the PR body. End your reply with one line: `STATUS: done` or `STATUS: stopped, <why>`.
+Give each fixer this brief verbatim, its placeholders filled:
+
+> You fix review findings for <keys> on branch `<branch>`, in place, in this checkout. The job is <a large ticket, spec `<spec path>` | a small-fix bundle>. The report is `<report path>`; read it yourself, it is the brief. Fix every finding it marks `introduced` or `on-path`, and every Critical or Important finding it flags `spec`, and nothing else. For each: write a regression test that fails first, then the fix. Then probe your fix on inputs the report does not list, the NULL or empty case included, and say which you tried. One commit per finding, naming its key. Never amend, rebase or revert a commit you did not author. Do not dispatch subagents. Do not push. Business rules go in SQL with a test in `db/tests/`; transport and auth go in Go (CLAUDE.md). Run `make fmt lint`, then `VITEST_MAX_WORKERS=4 make test`, each in the foreground, unpiped, with the Bash timeout up to 600000 ms, and read each exit code; the tests reset the local database, which is expected. If the formatter changed files, commit them, and end with an empty `git status --porcelain`. If the job is a small-fix bundle and a fix would break CLAUDE.md's small-fix definition, or if a fix would contradict the spec, stop and report that instead of fixing. Report: each finding with its commit, its test, the probes you ran, both exit codes, and one Decisions line per fix for the PR body. End your reply with one line: `STATUS: done` or `STATUS: stopped, <why>`.
 
 A fixer dispatched again for an interrupted round (Before anything, step 5)
 gets the same brief, then `git log <before>..HEAD` as the commits this
@@ -406,8 +412,9 @@ round already holds.
 
 ## Hand-over (you)
 
-1. Run `make lint` and `make test` yourself, unpiped, on every run, loop or
-   no loop. Non-zero: a gate fix (round `gate`, stage `gate fix`). Write
+1. Run `make lint`, then `VITEST_MAX_WORKERS=4 make test`, yourself,
+   unpiped, on every run, loop or no loop. Non-zero: a gate fix (round
+   `gate`, stage `gate fix`). Write
    `<state dir>/gate-fix.md` with each failing command, its exit code and
    its output, each as one finding marked
    `on-path (red gate, <UTC time>)`, and run it as an out-of-round fix with

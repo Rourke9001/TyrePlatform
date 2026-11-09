@@ -44,11 +44,17 @@ does not use step 2: it runs the review and the auditors in place by
    `git rev-parse --show-toplevel` is the main checkout (the first path
    `git worktree list` prints), stop and give the owner these commands,
    filled in, to run from the main checkout: `git fetch origin <head branch>`,
-   then `git worktree add -b review-pr<n> ../tp-review-<n> <PR head>`, then
-   start `claude "/review-pr <n> <level> from <sha>"` from `../tp-review-<n>`.
-   Inside the worktree, HEAD must be the PR head on branch `review-pr<n>`; if
-   it is not, stop and say so. Run `git branch -f review-pr<n>-base <sha>`
-   and `git branch --set-upstream-to=review-pr<n>-base`, the only refs this
+   then `git worktree add -b review-pr<n> ../tp-review-<n> <PR head>`, then,
+   from `../tp-review-<n>`, start
+   `MSYS2_ARG_CONV_EXCL='/review-pr ' claude "/review-pr <n> <level> from <sha>"`.
+   The prefix is for Git Bash, whose path conversion would otherwise rewrite
+   the leading slash, the reason `scripts/pipeline.sh` sets it; PowerShell
+   needs no prefix. Inside the worktree, HEAD must be the PR head on branch
+   `review-pr<n>`; if it is not, stop and say so. Before reviewing
+   `<sha>...<PR head>`, check `git merge-base --is-ancestor <sha> <PR head>`;
+   if `<sha>` is not an ancestor (the fix round rebased), stop and say so.
+   Run `git branch -f review-pr<n>-base <sha>` and
+   `git branch --set-upstream-to=review-pr<n>-base`, the only refs this
    form writes, and check that `git rev-parse @{upstream}` equals
    `git rev-parse <sha>`. Then run `/code-review <level>` with no target.
 
@@ -78,7 +84,8 @@ does not use step 2: it runs the review and the auditors in place by
    base, use `git merge-base origin/<base branch> <PR head>`, or the
    verifier's review base from step 1, never `<sha>`. After the class, add
    `rule 1-3` to a finding against rules 1 to 3 and `spec` to a spec
-   finding, as in `Class: on-path rule 1-3`. Use the class words nowhere
+   finding, as in `Class: on-path rule 1-3`; a spec finding is not a bug,
+   so its line is `Class: not a bug spec`. Use the class words nowhere
    else in the report. For an `unrelated` bug, give the open ticket found
    and the search used, or "none found". For a Minor that is not a bug,
    give at most five, each with a one-line fix, and count the rest. It is
@@ -98,7 +105,7 @@ does not use step 2: it runs the review and the auditors in place by
 Reply with the counts by severity and by class, the merge verdict (merge,
 merge after fixes, or do not merge) and the report path. Any finding still
 open, by CLAUDE.md's meaning of open (Which bugs a branch fixes), means merge
-after fixes. A verifier replies with the report path only.
+after fixes. A verifier replies as its caller's brief says.
 
 For a PR, each fix round runs in a fresh session, and its re-review runs here
 as `/review-pr <n> <level> from <sha>` (CLAUDE.md, The review loop, U192),

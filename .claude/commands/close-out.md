@@ -36,7 +36,8 @@ from there.
 
 **Local mode only, next:** before checking anything out, look for
 `.superpowers/sdd/*-pipeline-*/state.md`. If one exists whose last finished
-stage is not "handed over", stop: a pipeline is working in this checkout.
+stage is neither "handed over" nor "ended at the cap", stop: a pipeline is
+working in this checkout.
 
 1. **Confirm the merge.** The guards have read `merged` and
    `merge_commit_sha`. Read the PR body's gate section and check every
