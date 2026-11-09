@@ -83,10 +83,16 @@ stage would run as a plain subagent.
    with no `after` is an interrupted round: if HEAD descends from `before`
    (`git merge-base --is-ancestor <before> HEAD`) and the tree is clean,
    then if `fixer-<id>-report.md` exists, run the gate as in Review loop
-   step 7; if not, dispatch a new fixer for the same round with its report
-   and `git log <before>..HEAD`. The round keeps its recorded `before`, so
-   every fixer commit stays inside its re-review range. HEAD not descending
-   from `before` is a mismatch. At stage `loop done`, go to Hand-over.
+   step 7; if not, dispatch a new fixer for the same round with the
+   round's `<report path>` and `git log <before>..HEAD`. The round keeps
+   its recorded `before`, so every fixer commit stays inside its re-review
+   range. HEAD not descending
+   from `before` is a mismatch. At stage `loop done`, go to Hand-over. At
+   `PR opened`, `CI fix` or `reopened fix`, once any round above is
+   finished: if `git rev-list origin/<branch>..HEAD` is non-empty, run
+   `git push -u origin <branch>`; then wait for CI on HEAD as in Hand-over
+   step 4, and hand over as in Hand-over step 5 once `CI <result>` is
+   recorded for that head.
 6. Fresh run only: run `git fetch --prune origin`. For each key, stop if
    `git branch -a --list "*<key>-*"` prints anything, or if an open PR's
    title names that key as a whole key, so TYRE-41 is not TYRE-412:
@@ -125,9 +131,10 @@ instead, whose result does reach you.
 
 Do `/ticket` steps 1 to 5 for each key: fetch the ticket, read the SRS IDs
 it cites from Confluence, restate it, check its links for a blocker, and
-make the small-fix call by CLAUDE.md's definition. More than one key is a
-bundle. Make every call before you touch Jira or git. Differences from
-`/ticket`:
+make the small-fix call by CLAUDE.md's definition. Small-fix keys, one or
+more, are a bundle, and so is any launch of more than one key; one key that
+is not a small fix is a large ticket. Make every call before you touch Jira
+or git. Differences from `/ticket`:
 
 - A blocker stops the run. Delete this run's state directory first, so
   another job can launch, then tell the owner which ticket blocks which key
@@ -266,8 +273,9 @@ follows a red-teamed plan, and the review loop reviews the result) with:
 When the implementer reports, write its report verbatim to
 `<state dir>/implementer-report.md` before anything else: the skill deletes
 its own ledger when it finishes. "Ready" with a non-zero `make check` exit
-is not ready: tell it so and wait. An `unrelated` bug it sends up goes to
-its ticket as in Review loop step 5. Put each finding that is not a bug
+is not ready: tell it so and wait. A bug it sends up goes into review 0's
+findings file (Review loop step 3), so the verifier verifies and classes it
+before Review loop step 5 acts on it. Put each finding that is not a bug
 through CLAUDE.md's schedule test: a ticket linked to its key for one that
 passes, the PR's "Set aside" list for the rest (U130). Then ask
 `implementer` to shut down, and wait for its confirmation before the review
@@ -313,7 +321,8 @@ a file the branch did not touch is re-run once before it counts as red.
    trigger the range's file list meets, each unnamed and each given the
    range and that file list. `/code-review` returns as a background fork:
    wait for its result. Save the raw output of each to
-   `<state dir>/findings-<k>.md`. Then dispatch one fresh unnamed
+   `<state dir>/findings-<k>.md`, and for review 0 add to it each bug the
+   implementer sent up. Then dispatch one fresh unnamed
    general-purpose subagent, the verifier, with no `model` override:
 
    > You verify review findings for <keys>; you fix nothing. Follow
@@ -332,9 +341,10 @@ a file the branch did not touch is re-run once before it counts as red.
    database, since every agent here shares one local database.
 4. **Read `review-<k>.md` yourself.** You decide on its text, never on a
    count the verifier reports; take the counts from its class words. Every
-   Critical or Important item in `findings-<k>.md` must appear in the
-   report as kept, or as dropped with a reason; if one is missing, dispatch
-   the verifier again once. Compare the files the report cites with the range's file list yourself. If a review cites nothing inside the range while the list is not empty and the raw findings are not empty, it read the wrong diff: set the range again and run the review once more. A verified finding that arrives from outside the range is classified like any other and does not widen the next review.
+   Critical or Important item in `findings-<k>.md`, and every item an
+   auditor or the implementer gave, must appear in the report as kept, or
+   as dropped with a reason; if one is missing, dispatch the verifier again
+   once. Compare the files the report cites with the range's file list yourself. If a review cites nothing inside the range while the list is not empty and the raw findings are not empty, it read the wrong diff: set the range again and run the review once more. A verified finding that arrives from outside the range is classified like any other and does not widen the next review.
    Record the `Review <k>:` line and, for a numbered review, stage
    `review <k>`.
 5. **Act on the classes**, recording each action in the state file as it
@@ -360,16 +370,20 @@ a file the branch did not touch is re-run once before it counts as red.
 7. **Fix round `<k>` (1, 2):** record `Fix <k>: before=<HEAD>; started`.
    Dispatch a fresh unnamed general-purpose subagent with no `model`
    override and the fixer brief below, its report being the review just
-   read. A finding step 6 holds open from an earlier report goes with it:
-   add that report's path and the finding's `file:line` after the brief.
-   Save its report verbatim to `<state dir>/fixer-<k>-report.md`.
+   read. When step 6 holds a finding open from an earlier report, write
+   `<state dir>/fix-<k>-input.md` instead, holding the open findings of the
+   review just read and the carried ones, each copied with its `Class:`
+   line; that file is the `<report path>`, since the brief fixes nothing
+   else. Save its report verbatim to `<state dir>/fixer-<k>-report.md`.
    `STATUS: stopped` is a stop under the row its reason meets (Not a small
    fix, Live step or decision, SRS change, Rules 1 to 3); a reason that meets
    no row counts as a fixer that returned nothing. Then run `git status --porcelain`, `make lint` and `make test` yourself, unpiped, and read the exit codes. A non-zero exit goes to a new fixer with the gate's output, once, inside the same round; a second failure stops for the owner. A dirty tree is the owner's keep-or-discard call.
-   That new fixer gets the same brief, then the gate's output saved to
-   `<state dir>/gate-<k>.log`, and its report is added to the same report
-   file after the first. Record `after=<HEAD>` with both exit codes, and
-   stage `fix <k>`.
+   For that new fixer, write `<state dir>/fix-<k>-input.md` holding the
+   gate's output as one finding marked `on-path (red gate, <UTC time>)`;
+   that file is its `<report path>`, and it also gets
+   `git log <before>..HEAD`. Its report is added to the same report file
+   after the first. Record `after=<HEAD>` with both exit codes, and stage
+   `fix <k>`.
 8. **Re-review `<k>`** over `<before>...<after>` as in steps 2 to 5, then
    step 6.
 9. **The cap:** after re-review 2 with something still open, run
@@ -383,8 +397,8 @@ a file the branch did not touch is re-run once before it counts as red.
    on the ticket, record `ended at the cap`, and leave the branch; the
    ticket goes back through its spec. An `introduced` bug is never
    ticketed.
-10. **Taking a key out** (stage `take-out`). In a bundle, record
-    `Fix takeout: before=<HEAD>; started`, dispatch a fresh unnamed
+10. **Taking a key out** (stage `take-out`). In a bundle with other keys
+    left, record `Fix takeout: before=<HEAD>; started`, dispatch a fresh unnamed
     general-purpose subagent with the revert brief below, run the gate as
     in step 7, and re-review that range as in steps 2 to 5. Remove the key
     from `Keys:` and, if `pr-body.md` exists, from its `Closes` lines; move
@@ -400,11 +414,12 @@ one of the two rounds. Record its `Fix <id>: before=<HEAD>; started` line
 if it is not there yet, dispatch one fresh fixer as in step 7 with that
 round's report (`owner-fix-<n>.md`, `gate-fix.md`, `ci-fix.md`, or the
 `/review-pr` report), run the gate as in step 7, record `after`, and
-re-review `<before>...<after>` as in steps 2 to 5.
-Anything that re-review leaves open stops for the owner (The cap). In a
-`gate` or `ci` round a red gate after the fixer is the second red: stop
-(Red gate),
-with no second fixer. Once the PR is open, add the round's Decisions lines
+re-review `<before>...<after>` as in steps 2 to 5. Then judge what is open
+as in step 6, against the round's report and its fixer report. Anything
+open runs `/design-audit` and stops (The cap) with step 9's options. One
+more round takes the id `<id>-b`, once. In a `gate` or `ci` round a red
+gate after the fixer is the second red: stop (Red gate), with no second
+fixer. Once the PR is open, add the round's Decisions lines
 and report paths to `pr-body.md` and run
 `gh pr edit <n> --body-file <state dir>/pr-body.md`.
 
@@ -454,13 +469,13 @@ round already holds.
    and require every row to be terminal. A red job whose failure touches
    no file in the diff is re-run once
    (`gh run rerun <id> --failed -R Rourke9001/TyrePlatform`). Any other
-   red run is the CI fix (round `ci`, stage `CI fix`): save the failing
-   job's log with
+   red run is the CI fix (round `ci`): save the failing job's log with
    `gh run view <id> -R Rourke9001/TyrePlatform --log-failed > <state dir>/ci-<id>.log 2>&1`,
    write `<state dir>/ci-fix.md` naming that path as one finding
    marked `on-path (red CI, <UTC time>)`, run it as an out-of-round fix,
-   push, and wait again. A second red, or a red after the job's `ci` round
-   is spent, is a stop (Red gate). Record `CI <result>` on the `PR:` line.
+   push, record stage `CI fix` after that push, and wait again. A second
+   red, or a red after the job's `ci` round is spent, is a stop (Red gate).
+   Record `CI <result> @ <head sha>` on the `PR:` line.
 5. Move every key to In Review, comment the PR link on each, delete
    `pipeline-review-base` (`git branch -D pipeline-review-base`), set
    `Handed over:` and stage `handed over`, and tell the owner: the PR, the
@@ -520,7 +535,7 @@ round already holds.
 - Review <k>: <from>...<to>; introduced <n>, on-path <n>, spec <n>, unrelated <n>, not a bug <n>; rule 1-3 <n>; scope <m> outside; report <path>
 - Unrelated: <finding>: <ticket>, commented | raised
 - Fix <id>: before=<sha>; started | after=<sha>; lint exit <code>, test exit <code>; report <path>; re-review <path>
-- PR: #<n>; CI <result>
+- PR: #<n>; CI <result> @ <head sha>
 - Owner answers:
   - <UTC time>: <stop>: <answer verbatim>
 ```
