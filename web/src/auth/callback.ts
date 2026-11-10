@@ -39,8 +39,8 @@ export function safeReturnPath(value: unknown): string {
 
 // A failed stamp read is nothing held (heldStamps); attemptSend compares the
 // stamp again before any send, so no wrong-driver send follows (U104).
-async function othersHeld(subject: string): Promise<boolean> {
-  return (await heldStamps()).some((stamp) => stamp !== subject);
+function othersHeld(stamps: string[], subject: string): boolean {
+  return stamps.some((stamp) => stamp !== subject);
 }
 
 // U104: sign the newcomer out through the full signOut(), marker first. A
@@ -76,6 +76,12 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
   const url = new URL(window.location.href);
   if (!bearerMode() || !isRedirectCallback(url)) return "none";
 
+  // Read before the exchange, so nothing is awaited from the library storing
+  // the user to the subject write below. A renewal in another tab settling
+  // in between would find an oid that is not the subject and remove the
+  // user (TYRE-471 spec, The redirect callback).
+  const stamps = await heldStamps();
+
   // Bounded, because the first render waits on this (TYRE-388).
   // Started inside the chain, so a synchronous throw (blocked storage) is
   // caught below like any failed exchange.
@@ -95,14 +101,14 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
     window.history.replaceState(null, "", "/");
   }
 
-  if (await othersHeld(signedIn.subject)) {
+  if (othersHeld(stamps, signedIn.subject)) {
     await undoSignIn();
     return "undone";
   }
 
-  // Before anything calls the API: the tenant key goes, the subject is
-  // written, and the token is recorded as fresh (TYRE-471 spec, The redirect
-  // callback).
+  // Before anything calls the API, and with nothing awaited since the
+  // exchange: the tenant key goes, the subject is written, and the token is
+  // recorded as fresh (TYRE-471 spec, The redirect callback).
   try {
     forgetTenant();
     rememberSubject(signedIn.subject);

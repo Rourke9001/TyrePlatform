@@ -10,6 +10,14 @@ vi.mock("./oidc", () => ({
   discardUser: vi.fn(() => Promise.resolve()),
 }));
 
+// The callback reads the held stamps before the exchange. A real read is
+// IndexedDB's, which the fake clock below does not drive, so the bound could
+// start after the clock has moved. This one answers at once.
+vi.mock("../capture/outbox", () => ({
+  heldStamps: vi.fn(() => Promise.resolve([])),
+  flushOutbox: vi.fn(() => Promise.resolve()),
+}));
+
 const SIGNED_IN = {
   accessToken: "at-a",
   expiresAt: Date.now() + 3_600_000,
@@ -43,7 +51,8 @@ beforeEach(() => {
   bearerSession();
   window.history.replaceState(null, "", "/?code=c1&state=s1");
   vi.stubGlobal("fetch", vi.fn());
-  // Only the timers the bound uses: nothing on these paths touches IndexedDB.
+  // Only the timers the bound uses. With the stamp read stubbed, nothing on
+  // these paths touches IndexedDB.
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 });
 

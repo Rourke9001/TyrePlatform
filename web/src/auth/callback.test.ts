@@ -121,9 +121,11 @@ describe("completeRedirect", () => {
 
   it("does nothing on a URL that is not a callback", async () => {
     window.history.replaceState(null, "", "/my");
-    const { callback, oidc } = await fresh();
+    const { callback, oidc, outbox } = await fresh();
+    const stamps = vi.spyOn(outbox, "heldStamps");
     await expect(callback.completeRedirect()).resolves.toBe("none");
     expect(oidc.completeSignIn).not.toHaveBeenCalled();
+    expect(stamps).not.toHaveBeenCalled();
   });
 
   // Blocked storage makes the library throw before it returns a promise. That
@@ -141,9 +143,41 @@ describe("completeRedirect", () => {
 
   it("does nothing under the DEV header path, even on a callback URL", async () => {
     window.localStorage.removeItem("tyre.dev.auth");
-    const { callback, oidc } = await fresh();
+    const { callback, oidc, outbox } = await fresh();
+    const stamps = vi.spyOn(outbox, "heldStamps");
     await expect(callback.completeRedirect()).resolves.toBe("none");
     expect(oidc.completeSignIn).not.toHaveBeenCalled();
+    expect(stamps).not.toHaveBeenCalled();
+  });
+
+  // A renewal in another tab that settles between the library storing the
+  // user and the subject write finds an oid that is not the subject, and
+  // removes the user. So the stamps are read before the exchange, and
+  // nothing after it is awaited (TYRE-471 spec, The redirect callback).
+  it("reads the held stamps before the exchange, and awaits nothing from the library's store to the subject write", async () => {
+    const { callback, oidc, token, outbox } = await fresh();
+    const order: string[] = [];
+    // Resolved on a macrotask, so a read placed after the exchange lets the
+    // probe below fire before the subject is written.
+    vi.spyOn(outbox, "heldStamps").mockImplementation(() => {
+      order.push("stamps");
+      return new Promise((resolve) => setTimeout(() => resolve([]), 0));
+    });
+    let seen: string | null | undefined;
+    vi.mocked(oidc.completeSignIn).mockImplementation(() => {
+      order.push("exchange");
+      plantSession({ accessToken: "at-a", subject: "oid-a" });
+      // The earliest another tab's renewal could settle: the next macrotask.
+      setTimeout(() => {
+        seen = token.lastKnownSubject();
+      }, 0);
+      return Promise.resolve(SIGNED_IN);
+    });
+
+    await expect(callback.completeRedirect()).resolves.toBe("signed-in");
+    expect(order).toEqual(["stamps", "exchange"]);
+    await vi.waitFor(() => expect(seen).not.toBeUndefined());
+    expect(seen).toBe("oid-a");
   });
 
   it("writes the subject, records the token as fresh, goes to the stored path, and flushes under the new token", async () => {
@@ -227,6 +261,21 @@ describe("completeRedirect", () => {
     await expect(callback.completeRedirect()).resolves.toBe("failed");
     expect(callback.signInDidNotFinish()).toBe(true);
     expect(window.location.search).toBe("");
+  });
+
+  // The stamps are read before the exchange, and a failed exchange has no
+  // newcomer to compare them with.
+  it("reports a failed exchange as not finished, and signs no one out, while another driver's work is held", async () => {
+    const { callback, oidc, token, outbox, draft } = await fresh();
+    await holdEntryStampedFor(outbox, draft, "oid-b");
+    token.rememberSubject("oid-b");
+    vi.mocked(oidc.completeSignIn).mockRejectedValue(new Error("invalid_grant"));
+
+    await expect(callback.completeRedirect()).resolves.toBe("failed");
+    expect(callback.signInDidNotFinish()).toBe(true);
+    expect(oidc.signOut).not.toHaveBeenCalled();
+    expect(token.lastKnownSubject()).toBe("oid-b");
+    expect(window.sessionStorage.getItem("tyre.auth.other-driver")).toBeNull();
   });
 
   it("does not replay once the query is gone", async () => {
