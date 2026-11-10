@@ -72,9 +72,10 @@ Online-first with a durable submit outbox — not an offline sync engine.
 
 ## Sign-in (ADR-0016)
 
-`src/api/token.ts` is the token store and sits in the entry: it reads a
-mirror of the access token from its own `localStorage` key, never the
-library's storage format. `src/auth/oidc.ts` is the only file that imports
+`src/api/token.ts` is the token store and sits in the entry: it reads the
+library's stored user through `getUser()` before each call, and keeps only
+the last-known subject (U104) and the branding tenant in keys of its own
+(TYRE-471). `src/auth/oidc.ts` is the only file that imports
 oidc-client-ts, and it ships in the entry, since the driver's renewal,
 sign-in and sign-out wait on it (U175, ADR-0016's amendment). Under vite dev and vitest the dev
 headers remain the default; `localStorage["tyre.dev.auth"] = "bearer"`

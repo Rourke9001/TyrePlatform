@@ -560,6 +560,19 @@ MSAL was the obvious choice, and it is rejected:
   would be typed `any`, and neither `strict` nor the no-`any` gate would
   catch it.
 
+> *Superseded 10 Nov 2026 by TYRE-471. From here to "The redirect callback"
+> the authority is `docs/superpowers/specs/2026-11-10-library-session-store-design.md`,
+> The token store.*
+>
+> - *The store keeps no copy of the access token. Wherever this spec says
+>   "the mirror", read the library's stored user.*
+> - *Where it says a 401 clears the mirror, read that the store marks that
+>   token refused.*
+> - *The tenant for the branding key comes from its own key.*
+> - *A renewal past its bound is abandoned (U199), not held.*
+> - *The second auth-chunk rider below (4 Nov) is superseded the same way:
+>   the app fetches discovery once per page.*
+
 ### The token store
 
 **The mirror.** The token store reads a mirror from one `localStorage` key:
