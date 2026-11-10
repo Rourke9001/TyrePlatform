@@ -246,11 +246,23 @@ export function stampSubject(): string | null {
   return lastKnownSubject();
 }
 
+// A reload forgets the refused mark, and the gate's GET /api/me is not
+// retried on a 401, so the library's user is renewed at once rather than on
+// the next call (TYRE-471 spec, Sending). Only while it still holds that
+// token for the last-known subject, so a slow 401 for an older token starts
+// nothing. A failure here reaches no caller; the next call meets it.
+async function renewRefused(accessToken: string): Promise<void> {
+  const stored = await storedSession();
+  if (stored?.accessToken === accessToken && stored.subject === lastKnownSubject()) {
+    await renewOnce();
+  }
+}
+
 // send() calls this on a 401 from the API. True when this refusal, or an
 // earlier one, latched the store; every call then answers 503 without
-// touching the API. Otherwise only this token is marked, so the next call
-// renews, a since-renewed token is left alone, and the library keeps its
-// user, whose refresh token still renews (TYRE-471 spec, Sending).
+// touching the API. Otherwise only this token is marked, so a since-renewed
+// token is left alone, and the library keeps its user, whose refresh token
+// renews it (TYRE-471 spec, Sending).
 export function refused(accessToken: string): boolean {
   if (latched) return true;
   // A clock corrected backwards leaves the obtained time in the future,
@@ -262,5 +274,6 @@ export function refused(accessToken: string): boolean {
     return true;
   }
   refusedToken = accessToken;
+  void renewRefused(accessToken).catch(() => undefined);
   return false;
 }

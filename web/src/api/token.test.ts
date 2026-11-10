@@ -173,6 +173,13 @@ async function fresh() {
 
 const RENEWED = { accessToken: "at-2", expiresAt: Date.now() + 3_600_000, subject: "oid-a" };
 
+// The renewal a 401 starts follows one read of the stored user, which the
+// library makes in microtasks only, so after one macrotask the renewal has
+// started and settled, or never will.
+function afterTheRead(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe("credential", () => {
   // A driver has signed in on this phone, except where a case removes it.
   beforeEach(() => {
@@ -459,7 +466,7 @@ describe("refused", () => {
 
   // The refresh token still renews, so the library keeps its user (TYRE-471
   // spec, Sending).
-  it("renews on the next call after a 401 on an unexpired token that is not fresh, and the library keeps its user", async () => {
+  it("renews after a 401 on an unexpired token that is not fresh, and the library keeps its user", async () => {
     const { token, oidc } = await fresh();
     plantSession({ accessToken: "at-1", subject: "oid-a" });
     vi.mocked(oidc.renew).mockResolvedValue(RENEWED);
@@ -479,6 +486,127 @@ describe("refused", () => {
     expect(token.refused("at-1")).toBe(false);
     await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
     expect(oidc.renew).not.toHaveBeenCalled();
+  });
+
+  // A reload forgets the mark, so the renewal starts at once, before any
+  // further call (TYRE-471 spec, Sending).
+  it("starts the store's one renewal at once on a 401 for the stored user's token", async () => {
+    const { token, oidc } = await fresh();
+    plantSession({ accessToken: "at-1", subject: "oid-a" });
+    // As the library does: the renewed user is stored before renew() returns.
+    vi.mocked(oidc.renew).mockImplementation(() => {
+      plantSession({ accessToken: "at-2", subject: "oid-a" });
+      return Promise.resolve(RENEWED);
+    });
+
+    expect(token.refused("at-1")).toBe(false);
+
+    await vi.waitFor(() => expect(oidc.renew).toHaveBeenCalledTimes(1));
+    await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
+    expect(oidc.renew).toHaveBeenCalledTimes(1);
+    expect(oidc.discardUser).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "the stored user holds a since-renewed token",
+      () => plantSession({ accessToken: "at-2", subject: "oid-a" }),
+    ],
+    [
+      "no driver has signed in",
+      () => {
+        window.localStorage.removeItem(SUBJECT_KEY);
+        plantSession({ accessToken: "at-1", subject: "oid-a" });
+      },
+    ],
+    [
+      "the stored user is another driver's",
+      () => plantSession({ accessToken: "at-1", subject: "oid-b" }),
+    ],
+    ["nothing is stored", () => undefined],
+  ])("starts no renewal on a 401 when %s", async (_, state) => {
+    const { token, oidc } = await fresh();
+    state();
+    vi.mocked(oidc.renew).mockResolvedValue(RENEWED);
+
+    expect(token.refused("at-1")).toBe(false);
+
+    await afterTheRead();
+    expect(oidc.renew).not.toHaveBeenCalled();
+  });
+
+  // A sign-out's local clear lands before the stored user is read.
+  it("starts no renewal on a 401 once a sign-out has cleared the session", async () => {
+    const { token, oidc } = await fresh();
+    plantSession({ accessToken: "at-1", subject: "oid-a" });
+    vi.mocked(oidc.renew).mockResolvedValue(RENEWED);
+
+    expect(token.refused("at-1")).toBe(false);
+    token.clearSession();
+
+    await afterTheRead();
+    expect(oidc.renew).not.toHaveBeenCalled();
+  });
+
+  // No caller waits on it, so its failure is the next call's to meet.
+  it("lets a renewal it starts fail without a caller seeing it, and the next call renews again", async () => {
+    const { token, oidc } = await fresh();
+    plantSession({ accessToken: "at-1", subject: "oid-a" });
+    // A counter, not a queue of once-answers, which a red run would leave
+    // for the next test.
+    let calls = 0;
+    vi.mocked(oidc.renew).mockImplementation(() =>
+      ++calls === 1 ? Promise.reject(new TypeError("Failed to fetch")) : Promise.resolve(RENEWED),
+    );
+    const lapsed = vi.fn();
+    token.onLapse(lapsed);
+
+    expect(token.refused("at-1")).toBe(false);
+    await vi.waitFor(() => expect(oidc.renew).toHaveBeenCalledTimes(1));
+    await afterTheRead();
+
+    expect(token.sessionLapsed()).toBe(false);
+    await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
+    expect(oidc.renew).toHaveBeenCalledTimes(2);
+    expect(lapsed).not.toHaveBeenCalled();
+  });
+
+  // U199 holds for it: a caller joins it, its bound abandons it as no
+  // signal, and the next call starts a new one (TYRE-471 spec, Sending).
+  it("makes a renewal it starts the store's one renewal, abandoned at its bound", async () => {
+    const { token, oidc, ApiError } = await fresh();
+    plantSession({ accessToken: "at-1", subject: "oid-a" });
+    let calls = 0;
+    vi.mocked(oidc.renew).mockImplementation(() =>
+      ++calls === 1 ? new Promise<never>(() => undefined) : Promise.resolve(RENEWED),
+    );
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+    expect(token.refused("at-1")).toBe(false);
+    const joined = token.credential().catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_SECONDS * 1000);
+    const error = await joined;
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ApiError);
+    expect(oidc.renew).toHaveBeenCalledTimes(1);
+
+    await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
+    expect(oidc.renew).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves the lapse to the next call when a renewal it starts finds no session", async () => {
+    const { token, oidc } = await fresh();
+    plantSession({ accessToken: "at-1", subject: "oid-a" });
+    vi.mocked(oidc.renew).mockResolvedValue(null);
+    const lapsed = vi.fn();
+    token.onLapse(lapsed);
+
+    expect(token.refused("at-1")).toBe(false);
+    await vi.waitFor(() => expect(oidc.renew).toHaveBeenCalledTimes(1));
+    await afterTheRead();
+
+    expect(token.sessionLapsed()).toBe(false);
+    expect(lapsed).not.toHaveBeenCalled();
   });
 
   // The e2e stub issues one access-token string per subject on every renewal

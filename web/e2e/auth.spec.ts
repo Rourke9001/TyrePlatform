@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { captureAll, capturePosition, done, startInspection, submit } from "./captureSteps";
-import { lapseSession, stubIdentityProvider, type IdpStub } from "./idp";
+import { lapseSession, storedUser, stubIdentityProvider, type IdpStub } from "./idp";
 import {
   apiGet,
   configFor,
@@ -66,9 +66,15 @@ async function holdOneSubmit(page: Page, vehicleId: string) {
   // The refusal below marks that token refused and holds the entry as a 401;
   // a refusal of a token this page obtained would latch the store as "the
   // API refuses every valid token" (src/api/token.ts, refused()).
+  const before = await storedUser(page);
   stub.refuseSubmits = true;
   await submit(page);
   await expect(done(page)).toContainText("Sign in to send it.");
+  // The refusal also renews at once (TYRE-471 spec, Sending). It lands
+  // before the test goes on, or it could store the user again after a
+  // lapseSession. The walk takes seconds, so the renewed user's expiry
+  // differs from the sign-in's.
+  await expect.poll(() => storedUser(page)).not.toBe(before);
 }
 
 // FR-OFF-012's 30-minute ceiling, so the app-open flush, the online flush and
@@ -272,9 +278,11 @@ test("the outbox band does not overflow a 360px viewport with the sign-in failur
   await signIn(page);
   await holdOneSubmit(page, vehicleId);
 
-  // No signal for the identity provider. This page has not yet loaded its
-  // metadata, so the start fails before it can leave the page.
+  // No signal for the identity provider. The refused submit's renewal loaded
+  // the metadata in the page before this reload, and this page has not, so
+  // the start fails before it can leave the page.
   await page.route("https://idp.test/.well-known/openid-configuration", (route) => route.abort());
+  await page.reload();
   const band = outboxBand(page);
   await band.getByRole("button", { name: "Sign in" }).click();
   await expect(
