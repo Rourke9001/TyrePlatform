@@ -208,7 +208,7 @@ function mirrorRenewed(tokens: Renewed): Mirror | null {
 async function sameDriver(tokens: Renewed): Promise<Renewed> {
   if (tokens === null || tokens.subject === lastKnownSubject()) return tokens;
   try {
-    await discardUser();
+    await discardUser(tokens.accessToken);
   } catch {
     // Best effort; mirrorRenewed clears the mirror either way.
   }

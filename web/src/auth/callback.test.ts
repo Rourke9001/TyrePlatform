@@ -216,6 +216,7 @@ describe("completeRedirect", () => {
     await expect(callback.completeRedirect()).resolves.toBe("failed");
     expect(callback.signInDidNotFinish()).toBe(true);
     expect(oidc.discardUser).toHaveBeenCalledTimes(1);
+    expect(oidc.discardUser).toHaveBeenCalledWith("at-a");
     expect(token.readMirror()).toBeNull();
   });
 
@@ -246,6 +247,7 @@ describe("completeRedirect", () => {
     await expect(callback.completeRedirect()).resolves.toBe("failed");
     expect(callback.signInDidNotFinish()).toBe(true);
     expect(oidc.discardUser).toHaveBeenCalledTimes(1);
+    expect(oidc.discardUser).toHaveBeenCalledWith("at-a");
     expect(token.readMirror()).toBeNull();
   });
 });

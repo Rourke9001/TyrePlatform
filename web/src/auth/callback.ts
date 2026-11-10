@@ -59,9 +59,9 @@ async function undoSignIn(): Promise<void> {
   }
 }
 
-async function discardLate(): Promise<void> {
+async function discardLate(late: SignedIn): Promise<void> {
   try {
-    await discardUser();
+    await discardUser(late.accessToken);
   } catch {
     // Best effort. A renewal adopts it only for the last-known subject
     // (U111 B, token.ts).
@@ -115,7 +115,7 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
     // so that load shows the sign-in screen.
     clearMirror();
     try {
-      await discardUser();
+      await discardUser(signedIn.accessToken);
     } catch {
       // Best effort.
     }

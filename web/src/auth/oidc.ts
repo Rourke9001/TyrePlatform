@@ -37,9 +37,13 @@ export interface Auth {
   completeSignIn(url: string): Promise<SignedIn>;
   renew(): Promise<Tokens | null>;
   signOut(): Promise<void>;
-  // Removes the library's stored user without ending the Entra session, in
-  // the callback (callback.ts) and in the token store (U111 B, token.ts).
-  discardUser(): Promise<void>;
+  // The library's stored user, read through getUser() with no request. A user
+  // with no oid or no expiry, or storage that cannot be read, is no session
+  // (TYRE-471 spec, The session).
+  storedSession(): Promise<Tokens | null>;
+  // Removes the stored user only while it still holds this access token, in
+  // the callback (callback.ts) and the token store (U111 B, token.ts).
+  discardUser(accessToken: string): Promise<void>;
 }
 
 const TRANSIENT_CODES = new Set(["server_error", "temporarily_unavailable"]);
@@ -73,28 +77,33 @@ function forgetIdentity(): void {
 }
 
 export function createAuth(settings: AuthSettings, redirectNavigator?: INavigator): Auth {
+  const base = {
+    authority: settings.authority,
+    client_id: settings.clientId,
+    redirect_uri: `${settings.origin}/`,
+    post_logout_redirect_uri: `${settings.origin}/`,
+    scope: `openid profile offline_access ${settings.apiScope}`,
+    // U102: the library's default store is sessionStorage, which the phone
+    // empties whenever it closes the browser. Both managers share it, and it
+    // keeps no copy in memory, so a write by one is the other's next read.
+    userStore: new WebStorageStateStore({ store: window.localStorage }),
+    // Renewal is the token store's decision (ADR-0016); the library's
+    // default renews on its own timer.
+    automaticSilentRenew: false,
+    monitorSession: false,
+    loadUserInfo: false,
+    // oidc-client-ts sets no request timeout of its own, and a stalled
+    // discovery, key or code-exchange request would leave the page blank
+    // (ADR-0016). This one ends once the response headers arrive, so it
+    // does not bound a stalled body (docs/lessons.md, 2026-10-02).
+    requestTimeoutInSeconds: REQUEST_TIMEOUT_SECONDS,
+  };
+
+  // Storage only: getUser() and removeUser() make no request, so a live token
+  // never waits on discovery (TYRE-471 spec, Two UserManagers over one store).
+  const reader = new UserManager(base);
   const manager = new UserManager(
-    {
-      authority: settings.authority,
-      client_id: settings.clientId,
-      redirect_uri: `${settings.origin}/`,
-      post_logout_redirect_uri: `${settings.origin}/`,
-      scope: `openid profile offline_access ${settings.apiScope}`,
-      // U102: the library's default store is sessionStorage, which the phone
-      // empties whenever it closes the browser.
-      userStore: new WebStorageStateStore({ store: window.localStorage }),
-      // Renewal is the token store's decision (ADR-0016); the library's
-      // default renews on its own timer.
-      automaticSilentRenew: false,
-      monitorSession: false,
-      loadUserInfo: false,
-      // oidc-client-ts sets no request timeout of its own, and a stalled
-      // discovery, key or code-exchange request would leave the page blank
-      // (ADR-0016). This one ends once the response headers arrive, so it
-      // does not bound a stalled body (docs/lessons.md, 2026-10-02).
-      requestTimeoutInSeconds: REQUEST_TIMEOUT_SECONDS,
-      ...(settings.metadata ? { metadata: settings.metadata } : {}),
-    },
+    { ...base, ...(settings.metadata ? { metadata: settings.metadata } : {}) },
     redirectNavigator,
   );
 
@@ -108,11 +117,27 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
   // Without a refresh token the library falls back to a hidden iframe on
   // silent_redirect_uri, which defaults to redirect_uri, "/". A session that
   // cannot renew is over, and its ID token names the person (spec section 6).
-  async function refreshable(): Promise<boolean> {
-    const user = await manager.getUser();
-    if (user?.refresh_token) return true;
-    if (user) await manager.removeUser();
-    return false;
+  async function refreshable(): Promise<string | null> {
+    let user: User | null;
+    try {
+      user = await reader.getUser();
+    } catch {
+      // A stored value that does not parse is no session. It goes, so the
+      // renewal is a lapse rather than every call failing as offline.
+      await reader.removeUser().catch(() => undefined);
+      return null;
+    }
+    if (user?.refresh_token) return user.refresh_token;
+    if (user) await reader.removeUser();
+    return null;
+  }
+
+  // Removes the stored user only while it still holds what the caller saw,
+  // so a late settle never removes a session that a later renewal or sign-in
+  // stored (TYRE-471 spec, Renewal).
+  async function removeIf(holds: (user: User) => boolean): Promise<void> {
+    const user = await reader.getUser();
+    if (user !== null && holds(user)) await reader.removeUser();
   }
 
   return {
@@ -127,20 +152,22 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
       } catch (error) {
         // signinRedirectCallback has already stored this user. A sign-in the
         // store cannot use must leave nothing behind, or the next load renews
-        // it and fails again (spec section 4, The token store).
-        await manager.removeUser();
+        // it and fails again, unless another sign-in has since replaced it
+        // (TYRE-471 spec, The redirect callback).
+        await removeIf((stored) => stored.access_token === user.access_token);
         throw error;
       }
     },
     async renew() {
-      if (!(await refreshable())) return null;
+      if ((await refreshable()) === null) return null;
       // Before the refresh token is sent, so bounding this cannot spend it
       // twice (spec section 4, The auth chunk). Its timeout is a plain
       // Error, which goes through as offline.
       await discovered();
       // Again: another tab's sign-out can remove the shared user during
       // discovery, and signinSilent reads it for itself.
-      if (!(await refreshable())) return null;
+      const sent = await refreshable();
+      if (sent === null) return null;
       let renewed: User | null;
       try {
         // The settings' timeout does not reach the refresh request
@@ -157,7 +184,7 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
         // captive portal's HTML) is offline, not a refusal, and goes through.
         if (error instanceof ErrorResponse) {
           if (!TRANSIENT_CODES.has(error.error ?? "")) {
-            await manager.removeUser();
+            await removeIf((user) => user.refresh_token === sent);
             return null;
           }
           // form is the refresh POST body, refresh_token included.
@@ -165,19 +192,31 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
         }
         throw error;
       }
+      if (renewed === null) {
+        await removeIf((user) => user.refresh_token === sent);
+        return null;
+      }
+      const renewedToken = renewed.access_token;
       try {
-        if (renewed === null) throw new Error("no user after renewal");
         return tokensOf(renewed);
       } catch {
-        // A renewal that returns no user, or one with no oid, cannot stamp or
-        // compare anything (U104). It is a lapse, so the user is removed and
-        // the driver signs in again.
-        await manager.removeUser();
+        // A renewal that returns no oid cannot stamp or compare anything
+        // (U104). It is a lapse, so its user is removed and the driver signs
+        // in again.
+        await removeIf((user) => user.access_token === renewedToken);
         return null;
       }
     },
-    async discardUser() {
-      await manager.removeUser();
+    async storedSession() {
+      try {
+        const user = await reader.getUser();
+        return user === null ? null : tokensOf(user);
+      } catch {
+        return null;
+      }
+    },
+    async discardUser(accessToken) {
+      await removeIf((user) => user.access_token === accessToken);
     },
     async signOut() {
       forgetIdentity();
@@ -186,8 +225,8 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
       // Its ID token still goes as id_token_hint. Without the hint Entra may
       // show an account picker instead of returning to "/", and the U104 undo
       // depends on the return.
-      const hint = (await manager.getUser())?.id_token;
-      await manager.removeUser();
+      const hint = (await reader.getUser().catch(() => null))?.id_token;
+      await reader.removeUser();
       await discovered();
       await manager.signoutRedirect(hint === undefined ? {} : { id_token_hint: hint });
     },
@@ -222,6 +261,16 @@ export function signOut(): Promise<void> {
   return auth().signOut();
 }
 
-export function discardUser(): Promise<void> {
-  return auth().discardUser();
+// Building the managers reads window.localStorage, whose getter throws when
+// site data is blocked. That is no session too (TYRE-471 spec, The session).
+export async function storedSession(): Promise<Tokens | null> {
+  try {
+    return await auth().storedSession();
+  } catch {
+    return null;
+  }
+}
+
+export function discardUser(accessToken: string): Promise<void> {
+  return auth().discardUser(accessToken);
 }

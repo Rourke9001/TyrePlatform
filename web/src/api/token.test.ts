@@ -203,6 +203,7 @@ describe("credential", () => {
     expect((error as InstanceType<typeof ApiError>).status).toBe(401);
     expect((error as InstanceType<typeof ApiError>).code).toBe("signed_out");
     expect(oidc.discardUser).toHaveBeenCalledTimes(1);
+    expect(oidc.discardUser).toHaveBeenCalledWith("at-2");
     expect(token.readMirror()).toBeNull();
     expect(token.lastKnownSubject()).toBe("oid-a");
   });
@@ -219,6 +220,7 @@ describe("credential", () => {
 
     await expect(token.credential()).rejects.toMatchObject({ status: 401, code: "signed_out" });
     expect(oidc.discardUser).toHaveBeenCalledTimes(1);
+    expect(oidc.discardUser).toHaveBeenCalledWith("at-2");
     expect(token.lastKnownSubject()).toBeNull();
     expect(token.readMirror()).toBeNull();
   });
