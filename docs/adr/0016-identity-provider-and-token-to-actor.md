@@ -127,7 +127,8 @@ on each Entra user and proven by an RLS lookup of `app.app_user` by `oid`.**
    The application role's column grants exclude `subject`.
 7. **The web client** keeps the tokens in `localStorage` for their lifetime
    (U102), through a lazily loaded oidc-client-ts *(in the entry since
-   2026-11-04, see the amendment below)*, and clears them when a
+   2026-11-04, see the amendment below), and since 2026-11-10 the library's
+   stored user is the only copy (second amendment)*, and clears them when a
    renewal is refused or the user signs out. MSAL is rejected because from v4
    its `localStorage` cache does not survive a browser restart without "Keep
    me signed in".
@@ -206,3 +207,25 @@ the capture-bundle constraint above: about five bytes of headroom on 30 Sep
   and a second cache to reason about, and its first install rides the same
   link. A cache-busted re-import: it bypasses Vite's preload helper, loads a
   second copy of the module, and cannot recover a failed static dependency.
+
+## Amendment, 2026-11-10 (TYRE-471, U199)
+
+Decision 7's client keeps one copy of the session, the library's stored
+user. The token store reads it before each call and renews on demand. This
+is the pattern MSAL documents for single-page apps: `acquireTokenSilent`,
+then an interactive request only when interaction is required. The store's
+own copy in a separate key existed only because the library was a lazy
+chunk the entry could not await, and the amendment above ended that.
+
+- **What the app adds.** The last-known subject (U104, U111 B): a stored
+  session is used only when its `oid` matches it. The tenant for the
+  branding cache key. The fresh-token lock, held in the page's memory.
+- **Discovery** is fetched once per page under the app's own deadline,
+  which bounds the body, and passed to the library as `metadata`.
+- **A renewal past its bound is abandoned (U199).** The next call starts a
+  new one, because Entra does not revoke a refresh token when it is
+  redeemed. A timeout reads as no signal; only a refusal lapses the
+  session.
+- **Rejected.** Keeping the copy: every fix to it had to keep two stores
+  in step. react-oidc-context: it wraps the same `UserManager` in a React
+  provider, and `send()` and the outbox run outside React.

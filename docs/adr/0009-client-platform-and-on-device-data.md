@@ -126,7 +126,9 @@ almost no personal information. Sign-in changes what the phone holds, not
 what it replicates:
 
 - **Session tokens.** The access, refresh and ID tokens are held in
-  `localStorage`, with a mirror of the access token beside them (U102). They
+  `localStorage` as the sign-in library's stored user (U102) *(one copy since
+  2026-11-10; until then a mirror of the access token sat beside them,
+  ADR-0016's second amendment)*. They
   are valid for at most 24 hours, and they are removed at the next refused
   renewal or at sign-out, so a phone left unopened for days still holds them
   until it next tries to renew. The ID token carries the person's name and
