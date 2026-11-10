@@ -2,11 +2,11 @@
 
 - **Status:** Accepted (owner, 9 Nov 2026, with U191 to U195). Its PR is
   #208. It supersedes ADR-0018's stage 5
-  decision and its push stop.
+  decision and its push stop. Amended 10 Nov 2026 (TYRE-476, U205).
 - **Date:** 2026-11-09
 - **Deciders:** Rourke (owner)
-- **Related:** ADR-0018 · TYRE-470, TYRE-395 · U123, U124, U125, U146,
-  U191 to U195 · spec `docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`
+- **Related:** ADR-0018 · TYRE-470, TYRE-395, TYRE-476 · U123, U124, U125, U146,
+  U191 to U195, U205 · spec `docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`
 
 ## Context
 
@@ -123,6 +123,8 @@ and a fresh fixer each round (Option B).
   (ADR-0018's spike). The lead can collect a review. The lead spike showed
   a `/code-review` fork returning to it, and since the lead writes no code,
   U125's reason holds.
+  *(Amended 2026-11-10 by TYRE-476. The review now runs as its own process;
+  see the amendment below.)*
 - A review reads the range set through the branch's upstream. The upstream
   form is the `/code-review` skill's documented default and the one the
   lead spike ran. The lead checks the upstream ref before each review and
@@ -166,6 +168,8 @@ collects a review there.
   runs on Sonnet and the finders and the fixer on the session's top model,
   so the reviewer is on a different tier from the author. That offsets part
   of the gap, not all of it.
+  *(Amended 2026-11-10 by TYRE-476. Each step's model is in the amendment
+  below.)*
 - An `unrelated` bug is deferred to a ticket, which is what U146 was
   written to stop. It holds only if the ticket that owns the code really
   gets the evidence.
@@ -184,3 +188,52 @@ collects a review there.
 
 **Revisit when:** a teammate can collect its own subagents; or the first
 three runs under this loop hit the cap.
+
+**Amended 2026-11-10 (TYRE-476, U205):** each step of a `make pipeline` run
+has a model the owner chose, set in a file in the repo. Before this, every
+agent with no model in its dispatch or its agent file took the lead's model
+unless the caller's shell set `CLAUDE_CODE_SUBAGENT_MODEL`, and a
+`/code-review` fork cannot leave the lead's model, so a lead on Fable
+reviewed on Fable, and fixed on Fable too unless the shell set that
+variable.
+
+| Step | Model | Where it is set |
+| --- | --- | --- |
+| Lead: triage, spec, orchestration | Fable, effort high | `scripts/pipeline.sh` |
+| Spec builder check | Opus | `.claude/commands/pipeline.md`, its dispatch |
+| Planner teammate | Opus | `pipeline.md`, its spawn line |
+| Red team of the plan | Fable | `.claude/agents/plan-red-team.md` frontmatter |
+| Implementer teammate | Sonnet, or Opus when the plan's files meet an auditor's trigger | `pipeline.md`, Implementation |
+| Code review | Opus | `scripts/pipeline-review.sh` |
+| Auditors | Opus | their frontmatter |
+| Verifier | Opus | `pipeline.md`, its dispatch |
+| Fixers, every round | Opus | `pipeline.md`, each fixer dispatch |
+| Anything the playbook does not name | Opus | `CLAUDE_CODE_SUBAGENT_MODEL`, exported by `scripts/pipeline.sh` |
+| Close-out routine | Sonnet | the cloud routine, set by the owner |
+
+U205's reasons: Fable where the text is short and the decision is big, Opus
+where much code is read or a mistake costs a fix round, Sonnet for
+implementing a checked plan, and Haiku only for file searches. The lead
+writes the spec and orchestrates, and never implements or reviews code.
+
+The Decision's `/code-review` fork is replaced, because a fork runs on the
+lead's model. The lead runs `scripts/pipeline-review.sh`, which starts
+`/code-review high` in a separate `claude -p --model opus` process in the
+checkout, with the range still set through the branch's upstream. Two spikes
+on Claude Code 2.1.322 proved the `claude -p` process the script starts
+(TYRE-476, comment 14181 and the one after it): a planted one-file range, and
+the merged TYRE-471 branch of 32 files. Each exited 0 in under six minutes,
+used Opus alone, was denied no tool, and cited only files in its range. The
+script counts a review only when the process exits 0 inside its time bound,
+the JSON result is a success with no permission denial, `modelUsage` holds an
+Opus key and nothing but Haiku beside it, and `result` holds a fenced JSON
+array of findings. Claude Code does not document that last shape. A release
+that changes it fails the check and stops the run for the owner, and is never
+read as a clean review.
+
+The Bad bullet on tiers changes in one case. The implementer runs on Sonnet
+by default and every finder and fixer on Opus, so the reviewer is on a
+different tier from the author. When the plan's files meet an auditor's
+trigger, the implementer runs on Opus and the reviewer is on the author's
+tier. The auditors those files trigger are then the independent check for
+that work.
