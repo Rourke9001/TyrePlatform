@@ -180,8 +180,7 @@ type Renewed = Tokens | null;
 // U111 B: only the redirect callback changes the last-known subject, so a
 // renewal for anyone else, or one that settles after a sign-out cleared it,
 // is a lapse. The removal holds only while the stored user carries this
-// renewal's token, so it never takes a later sign-in's (TYRE-471 spec,
-// Renewal).
+// renewal's token (TYRE-471 spec, Renewal).
 async function sameDriver(tokens: Renewed): Promise<Renewed> {
   if (tokens === null || tokens.subject === lastKnownSubject()) return tokens;
   try {
@@ -199,7 +198,8 @@ function obtainedNow(tokens: Renewed): Renewed {
 
 // One renewal at a time, abandoned at its bound so the next call starts a
 // new one (U199). The abandoned one runs on in the library, and its late
-// settle removes only what it stored (TYRE-471 spec, Renewal).
+// settle removes the stored user only while it holds what that settle
+// stored (TYRE-471 spec, Renewal).
 function renewOnce(): Promise<Renewed> {
   renewing ??= bounded(renew().then(sameDriver).then(obtainedNow), "sign-in renewal").finally(
     () => {
