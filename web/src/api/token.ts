@@ -196,18 +196,14 @@ function obtainedNow(tokens: Renewed): Renewed {
   return tokens;
 }
 
-// One renewal in flight until it settles, past the bound too, because
-// refresh tokens may rotate and two concurrent renewals would spend the same
-// one twice. A caller that joins a stuck one gets its rejection at once.
+// One renewal at a time, abandoned at its bound so the next call starts a
+// new one (U199). The abandoned one runs on in the library, and its late
+// settle removes only what it stored (TYRE-471 spec, Renewal).
 function renewOnce(): Promise<Renewed> {
-  renewing ??= bounded(
-    renew()
-      .then(sameDriver)
-      .then(obtainedNow)
-      .finally(() => {
-        renewing = null;
-      }),
-    "sign-in renewal",
+  renewing ??= bounded(renew().then(sameDriver).then(obtainedNow), "sign-in renewal").finally(
+    () => {
+      renewing = null;
+    },
   );
   return renewing;
 }
