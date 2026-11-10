@@ -1,4 +1,4 @@
-import { apiGet } from "../api/client";
+import { ApiError, apiGet } from "../api/client";
 import { lastKnownSubject, rememberTenant } from "../api/token";
 
 // Wire shape of GET /api/me. Capabilities are strings, not a union: the
@@ -31,10 +31,26 @@ export interface Me {
   distanceUnit?: string;
 }
 
+// The API's 401 carries no code (client.ts). The store's own signed_out
+// does, and a retry would answer it the same (TYRE-471 spec, Sending).
+function refusedByApi(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401 && error.code === null;
+}
+
 export async function fetchMe(): Promise<Me> {
-  // Before the call, so rememberTenant can tell whose answer it is (token.ts).
+  // Before the first call, so rememberTenant can tell whose answer it is
+  // (token.ts).
   const subject = lastKnownSubject();
-  const me = await apiGet<Me>("/api/me");
+  let me: Me;
+  try {
+    me = await apiGet<Me>("/api/me");
+  } catch (error) {
+    // Once, with the store's next token: a reload can send a refused token
+    // whose renewal had not landed, and only this query shows the sign-in
+    // screen (TYRE-471 spec, Sending; RFC 6750, section 3.1).
+    if (!refusedByApi(error)) throw error;
+    me = await apiGet<Me>("/api/me");
+  }
   rememberTenant(me.tenantId, subject);
   return me;
 }
