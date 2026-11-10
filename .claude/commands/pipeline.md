@@ -62,7 +62,8 @@ stage would run as a plain subagent.
    (`gh pr view <n> --json state`). If any fact disagrees, stop and report
    the mismatch; never guess. If all agree, `git checkout <branch>`; a
    resume then restarts at the stage after the last finished one, with new
-   teammates, and in the loop never starts again at review 0. The last
+   teammates (an implementer on the model its `Implementer model:` line
+   records), and in the loop never starts again at review 0. The last
    `Fix <id>:` line in the file places a resume inside the loop, whatever
    its round id. If it has `started` and no `after`, it is an open round:
    HEAD must descend from its `before`
@@ -109,8 +110,9 @@ Wait for each teammate's explicit report before acting on its stage. A
 teammate's message can reach you late, so never read silence or a missing
 reply as an answer. No teammate dispatches a subagent or runs
 `/code-review`, because a teammate cannot collect it: the result is lost
-(ADR-0023). Every finder, verifier and fixer is your own unnamed subagent
-instead, whose result does reach you.
+(ADR-0023). Every auditor, verifier and fixer is your own unnamed subagent
+instead, and the code review is a process you start (Review loop step 3), so
+each result reaches you.
 
 ## Triage (you)
 
@@ -154,8 +156,8 @@ the project brief and the code, and list the open questions. Sort each:
 
 Write `docs/superpowers/specs/<date>-<topic>-design.md` in the skill's
 document shape (its "The Written Design"), citing SRS IDs and never copying
-their text. Run the skill's builder check as an unnamed subagent with its
-`builder-check-prompt.md`. Settle what a builder could settle, as a lead's
+their text. Run the skill's builder check as an unnamed subagent with
+`model: "opus"` and its `builder-check-prompt.md`. Settle what a builder could settle, as a lead's
 call; what only the owner can answer goes in the approval message, since
 the product questions have had their one batch. Commit the spec
 (`git add <spec path>`, then `git commit -m "<message>" -- <spec path>`),
@@ -172,7 +174,8 @@ agent to `docs/HANDOFF_srs_errata_<key>_<date>.md`, and go on.
 
 ## Plan (planner)
 
-Spawn a teammate named `planner` (general-purpose) with:
+Spawn a teammate named `planner` (general-purpose, model `opus`: it reads
+the code the plan touches, and a gap it leaves costs a fix round) with:
 
 > You are the planner for <keys>. The spec is `<spec path>`. Use
 > superpowers:writing-plans to write
@@ -225,8 +228,18 @@ the ticket: the final verdict, and the counts fixed and ruled.
 
 ## Implementation (implementer)
 
-Spawn a teammate named `implementer` (general-purpose, model `sonnet`: it
-follows a red-teamed plan, and the review loop reviews the result) with:
+Choose the implementer's model before the spawn. It is `sonnet`, since it
+follows a red-teamed plan and the review loop reviews the result, unless the
+plan's file list (for a bundle, `<state dir>/small-fix-plan.md`) meets the
+trigger of `rls-auditor`, `append-only-auditor` or `valuation-verifier`,
+judged from each agent's description as Review loop step 3 judges a diff.
+Then it is `opus`. Record the choice in the state file before the spawn, as
+`Implementer model: <sonnet | opus>, because <the files that met a trigger |
+no trigger met>`. A respawn or a resume that finds that line spawns on its
+model and does not judge again.
+
+Spawn a teammate named `implementer` (general-purpose, on the model the
+`Implementer model:` line records) with:
 
 > You implement `<plan path>` for <keys> with superpowers:executing-plans,
 > inline; the spec is `<spec path>` (a small fix has none). Do not dispatch
@@ -277,7 +290,12 @@ for a numbered round; `owner-fix-<n>.md`, `gate-fix.md` or `ci-fix.md` for
 a round outside the two), `fixer-<id>-report.md`, a gate fixer's
 `fix-<id>-gate-input.md` and `fixer-<id>-gate-report.md`, a row A retry's
 `fixer-<id>-retry-report.md` or `fixer-<id>-gate-retry-report.md`,
-`findings-<id>.md` and `review-<id>.md`. Its state line is `Fix <id>:`.
+`findings-<id>.md`, `review-<id>.md`, `code-review-<id>.json` (the review
+script's stdout), `code-review-<id>.err` (its stderr), `code-review-<id>.md`
+(the review's result, written only when it passed its checks) and
+`auditor-<id>-<agent>.md` (one auditor's raw output, `<agent>` being
+`rls-auditor`, `append-only-auditor` or `valuation-verifier`). Its state
+line is `Fix <id>:`.
 The classes
 are CLAUDE.md's, Which bugs a branch fixes (U191); the flags `rule 1-3`
 and `spec` are defined in `/review-pr` step 5. Run the gate,
@@ -307,14 +325,28 @@ a file the branch did not touch is re-run once before it counts as red.
    every push is `git push -u origin <branch>`, never a bare `git push`,
    which would follow an upstream that may be the local
    `pipeline-review-base`.
-3. **Review `<k>`.** Run `/code-review high` with no target, and each of
-   `rls-auditor`, `append-only-auditor` and `valuation-verifier` whose
-   trigger the range's file list meets, each unnamed and each given the
-   range and that file list. `/code-review` returns as a background fork:
-   wait for its result. Save the raw output of each to
-   `<state dir>/findings-<k>.md`, and for review 0 add to it each bug the
-   implementer sent up. Then dispatch one fresh unnamed
-   general-purpose subagent, the verifier, with no `model` override:
+3. **Review `<k>`.** Start the code review as a background Bash call, in
+   exactly the form the allow rule in `.claude/settings.json` matches, with
+   no `cd`, variable or wrapper in front:
+   `bash scripts/pipeline-review.sh <state dir> <k>`. It runs
+   `/code-review high` with no target in its own Opus process (ADR-0023,
+   amended 10 Nov 2026). Dispatch each of `rls-auditor`,
+   `append-only-auditor` and `valuation-verifier` whose trigger the range's
+   file list meets, each unnamed and each given the range and that file
+   list. The auditors return long before the script, so save each one's raw
+   output on arrival to `<state dir>/auditor-<k>-<agent>.md`. Wait to be
+   woken when the script exits. Gate on its exit code and its last line,
+   never on a file existing. A review is exit 0 with a last line
+   `REVIEW: ok`. Anything else is a finder that returned nothing, so run the
+   script once more. A second failure stops for the owner (The run cannot
+   go on) with both `REVIEW: failed` lines, since the rerun replaces the
+   first attempt's `code-review-<k>.json` and `.err`. Once the script prints
+   `REVIEW: ok`, build `<state dir>/findings-<k>.md`: copy the result with
+   `cp "<state dir>/code-review-<k>.md" "<state dir>/findings-<k>.md"`, so
+   the verifier reads the review's findings byte for byte, then append each
+   `auditor-<k>-<agent>.md`, and for review 0 each bug the implementer sent
+   up. Then dispatch one fresh unnamed general-purpose subagent, the
+   verifier, with `model: "opus"`:
 
    > You verify review findings for <keys>; you fix nothing. Follow
    > `.claude/commands/review-pr.md` steps 1, 4 and 5 in their verifier
@@ -332,7 +364,10 @@ a file the branch did not touch is re-run once before it counts as red.
 
    `Review base` is the merge base, which decides `introduced`; it is not
    the range's start. Serialise anything that resets or loads the
-   database, since every agent here shares one local database.
+   database, since every agent here shares one local database. Step 3
+   writes no `Review <k>:` line: a resume reads that line as a finished
+   review (Before anything, step 5), so it is written only in step 4, after
+   the verifier.
 4. **Read `review-<k>.md` yourself.** You decide on its text, never on a
    count the verifier reports; take the counts from its class words. Every
    item in `findings-<k>.md`, whatever its severity and whoever gave it
@@ -340,9 +375,12 @@ a file the branch did not touch is re-run once before it counts as red.
    report as kept with its severity and class, as dropped with a reason,
    or as set aside with a reason: `/code-review` gives no severity, so the
    verifier assigns it. Count the raw items against the report's entries;
-   if one is missing, dispatch the verifier again once. Compare the files the report cites with the range's file list yourself. If a review cites nothing inside the range while the list is not empty and the raw findings are not empty, it read the wrong diff: set the range again and run the review once more. A verified finding that arrives from outside the range is classified like any other and does not widen the next review.
-   Record the `Review <k>:` line and, for a numbered review, stage
-   `review <k>`.
+   if one is missing, dispatch the verifier again once. Compare the files the report cites with the range's file list yourself. If a review cites nothing inside the range while the list is not empty and the raw findings are not empty, it read the wrong diff: set the range again and run step 3 again from the script: the script, the copy, the auditors' saved files and a fresh verifier. A verified finding that arrives from outside the range is classified like any other and does not widen the next review.
+   Record the `Review <k>:` line, with the code review's model keys and
+   finding count from the `REVIEW: ok` line, or, if that line has left your
+   context, from `<state dir>/code-review-<k>.json` (its `modelUsage` keys)
+   and `<state dir>/code-review-<k>.md` (the length of its fenced array),
+   and, for a numbered review, stage `review <k>`.
 5. **Act on the classes**, recording each action in the state file as it
    happens. A verified rule 1 to 3 finding, whatever its class or severity, is a stop, once per finding: show the owner the evidence and the proposed fix before anything else is done with it. One the owner has ruled on is not a stop again.
    Then, for each finding not waiting on the owner: an `unrelated` bug gets
@@ -372,7 +410,7 @@ a file the branch did not touch is re-run once before it counts as red.
    `<state dir>/fix-<k>-input.md` holding every finding step 6 holds open,
    each copied with its `Class:` line and, under it, each owner answer
    recorded for it, verbatim with its time. Dispatch a fresh unnamed
-   general-purpose subagent with no `model` override and the fixer brief
+   general-purpose subagent with `model: "opus"` and the fixer brief
    below, that file being its `<report path>`. Then Close a round `<k>`.
 8. **Re-review `<k>`** over `<before>...<after>` as in steps 2 to 5, when
    Close a round sends it here; then step 6.
@@ -439,8 +477,9 @@ Closing (rows E and G) fills the same fields on every `Fix <id>:` line:
 `after`, the lint and test exit codes (`n/a` in row E), the fixer report
 paths and the re-review path or `none`; and the stage: `fix <k>` for a
 numbered round, `gate fix` for `gate`, and for `ci` stage `CI fix` after
-its push (Hand-over step 4). Every fixer gets the brief below; a fixer
-dispatched again (row A) or a gate fixer (row F) also gets
+its push (Hand-over step 4). Every fixer, in every round, a row A retry and
+a row F gate fixer included, is dispatched with `model: "opus"` and gets the
+brief below; a fixer dispatched again (row A) or a gate fixer (row F) also gets
 `git log <before>..HEAD` as the commits this round already holds. The
 round keeps its recorded `before` throughout, so every fixer commit stays
 inside its re-review range.
@@ -512,11 +551,14 @@ Give each fixer this brief verbatim, its placeholders filled:
   arrive late. Treat it as failed only when neither shows progress.
 - A teammate errors or stops early: ask it to shut down and wait for its
   confirmation, so two never work in this checkout at once, then spawn a
-  new one from the state file once. If that fails too, stop and tell the
-  owner.
+  new one from the state file once, on the model its spawn line names, or
+  for the implementer the model its `Implementer model:` line records. If
+  that fails too, stop and tell the owner.
 - A finder, verifier or fixer that returns nothing, or whose hand-back
   does not end with its terminal line (`VERDICT:` for the verifier,
-  `STATUS:` for a fixer), is dispatched again once, then the owner. Gate
+  `STATUS:` for a fixer, and exit 0 with a last line `REVIEW: ok` for the
+  review script), is dispatched again once, on the same model, then the
+  owner. Gate
   on that line, never on a file existing (docs/lessons.md, 2026-09-03 and
   2026-11-09). A verifier whose line is there but whose `review-<k>.md` is
   missing: write its hand-back to that path yourself before going on.
@@ -525,8 +567,8 @@ Give each fixer this brief verbatim, its placeholders filled:
   `git branch --show-current` not printing the run's branch; a verifier
   that still misses a raw finding after its second dispatch, or a review
   that reads the wrong diff twice (step 4); a dirty tree after a fixer
-  (Close a round, row D); a finder, verifier or fixer that returns nothing
-  twice (above, and row A). A second red gate is the row "Red gate"
+  (Close a round, row D); a finder (the review script included), verifier
+  or fixer that returns nothing twice (above, and row A). A second red gate is the row "Red gate"
   (row F), and a round outside the two that leaves something open is "The
   cap".
 - A usage limit: stop. The state file holds the run;
@@ -546,9 +588,10 @@ Give each fixer this brief verbatim, its placeholders filled:
 - Lead's calls: <question>: <choice> (<source>)
 - Plan: <path>
 - Red team: round <r>: <verdict>, C<n> I<n> M<n>; fixed <n>, ruled <n> (U<n>, ...); lead's rulings: <finding>: <ruling> (<source>)
+- Implementer model: <sonnet | opus>, because <the files that met a trigger | no trigger met>
 - Implementer report: <state dir>/implementer-report.md; make check exit <code>
 - Review base: <sha>
-- Review <k>: <from>...<to>; introduced <n>, on-path <n>, spec <n>, unrelated <n>, not a bug <n>; rule 1-3 <n>; scope <m> outside; report <path>
+- Review <k>: <from>...<to>; code review <model keys>, <n> findings; introduced <n>, on-path <n>, spec <n>, unrelated <n>, not a bug <n>; rule 1-3 <n>; scope <m> outside; report <path>
 - Unrelated: <finding>: <ticket>, commented | raised
 - Fix <id>: before=<sha>; started | after=<sha>; lint exit <code | n/a>, test exit <code | n/a>; reports <path>[, <retry path>][, <gate report path>][, <gate retry path>]; re-review <path | none>
 - PR: #<n>; CI <result> @ <head sha>
