@@ -1,22 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { REQUEST_TIMEOUT_SECONDS } from "./deadline";
-import { SUBJECT_KEY } from "./token";
+import { SUBJECT_KEY, TENANT_KEY } from "./token";
 import { bearerSession } from "../test/bearerSession";
+import { me } from "../test/fixtures";
 import { LIBRARY_USER_KEY, plantSession, storedAccessToken } from "../test/librarySession";
 
 // The token store over the real oidc.ts and the real library, with only the
-// identity provider stubbed, so what is stored after a late settle is the
-// library's own write (TYRE-471 spec, Tests).
+// identity provider and GET /api/me stubbed, so what is stored after a late
+// settle is the library's own write (TYRE-471 spec, Tests).
 //
 // renew and discardUser pass through to the real ones, so a test can await a
 // late settle's own promise instead of counting ticks (docs/lessons.md,
-// 2026-08-26). vi.resetModules() does not run a mock factory again, so this
+// 2026-08-26). storedSession passes through too, and each credential() reads
+// it once. vi.resetModules() does not run a mock factory again, so this
 // oidc.ts instance and its singleton last for the file; token.ts is fresh
 // per test.
 vi.mock("../auth/oidc", async (importOriginal) => {
   const real = await importOriginal<typeof import("../auth/oidc")>();
-  return { ...real, renew: vi.fn(real.renew), discardUser: vi.fn(real.discardUser) };
+  return {
+    ...real,
+    renew: vi.fn(real.renew),
+    discardUser: vi.fn(real.discardUser),
+    storedSession: vi.fn(real.storedSession),
+  };
 });
 
 const IDP = "https://idp.test";
@@ -69,9 +76,13 @@ function stalled(status: number) {
 }
 
 // Discovery always answers. Each refresh POST takes the next queued answer
-// and records the refresh token it carried.
+// and records the refresh token it carried. Each GET /api/me takes the next
+// answer a test queues in `api` and records its bearer; a function answer
+// runs when the request arrives. With nothing queued, either is no signal.
 function identityProvider(...answers: Response[]) {
   const sent: string[] = [];
+  const api: (Response | (() => Response))[] = [];
+  const bearers: string[] = [];
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
     if (url === DISCOVERY_URL) return Promise.resolve(json(200, DISCOVERY));
     if (url === TOKEN_URL) {
@@ -79,10 +90,21 @@ function identityProvider(...answers: Response[]) {
       const next = answers.shift();
       return next ? Promise.resolve(next) : Promise.reject(new TypeError("no answer queued"));
     }
+    if (url === "/api/me") {
+      bearers.push(new Headers(init?.headers).get("Authorization")?.replace("Bearer ", "") ?? "");
+      const next = api.shift();
+      if (next === undefined) return Promise.reject(new TypeError("no answer queued"));
+      return Promise.resolve(typeof next === "function" ? next() : next);
+    }
     return Promise.reject(new TypeError(`unexpected request ${url}`));
   });
   vi.stubGlobal("fetch", fetchMock);
-  return { sent, fetchMock };
+  return { sent, answers, api, bearers, fetchMock };
+}
+
+// A 401 from the API itself, which send() never reads the body of.
+function unauthorized(): Response {
+  return json(401, { code: "unauthorized", message: "the token was refused" });
 }
 
 // R1's own renew(), which holds a refusal's conditional removal, so once it
@@ -103,13 +125,16 @@ async function lateRemoval(
 }
 
 // The latch, the lock and the two remembered tokens are token.ts's module
-// state.
+// state. me.ts and actorContext.ts come from the same fresh registry, so
+// fetchMe sends through this token.ts and failureOf knows this ApiError.
 async function fresh() {
   vi.resetModules();
   const token = await import("./token");
   const oidc = await import("../auth/oidc");
   const { ApiError } = await import("./apiError");
-  return { token, oidc, ApiError };
+  const { fetchMe } = await import("../auth/me");
+  const { failureOf } = await import("../auth/actorContext");
+  return { token, oidc, ApiError, fetchMe, failureOf };
 }
 
 beforeEach(() => {
@@ -170,10 +195,9 @@ it("keeps that user when a sign-in writes its subject while the renewal is in fl
   expect(storedAccessToken()).toBe("at-b2");
 });
 
-// A reload forgets the refused mark, and the gate's GET /api/me is not
-// retried on a 401, so the refused token must leave the library before the
-// page can reload (TYRE-471 spec, Sending).
-it("replaces a token refused with 401 in the library at once, so a reload never sends it again", async () => {
+// A reload forgets the refused mark, so the renewal starts at once, and a
+// reload after it lands sends the renewed token (TYRE-471 spec, Sending).
+it("replaces a token refused with 401 in the library at once, so a reload after it lands sends the renewed one", async () => {
   plantSession({ accessToken: "at-1", subject: "oid-a", refreshToken: "rt-1" });
   window.localStorage.setItem(SUBJECT_KEY, "oid-a");
   const idp = identityProvider(json(200, tokens("at-2", "rt-2")));
@@ -189,6 +213,159 @@ it("replaces a token refused with 401 in the library at once, so a reload never 
     subject: "oid-a",
   });
   expect(idp.sent).toEqual(["rt-1"]);
+});
+
+// The gate's GET /api/me retries one 401 from the API with the store's next
+// token (TYRE-471 spec, Sending; RFC 6750, section 3.1). The planted session
+// is what a reload finds: a token this page never obtained, with no mark.
+describe("fetchMe after a 401 from the API", () => {
+  beforeEach(() => {
+    plantSession({ accessToken: "at-1", subject: "oid-a", refreshToken: "rt-1" });
+    window.localStorage.setItem(SUBJECT_KEY, "oid-a");
+  });
+
+  // Review 1, R3: the page before the reload marked at-1 refused, and its
+  // renewal at once found no signal, so the library still holds at-1.
+  it("reaches the actor on a reload whose refused token's renewal never landed", async () => {
+    const idp = identityProvider();
+    const before = await fresh();
+    expect(before.token.refused("at-1")).toBe(false);
+    await vi.waitFor(() => expect(before.oidc.renew).toHaveBeenCalledTimes(1));
+    await r1Settled(before.oidc);
+    expect(storedAccessToken()).toBe("at-1");
+
+    idp.answers.push(json(200, tokens("at-2", "rt-2")));
+    idp.api.push(unauthorized(), json(200, me({ displayName: "Driver A", tenantId: "t-a" })));
+    const reloaded = await fresh();
+
+    await expect(reloaded.fetchMe()).resolves.toMatchObject({ displayName: "Driver A" });
+    expect(idp.bearers).toEqual(["at-1", "at-2"]);
+    // One refresh POST per page: the retry joins the renewal the refusal
+    // started.
+    expect(idp.sent).toEqual(["rt-1", "rt-1"]);
+    expect(storedAccessToken()).toBe("at-2");
+    expect(window.localStorage.getItem(TENANT_KEY)).toBe("t-a");
+  });
+
+  // A plain Error, which failureOf names no failure, so the gate shows no
+  // sign-in screen (web/src/auth/actorContext.ts).
+  it.each([
+    ["stalls past its bound", true],
+    ["finds no signal", false],
+  ])("rejects as no signal when the retry's renewal %s", async (_, stall) => {
+    if (stall) vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const idp = stall ? identityProvider(stalled(200).response) : identityProvider();
+    idp.api.push(unauthorized());
+    const { fetchMe, ApiError, failureOf } = await fresh();
+
+    const call = fetchMe().catch((e: unknown) => e);
+    if (stall) await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_SECONDS * 1000);
+    const error = await call;
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ApiError);
+    expect(failureOf(error)).toBeNull();
+    expect(idp.bearers).toEqual(["at-1"]);
+    expect(idp.sent).toEqual(["rt-1"]);
+  });
+
+  // The retry's token was obtained a moment ago, so its 401 means the API
+  // refuses every valid token (TYRE-471 spec, A fresh token refused).
+  it("latches after exactly two requests when the retry's new token is refused too", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const idp = identityProvider(json(200, tokens("at-2", "rt-2")));
+    idp.api.push(unauthorized(), unauthorized());
+    const { fetchMe, token, failureOf } = await fresh();
+
+    const error = await fetchMe().catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 503, code: "auth_unavailable" });
+    expect(failureOf(error)).toBe("unavailable");
+    expect(idp.bearers).toEqual(["at-1", "at-2"]);
+    expect(token.isLatched()).toBe(true);
+    expect(logged).toHaveBeenCalledTimes(1);
+
+    await expect(fetchMe()).rejects.toMatchObject({ code: "auth_unavailable" });
+    expect(idp.bearers).toHaveLength(2);
+    logged.mockRestore();
+  });
+
+  // The e2e stub renews to the same string (web/e2e/idp.ts). Obtaining it
+  // clears the refused mark, so the retry sends it, as a token obtained now.
+  it.each([
+    ["accepts it, the actor shows", json(200, me({ displayName: "Driver A" })), null],
+    ["refuses it, the store latches", unauthorized(), "auth_unavailable"],
+  ])(
+    "sends a renewed token that is the same string once, and the API %s",
+    async (_, answer, code) => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const idp = identityProvider(json(200, tokens("at-1", "rt-2")));
+      idp.api.push(unauthorized(), answer);
+      const { fetchMe } = await fresh();
+
+      const result = await fetchMe().catch((e: unknown) => e);
+      if (code === null) expect(result).toMatchObject({ displayName: "Driver A" });
+      else expect(result).toMatchObject({ status: 503, code });
+      expect(idp.bearers).toEqual(["at-1", "at-1"]);
+      expect(idp.sent).toEqual(["rt-1"]);
+      logged.mockRestore();
+    },
+  );
+
+  // Exactly one retry (TYRE-471 spec, Lead's calls). Another tab's renewal
+  // stores at-2 while at-1 is refused, so the retry sends at-2, which this
+  // page never obtained. Its 401 goes to the caller, and a third request
+  // would be a loop.
+  it("retries only once when the retry's token, renewed by another tab, is refused too", async () => {
+    const idp = identityProvider();
+    idp.api.push(
+      () => {
+        plantSession({ accessToken: "at-2", subject: "oid-a", refreshToken: "rt-2" });
+        return unauthorized();
+      },
+      unauthorized(),
+      json(200, me()),
+    );
+    const { fetchMe, ApiError } = await fresh();
+
+    const error = await fetchMe().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 401, code: null });
+    expect(idp.bearers).toEqual(["at-1", "at-2"]);
+  });
+
+  // A retry would answer the same: no subject means no session, and a lapse
+  // has removed the stored user (TYRE-471 spec, Renewal).
+  it.each([
+    ["no driver has signed in", () => window.localStorage.removeItem(SUBJECT_KEY), []],
+    [
+      "the session lapses",
+      () => plantSession({ accessToken: "at-1", subject: "oid-a", expiresInSeconds: -60 }),
+      [json(400, { error: "invalid_grant" })],
+    ],
+  ])("does not retry the store's own signed_out when %s", async (_, state, answers) => {
+    state();
+    const idp = identityProvider(...answers);
+    const { fetchMe, oidc } = await fresh();
+
+    await expect(fetchMe()).rejects.toMatchObject({ status: 401, code: "signed_out" });
+    expect(oidc.storedSession).toHaveBeenCalledTimes(1);
+    expect(idp.bearers).toEqual([]);
+  });
+
+  // F2's rule holds for the answer the retry brings back: the subject read
+  // before the first request must still stand (TYRE-471 spec, The session).
+  it("writes no tenant when another sign-in changed the subject while the retry was in flight", async () => {
+    const idp = identityProvider(json(200, tokens("at-2", "rt-2")));
+    idp.api.push(unauthorized(), () => {
+      window.localStorage.setItem(SUBJECT_KEY, "oid-b");
+      return json(200, me({ tenantId: "t-a" }));
+    });
+    const { fetchMe } = await fresh();
+
+    await expect(fetchMe()).resolves.toMatchObject({ tenantId: "t-a" });
+    expect(idp.bearers).toEqual(["at-1", "at-2"]);
+    expect(window.localStorage.getItem(TENANT_KEY)).toBeNull();
+  });
 });
 
 describe("a renewal past its bound (U199)", () => {

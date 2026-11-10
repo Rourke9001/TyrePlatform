@@ -63,9 +63,11 @@ async function send<T>(method: string, path: string, body?: unknown, as?: Sender
     );
     if (!res.ok) {
       if (res.status === 401) {
-        // Nothing reads a 401's code (failureOf, classify), so its body is
-        // not waited for, and a lost one cannot delay "Sign in to send".
-        // Cancelled, or a stalled one holds its connection past the bound.
+        // Nothing reads a 401's body (failureOf, classify), so it is not
+        // waited for, and a lost one cannot delay "Sign in to send". The
+        // null code below is how fetchMe tells the API's 401 from the
+        // store's (me.ts). Cancelled, or a stalled one holds its connection
+        // past the bound.
         void res.body?.cancel().catch(() => undefined);
         if (who.accessToken !== null && refused(who.accessToken)) throw authUnavailable();
         throw new ApiError(401, `${method} ${path} failed: 401`, null);

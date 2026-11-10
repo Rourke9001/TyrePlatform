@@ -163,6 +163,10 @@ describe("a refetch of /api/me answering 401 while an actor is held", () => {
     // Planted, not obtained by this page, so the 401 reads as a lapse, not as
     // an API that refuses every token (token.ts, refused()).
     plantSession({ accessToken: "at-a", subject: "oid-a" });
+    // The refresh token is refused too, so fetchMe's one retry after the 401
+    // ends signed out (TYRE-471 spec, Sending).
+    const oidc = await import("./oidc");
+    vi.mocked(oidc.renew).mockResolvedValue(null);
     window.localStorage.setItem(SUBJECT_KEY, "oid-a");
     const fetchMock = vi
       .fn()
