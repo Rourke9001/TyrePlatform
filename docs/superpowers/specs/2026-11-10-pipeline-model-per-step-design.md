@@ -173,8 +173,10 @@ call, with the range set through the branch's upstream.
 | Files cited outside the range | none | none |
 
 In both, `result` opened with a fenced `json` block holding an array of
-findings, each with `file`, `line`, `summary` and `failure_scenario`, and
-closed with a short paragraph of prose. The ticket's fallback, a subagent
+findings, each with `file`, `line`, `summary` and `failure_scenario`. The
+planted run's `result` went on with a short paragraph of prose after the
+block, and the real run's ended at the closing fence, so the script
+accepts both. The ticket's fallback, a subagent
 that reviews without the skill, was not needed and is not built.
 
 The review moves into `scripts/pipeline-review.sh`, because its checks are
