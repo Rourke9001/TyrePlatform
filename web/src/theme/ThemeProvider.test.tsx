@@ -7,8 +7,9 @@ import { ThemeProvider } from "./ThemeProvider";
 import { deriveBrandTheme } from "./derive";
 import { useBranding } from "./themeContext";
 import { ActorContext } from "../auth/actorContext";
-import { SUBJECT_KEY, rememberTenant, writeMirror } from "../api/token";
+import { SUBJECT_KEY, rememberTenant } from "../api/token";
 import { bearerSession } from "../test/bearerSession";
+import { plantSession } from "../test/librarySession";
 import { me, testQueryClient } from "../test/fixtures";
 
 const BRANDING = { displayName: "Acme", primaryColor: "#123456", logoUrl: null };
@@ -43,13 +44,7 @@ function brandingKeys(): string[] {
 
 function signedIn(tenantId: string | null) {
   bearerSession();
-  writeMirror({
-    accessToken: "at",
-    expiresAt: Date.now() + 3_600_000,
-    obtainedAt: 0,
-    subject: "oid-a",
-    tenantId: null,
-  });
+  plantSession({ accessToken: "at", subject: "oid-a" });
   window.localStorage.setItem(SUBJECT_KEY, "oid-a");
   if (tenantId !== null) rememberTenant(tenantId);
 }

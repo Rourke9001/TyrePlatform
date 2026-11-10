@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ErrorResponse, UserManager, type INavigator, type NavigateParams } from "oidc-client-ts";
 
-import { MIRROR_KEY, SUBJECT_KEY, TENANT_KEY, credential } from "../api/token";
+import { SUBJECT_KEY, TENANT_KEY, credential } from "../api/token";
 import { bearerSession } from "../test/bearerSession";
 import { LIBRARY_USER_KEY, plantSession, storedAccessToken } from "../test/librarySession";
 import { createAuth } from "./oidc";
@@ -427,7 +427,6 @@ describe("signOut", () => {
   it("clears the entry's keys first, then sends id_token_hint and lets the library remove its user", async () => {
     const id = idToken("oid-a");
     storeUser({ id_token: id, refresh_token: "rt-old" });
-    window.localStorage.setItem(MIRROR_KEY, "{}");
     window.localStorage.setItem(SUBJECT_KEY, "oid-a");
     window.localStorage.setItem("tyre.branding.t-1", "{}");
     window.localStorage.setItem("tyre.branding.default", "{}");
@@ -437,7 +436,6 @@ describe("signOut", () => {
     let atNavigate: Record<string, string | null> = {};
     const { navigator, urls } = capturing(() => {
       atNavigate = {
-        mirror: window.localStorage.getItem(MIRROR_KEY),
         subject: window.localStorage.getItem(SUBJECT_KEY),
         tenant: window.localStorage.getItem(TENANT_KEY),
         branding: window.localStorage.getItem("tyre.branding.t-1"),
@@ -452,7 +450,6 @@ describe("signOut", () => {
     expect(url.searchParams.get("id_token_hint")).toBe(id);
     expect(url.searchParams.get("post_logout_redirect_uri")).toBe(`${ORIGIN}/`);
     expect(atNavigate).toEqual({
-      mirror: null,
       subject: null,
       tenant: null,
       branding: null,
@@ -462,45 +459,22 @@ describe("signOut", () => {
     expect(window.localStorage.getItem("tyre.dev.tenant-id")).toBe("kept");
   });
 
-  // A renewal that storage would not mirror is held in memory by the token
-  // store. The page outlives a rejected sign-out or a back-forward restore,
-  // and must not answer with the signed-out person's token (spec section 4).
-  it("forgets a renewed token the token store held in memory", async () => {
+  // A page that a rejected sign-out or a back-forward restore leaves in
+  // place must not answer with the signed-out driver's token (TYRE-471 spec,
+  // Signing out).
+  it("leaves this page signed out", async () => {
     bearerSession();
-    const id = idToken("oid-a");
-    storeUser({ id_token: id, refresh_token: "rt-old" });
-    // The sign-in that stored this user wrote the last-known subject too.
+    storeUser({ id_token: idToken("oid-a"), refresh_token: "rt-old" });
     window.localStorage.setItem(SUBJECT_KEY, "oid-a");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((url: string) =>
-        Promise.resolve(
-          url.endsWith("/token")
-            ? tokenResponse(id)
-            : new Response(JSON.stringify(SETTINGS.metadata), {
-                status: 200,
-                headers: { "Content-Type": "application/json" },
-              }),
-        ),
-      ),
-    );
-    const store = window.localStorage;
-    const real = store.setItem.bind(store);
-    const blocked = vi
-      .spyOn(Storage.prototype, "setItem")
-      .mockImplementation((key: string, value: string) => {
-        if (key === MIRROR_KEY) throw new DOMException("full", "QuotaExceededError");
-        real(key, value);
-      });
-    await expect(credential()).resolves.toMatchObject({ accessToken: "at-new" });
-    expect(window.localStorage.getItem(MIRROR_KEY)).toBeNull();
-    blocked.mockRestore();
+    await expect(credential()).resolves.toMatchObject({ accessToken: "at-old" });
 
     const { navigator, urls } = capturing();
     void createAuth(SETTINGS, navigator).signOut();
     await vi.waitFor(() => expect(urls).toHaveLength(1));
 
     await expect(credential()).rejects.toMatchObject({ status: 401, code: "signed_out" });
+    expect(window.localStorage.getItem(LIBRARY_USER_KEY)).toBeNull();
+    expect(window.localStorage.getItem(SUBJECT_KEY)).toBeNull();
   });
 });
 

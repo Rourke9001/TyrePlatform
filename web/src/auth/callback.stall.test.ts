@@ -74,7 +74,6 @@ it("renders the app, signed out, once the bound passes on a code exchange that n
   expect(render).toHaveBeenCalledTimes(1);
   expect(callback.signInDidNotFinish()).toBe(true);
   expect(window.location.search).toBe("");
-  expect(token.readMirror()).toBeNull();
   expect(token.lastKnownSubject()).toBeNull();
 });
 
@@ -94,7 +93,6 @@ it("discards a code exchange that finishes after the bound, and records nothing"
   expect(oidc.discardUser).toHaveBeenCalledTimes(1);
   expect(oidc.discardUser).toHaveBeenCalledWith("at-a");
 
-  expect(token.readMirror()).toBeNull();
   expect(token.lastKnownSubject()).toBeNull();
   expect(fetch).not.toHaveBeenCalled();
 });

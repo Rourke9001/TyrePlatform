@@ -1,16 +1,15 @@
-// The session the API sees (ADR-0016, U102). The store reads the access
-// token from a mirror in its own localStorage key and never reads the
-// sign-in library's storage format.
+// The session the API sees (ADR-0016, U102). The library's stored user is
+// the one copy of the tokens; this store decides when to renew and which
+// driver a stored session may serve (U104).
 
 import { ApiError } from "./apiError";
 import { bounded } from "./deadline";
 import { getDevActorId } from "./devTenant";
-import { discardUser, renew, type Tokens } from "../auth/oidc";
+import { discardUser, renew, storedSession, type Tokens } from "../auth/oidc";
 
-export const MIRROR_KEY = "tyre.auth.mirror";
-// The last driver who signed in on this phone. Held inspections are stamped
-// from it (U104), so only signOut() clears it. A 401 clears the mirror and
-// leaves this alone.
+// The last driver whose sign-in passed the U104 compare. Queued inspections
+// are stamped from it, and only the redirect callback writes it, so a 401
+// leaves it alone and only signOut() clears it (TYRE-471 spec, The session).
 export const SUBJECT_KEY = "tyre.auth.subject";
 // The tenant GET /api/me proved, read for the branding cache key at first
 // paint (b9 spec, Cached state). Every sign-in and signOut() remove it
@@ -21,50 +20,17 @@ export const BRANDING_PREFIX = "tyre.branding.";
 // by the sign-in screen when the end-session redirect comes back.
 export const OTHER_DRIVER_KEY = "tyre.auth.other-driver";
 
-export interface Mirror {
-  accessToken: string;
-  // Epoch milliseconds, as Date.now() reads.
-  expiresAt: number;
-  obtainedAt: number;
-  // The Entra oid from the ID token (ADR-0016).
-  subject: string;
-  // The tenant RLS proved, from GET /api/me; null until that first answers.
-  tenantId: string | null;
-}
-
-// The three fields a call depends on. The store sits in the capture entry
-// (under a kilobyte gzipped, spec section 4), so the guard checks no more.
-function isMirror(value: unknown): value is Mirror {
-  const m = value as Partial<Mirror> | null;
-  return (
-    typeof m?.accessToken === "string" &&
-    typeof m.subject === "string" &&
-    typeof m.expiresAt === "number"
-  );
-}
-
-export function readMirror(): Mirror | null {
+// A phone signed in before TYRE-471 still holds this key, with an access
+// token and the driver's oid, and nothing else would remove it (U102;
+// TYRE-471 spec, The old key). Nothing reads it.
+function forgetOldCopy(): void {
   try {
-    const raw = window.localStorage.getItem(MIRROR_KEY);
-    if (raw === null) return null;
-    const parsed: unknown = JSON.parse(raw);
-    return isMirror(parsed) ? parsed : null;
+    window.localStorage.removeItem("tyre.auth.mirror");
   } catch {
-    return null;
+    // Unreadable storage holds nothing to remove.
   }
 }
-
-export function writeMirror(mirror: Mirror): void {
-  window.localStorage.setItem(MIRROR_KEY, JSON.stringify(mirror));
-}
-
-export function clearMirror(): void {
-  try {
-    window.localStorage.removeItem(MIRROR_KEY);
-  } catch {
-    // Unreadable storage holds no mirror to clear.
-  }
-}
+forgetOldCopy();
 
 export function lastKnownSubject(): string | null {
   try {
@@ -142,29 +108,31 @@ export interface Sender {
   subject: string | null;
 }
 
-// Renewed first when this close to expiry, so none expires in flight (spec
-// section 4, Expiry).
+// Renewed first when this close to expiry, so none expires in flight
+// (TYRE-471 spec, Expiry).
 const EXPIRY_SKEW_MS = 60_000;
 // A 401 on a token obtained this recently means the API refuses every valid
 // token (a wrong AUTH_AUDIENCE, AUTH_CLIENT_ID or scope). Renewing cannot
-// help, so the store stops until a reload (spec section 4, A fresh token
+// help, so the store stops until a reload (TYRE-471 spec, A fresh token
 // refused).
 const FRESH_MS = 60_000;
 
 let latched = false;
-// The last renewed token, kept beside the mirror, because a blocked store
-// cannot hold it and the latch and the renewal count both depend on it.
-let held: Mirror | null = null;
-let renewing: Promise<Mirror | null> | null = null;
+let renewing: Promise<Tokens | null> | null = null;
 let lapsed = false;
 const lapseListeners = new Set<() => void>();
+// The two tokens the store compares against and never sends: the last one a
+// renewal or sign-in in this page obtained, and the last one the API refused
+// (TYRE-471 spec, Sending).
+let obtained: { accessToken: string; at: number } | null = null;
+let refusedToken: string | null = null;
 
 // Screens word this themselves (AccessScreen); the message is diagnostic.
 export function authUnavailable(): ApiError {
   return new ApiError(503, "sign-in is unavailable", "auth_unavailable");
 }
 
-// True once a fresh token was refused (spec section 4, A fresh token refused).
+// True once a fresh token was refused (TYRE-471 spec, A fresh token refused).
 export function isLatched(): boolean {
   return latched;
 }
@@ -180,12 +148,22 @@ export function onLapse(listener: () => void): () => void {
   };
 }
 
-// Sign-out's local clear (spec section 4, Signing out). `held` lives here, so
-// the page a rejected sign-out or a back-forward restore leaves in place
-// cannot answer with the old token.
+// A renewal and a sign-in (callback.ts) record their token, so a 401 on it
+// within FRESH_MS latches (TYRE-471 spec, A fresh token refused). A token
+// just obtained is not the one refused, even when the provider issues the
+// same string again.
+export function recordObtained(accessToken: string): void {
+  obtained = { accessToken, at: Date.now() };
+  if (refusedToken === accessToken) refusedToken = null;
+}
+
+// Sign-out's local clear (TYRE-471 spec, Signing out). The memory goes too,
+// so a page that a rejected sign-out or a back-forward restore leaves in
+// place compares nothing against the last driver's tokens.
 export function clearSession(): void {
-  held = null;
-  window.localStorage.removeItem(MIRROR_KEY);
+  obtained = null;
+  refusedToken = null;
+  forgetOldCopy();
   window.localStorage.removeItem(SUBJECT_KEY);
   window.localStorage.removeItem(TENANT_KEY);
 }
@@ -198,51 +176,34 @@ function setLapsed(value: boolean): void {
 
 type Renewed = Tokens | null;
 
-// oidc.ts never writes the mirror (spec section 4), so the store does. A
-// blocked store must not fail a renewed token, so only then is `held` kept;
-// a working store stays the one source, which another tab's sign-out clears.
-function mirrorRenewed(tokens: Renewed): Mirror | null {
-  if (tokens === null) {
-    held = null;
-    clearMirror();
-    return null;
-  }
-  const previous = readMirror();
-  const mirror: Mirror = {
-    ...tokens,
-    obtainedAt: Date.now(),
-    tenantId: previous?.subject === tokens.subject ? previous.tenantId : null,
-  };
-  try {
-    writeMirror(mirror);
-    held = null;
-  } catch {
-    held = mirror;
-  }
-  return mirror;
-}
-
 // U111 B: only the redirect callback changes the last-known subject, so a
-// renewal for anyone else, or for a subject cleared while it ran, ends that
-// session rather than adopting it.
+// renewal for anyone else, or one that settles after a sign-out cleared it,
+// is a lapse. The removal holds only while the stored user carries this
+// renewal's token, so it never takes a later sign-in's (TYRE-471 spec,
+// Renewal).
 async function sameDriver(tokens: Renewed): Promise<Renewed> {
   if (tokens === null || tokens.subject === lastKnownSubject()) return tokens;
   try {
     await discardUser(tokens.accessToken);
   } catch {
-    // Best effort; mirrorRenewed clears the mirror either way.
+    // Best effort.
   }
   return null;
+}
+
+function obtainedNow(tokens: Renewed): Renewed {
+  if (tokens !== null) recordObtained(tokens.accessToken);
+  return tokens;
 }
 
 // One renewal in flight until it settles, past the bound too, because
 // refresh tokens may rotate and two concurrent renewals would spend the same
 // one twice. A caller that joins a stuck one gets its rejection at once.
-function renewOnce(): Promise<Mirror | null> {
+function renewOnce(): Promise<Renewed> {
   renewing ??= bounded(
     renew()
       .then(sameDriver)
-      .then(mirrorRenewed)
+      .then(obtainedNow)
       .finally(() => {
         renewing = null;
       }),
@@ -254,26 +215,28 @@ function renewOnce(): Promise<Mirror | null> {
 export async function credential(): Promise<{ accessToken: string; subject: string }> {
   // Checked first, since a build without VITE_AUTH_* cannot sign anyone in.
   if (latched || !authConfigured()) throw authUnavailable();
-  const usable = (m: Mirror | null) => m !== null && m.expiresAt - EXPIRY_SKEW_MS > Date.now();
-  const mirror = readMirror();
+  const stored = await storedSession();
+  const subject = lastKnownSubject();
+  // A user whose oid is not the last-known subject never serves a call. It
+  // is renewed, not removed here, because the library stores a sign-in's
+  // user before the callback writes its subject (TYRE-471 spec, Which stored
+  // user serves a call).
+  const usable =
+    stored !== null &&
+    stored.subject === subject &&
+    stored.accessToken !== refusedToken &&
+    stored.expiresAt - EXPIRY_SKEW_MS > Date.now();
   // Every sign-in writes the last-known subject or does not finish, so
-  // without one there is no session to renew, and no refresh token a stray
-  // library user holds is spent learning that (spec section 4, Renewal).
-  const current = usable(mirror)
-    ? mirror
-    : usable(held)
-      ? held
-      : lastKnownSubject() === null
-        ? null
-        : await renewOnce();
-  // Another tab's sign-in writes the shared mirror, which ends this tab's
-  // lapse too.
+  // without one there is no session to renew (TYRE-471 spec, Renewal).
+  const current = usable ? stored : subject === null ? null : await renewOnce();
+  // Another tab's sign-in stores a user this tab reads, which ends this
+  // tab's lapse too.
   setLapsed(current === null);
   if (current === null) throw new ApiError(401, "signed out", "signed_out");
   return { accessToken: current.accessToken, subject: current.subject };
 }
 
-// U104: who a held inspection is stamped with and sent under.
+// U104: who a queued inspection is stamped with and sent under.
 export function sender(): Promise<Sender> {
   if (devHeaderPath()) {
     return Promise.resolve({ accessToken: null, subject: getDevActorId() });
@@ -286,26 +249,21 @@ export function stampSubject(): string | null {
   return lastKnownSubject();
 }
 
-// send() calls this on a 401 from the API. True when this refusal, or an earlier
-// one, latched the store. Every call then answers 503 without touching the API.
+// send() calls this on a 401 from the API. True when this refusal, or an
+// earlier one, latched the store; every call then answers 503 without
+// touching the API. Otherwise only this token is marked, so the next call
+// renews, a since-renewed token is left alone, and the library keeps its
+// user, whose refresh token still renews (TYRE-471 spec, Sending).
 export function refused(accessToken: string): boolean {
   if (latched) return true;
-  const mirror = readMirror();
-  // A clock corrected backwards leaves obtainedAt in the future, which is not
-  // "earlier" (spec section 4, A fresh token refused).
-  const fresh = (m: Mirror) => {
-    const age = Date.now() - m.obtainedAt;
-    return age >= 0 && age < FRESH_MS;
-  };
-  const recent = [mirror, held].find((m) => m?.accessToken === accessToken && fresh(m));
-  if (recent !== undefined) {
+  // A clock corrected backwards leaves the obtained time in the future,
+  // which is not "earlier" (TYRE-471 spec, A fresh token refused).
+  const age = obtained?.accessToken === accessToken ? Date.now() - obtained.at : -1;
+  if (age >= 0 && age < FRESH_MS) {
     console.error("API refused a fresh token (ADR-0016)");
     latched = true;
     return true;
   }
-  // A slow 401 for an earlier token must not clear a session that has since
-  // renewed.
-  if (held?.accessToken === accessToken) held = null;
-  if (mirror?.accessToken === accessToken) clearMirror();
+  refusedToken = accessToken;
   return false;
 }

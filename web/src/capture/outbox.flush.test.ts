@@ -7,7 +7,8 @@ vi.mock("../api/deadline", async (importOriginal) => {
   return { ...real, deadline: (what?: string) => real.deadline(what, 50) };
 });
 
-vi.mock("../auth/oidc", () => ({
+vi.mock("../auth/oidc", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../auth/oidc")>()),
   renew: vi.fn(),
   signIn: vi.fn(),
   completeSignIn: vi.fn(),
@@ -16,9 +17,10 @@ vi.mock("../auth/oidc", () => ({
 }));
 
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
-import { MIRROR_KEY, SUBJECT_KEY } from "../api/token";
+import { SUBJECT_KEY } from "../api/token";
 import { renew } from "../auth/oidc";
 import { bearerSession } from "../test/bearerSession";
+import { plantSession } from "../test/librarySession";
 import { clearDraft, db, savePosition, startDraft } from "./draft";
 import { attemptSend, discardEntry, flushOutbox, listOutbox, queueDraft } from "./outbox";
 
@@ -107,16 +109,7 @@ describe("one renewal per flush (TYRE-385)", () => {
   beforeEach(() => {
     clearDevActorId();
     bearerSession();
-    window.localStorage.setItem(
-      MIRROR_KEY,
-      JSON.stringify({
-        accessToken: "at-old",
-        subject: DRIVER,
-        expiresAt: Date.now() - 1000,
-        obtainedAt: Date.now() - 3_600_000,
-        tenantId: null,
-      }),
-    );
+    plantSession({ accessToken: "at-old", subject: DRIVER, expiresInSeconds: -1 });
     window.localStorage.setItem(SUBJECT_KEY, DRIVER);
   });
 

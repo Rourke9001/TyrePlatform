@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { captureAll, capturePosition, done, startInspection, submit } from "./captureSteps";
-import { ageToken, lapseSession, stubIdentityProvider, type IdpStub } from "./idp";
+import { lapseSession, stubIdentityProvider, type IdpStub } from "./idp";
 import {
   apiGet,
   configFor,
@@ -62,10 +62,10 @@ function outboxBand(page: Page) {
 async function holdOneSubmit(page: Page, vehicleId: string) {
   await startInspection(page, vehicleId);
   await captureAll(page);
-  // Older than the fresh-token window, so the refusal below lapses the
-  // session and holds the entry; a fresh token refused would latch the store
-  // as "the API refuses every valid token" (src/api/token.ts, refused()).
-  await ageToken(page);
+  // startInspection loads the page afresh, so this page obtained no token.
+  // The refusal below marks that token refused and holds the entry as a 401;
+  // a refusal of a token this page obtained would latch the store as "the
+  // API refuses every valid token" (src/api/token.ts, refused()).
   stub.refuseSubmits = true;
   await submit(page);
   await expect(done(page)).toContainText("Sign in to send it.");
@@ -232,7 +232,13 @@ test("sign-out is refused while an entry is held, and goes ahead once the outbox
   await expect.poll(() => stub.endSessionUrls.length).toBe(1);
   expect(stub.endSessionUrls[0].searchParams.get("id_token_hint")).toBeTruthy();
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
-  expect(await page.evaluate(() => window.localStorage.getItem("tyre.auth.mirror"))).toBeNull();
+  expect(
+    await page.evaluate(() =>
+      Object.keys(window.localStorage).filter(
+        (k) => k.startsWith("oidc.user:") || k.startsWith("tyre.auth."),
+      ),
+    ),
+  ).toEqual([]);
 });
 
 // NFR-USE-004: the keypad and tiles sit at 56 to 64px for gloves, and the

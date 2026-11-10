@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../auth/oidc", () => ({
+vi.mock("../auth/oidc", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../auth/oidc")>()),
   renew: vi.fn(),
-  signIn: vi.fn(),
-  completeSignIn: vi.fn(),
-  signOut: vi.fn(),
 }));
 
 import { AUTH_HEADER, ApiError, apiGet, apiPatch, apiPost } from "./client";
 import { REQUEST_TIMEOUT_SECONDS } from "./deadline";
 import { clearDevActorId, clearDevTenantId, setDevActorId, setDevTenantId } from "./devTenant";
+import { SUBJECT_KEY } from "./token";
 import { sentBody } from "../test/fixtures";
 import { bearerSession } from "../test/bearerSession";
+import { LIBRARY_USER_KEY, plantSession } from "../test/librarySession";
 
 // A 401 whose body never arrives, and whether send() let go of it.
 function unreadBody(status: number) {
@@ -248,28 +248,22 @@ describe("the bearer path", () => {
     window.localStorage.clear();
   });
 
-  function mirror(obtainedAt: number) {
-    window.localStorage.setItem(
-      "tyre.auth.mirror",
-      JSON.stringify({
-        accessToken: "at-1",
-        expiresAt: Date.now() + 3_600_000,
-        obtainedAt,
-        subject: "oid-a",
-        tenantId: null,
-      }),
-    );
+  // Signed in on an earlier load: the library holds the user, and this page
+  // obtained no token, so a 401 on it is not a fresh one.
+  function signedIn() {
+    plantSession({ accessToken: "at-1", subject: "oid-a" });
+    window.localStorage.setItem(SUBJECT_KEY, "oid-a");
   }
 
   // The latch is module state (token.ts), so each case loads its own graph.
   async function freshClient() {
     vi.resetModules();
-    return import("./client");
+    return { ...(await import("./client")), token: await import("./token") };
   }
 
   it("attaches the bearer and no dev header", async () => {
     const { apiGet: get } = await freshClient();
-    mirror(Date.now() - 5 * 60_000);
+    signedIn();
     window.localStorage.setItem("tyre.dev.user-id", "dev-actor");
     vi.stubGlobal("fetch", vi.fn());
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
@@ -283,9 +277,9 @@ describe("the bearer path", () => {
   });
 
   // U104: the outbox sends under the credential it compared the stamp against.
-  it("sends apiPostAs under the given token, not the mirror's", async () => {
+  it("sends apiPostAs under the given token, not the stored one's", async () => {
     const { apiPostAs: post } = await freshClient();
-    mirror(Date.now() - 5 * 60_000);
+    signedIn();
     vi.stubGlobal("fetch", vi.fn());
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
 
@@ -295,11 +289,12 @@ describe("the bearer path", () => {
     expect(headers.get("Authorization")).toBe("Bearer at-other");
   });
 
-  // Spec section 4, A fresh token refused: a latch set after the caller took
+  // TYRE-471 spec, A fresh token refused: a latch set after the caller took
   // its credential must still stop the send.
   it("refuses apiPostAs without fetching once the store has latched", async () => {
-    const { apiGet: get, apiPostAs: post } = await freshClient();
-    mirror(Date.now());
+    const { apiGet: get, apiPostAs: post, token } = await freshClient();
+    signedIn();
+    token.recordObtained("at-1");
     stubFetch(401, { code: "unauthorized", message: "x" });
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     await get("/api/me").catch((e: unknown) => e);
@@ -316,23 +311,25 @@ describe("the bearer path", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("clears the mirror on a 401 for an older token, and the refusal stays a 401", async () => {
-    const { apiGet: get, ApiError: Err } = await freshClient();
-    mirror(Date.now() - 5 * 60_000);
+  it("marks an older token refused on a 401, keeps the library's user, and the refusal stays a 401", async () => {
+    const { apiGet: get, ApiError: Err, token } = await freshClient();
+    signedIn();
     stubFetch(401, { code: "unauthorized", message: "the request does not identify a user" });
 
     const err = await get("/api/me").catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(Err);
     expect((err as InstanceType<typeof Err>).status).toBe(401);
-    expect(window.localStorage.getItem("tyre.auth.mirror")).toBeNull();
+    expect(window.localStorage.getItem(LIBRARY_USER_KEY)).not.toBeNull();
+    expect(token.lastKnownSubject()).toBe("oid-a");
   });
 
-  // Spec section 4: a misconfigured API must read "unavailable", never send
+  // TYRE-471 spec, A fresh token refused: a misconfigured API must read "unavailable", never send
   // the driver to a sign-in that cannot help.
   it("turns a 401 on a token obtained seconds ago into 503, and then stops calling the API", async () => {
-    const { apiGet: get } = await freshClient();
-    mirror(Date.now());
+    const { apiGet: get, token } = await freshClient();
+    signedIn();
+    token.recordObtained("at-1");
     stubFetch(401, { code: "unauthorized", message: "x" });
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
@@ -346,8 +343,9 @@ describe("the bearer path", () => {
   });
 
   it("cancels the body of the 401 it turns into 503", async () => {
-    const { apiGet: get } = await freshClient();
-    mirror(Date.now());
+    const { apiGet: get, token } = await freshClient();
+    signedIn();
+    token.recordObtained("at-1");
     const body = unreadBody(401);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
