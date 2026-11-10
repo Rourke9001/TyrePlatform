@@ -190,12 +190,17 @@ key's name stays in the code.
   - It is not removed at read time. The library stores a new sign-in's user
     before the callback writes the subject, and a removal at read time
     would race another tab's sign-in.
-  - The callback writes the subject with nothing awaited after the library
-    stores the user, only microtasks (The redirect callback). A renewal
-    settles only after a network round trip, so by then the subject is
-    written. Its removal is conditional, so it removes nothing it did not
-    store. *(Amended after review 0, F4: the U104 stamp read used to sit
-    between the two, so a renewal could settle inside it.)*
+  - The callback awaits nothing after the library stores the user, only
+    microtasks, before it writes the subject (The redirect callback).
+    Another tab sees the two writes one storage propagation apart, since
+    tabs share no lock (HTML Standard, Web storage, 12.1). A renewal that
+    read the new user must finish a network round trip before its subject
+    check, so in practice the subject has reached it by then. If it has
+    not, the outcome is row 4 of The four late settles: the new driver
+    signs in once more. Its removal is conditional, so it removes nothing
+    it did not store. *(Amended after reviews 0 and 1, F4 and R2: the
+    U104 stamp read used to sit between the two writes, and the first
+    amendment called the remaining window closed.)*
   - This is also what clears a lasting mismatch: a page closed between the
     library's write and the subject's. Today does the same, by renewing
     whenever the copy is unusable (`web/src/api/token.ts:242-248`).
@@ -297,8 +302,15 @@ memory, so a reload clears both.
   renews;
 - when the refused token is still the stored user's, the store starts its
   one renewal at once, through `renewOnce`, so U199's bound and the late
-  settles hold. The library's user is replaced before a reload could send
-  the refused token again. *(Amended after review 0, F1.)*
+  settles hold. The library's user is replaced within that renewal's round
+  trip, so a reload after it sends the new token;
+- `fetchMe()` retries `GET /api/me` once after a 401 from the API, and the
+  retry takes the store's next token (RFC 6750, section 3.1: the client
+  "MAY request a new access token and retry"). A load that sends the
+  refused token before its renewal lands, and the first refusal at load,
+  so reach the actor without the sign-in screen. A retry whose renewal
+  fails for want of signal is a plain Error, which the gate reads as no
+  failure. *(Amended after reviews 0 and 1, F1 and R3.)*
 
 **The redirect callback.** Before the exchange, it reads the driver stamps
 of the work held on the phone (U104). The library then stores the new user.
@@ -520,8 +532,13 @@ New tests, each shown failing first:
 - The old `tyre.auth.mirror` key is removed at load and at sign-out.
 - On 401s:
   - a 401 on an unexpired token that is not fresh renews at once, and a
-    reload after it serves the renewed token *(amended after review 0,
-    F1)*;
+    reload after the renewal lands serves the renewed token *(amended after
+    review 0, F1)*;
+  - `fetchMe()` retries one API 401 with the next token: a reload whose
+    renewal had not landed reaches the actor, a retry whose renewal stalls
+    is a plain Error with no sign-in screen, and a 401 on the retry's
+    just-obtained token latches after exactly two requests *(added after
+    review 1, R3)*;
   - a 401 on a fresh one latches;
   - a slow 401 for an older token leaves the renewed one alone.
 - The branding tenant key is written by `fetchMe`, removed at sign-in and at
@@ -570,13 +587,31 @@ under the library's key. No test file plants one by hand.
   - Removing the library's user would turn a silent renewal into a full
     sign-in, and the b9 spec keeps the silent one (`:664-668`).
   - A reload forgets the mark. The first call after a reload is the gate's
-    `GET /api/me`, which is not retried on a 401
+    `GET /api/me`, which the query does not retry on a 401
     (`web/src/api/apiError.ts:19-27`), so the sign-in screen would show
     (`web/src/auth/AuthGate.tsx:16`) though the refresh token renews. The
-    renewal at once replaces the library's user first, and it goes through
-    `renewOnce`, so it is the store's one renewal.
+    renewal at once usually replaces the library's user within its round
+    trip, and it goes through `renewOnce`, so it is the store's one
+    renewal.
   - *(Amended after review 0, F1: this call first said the next 401 after
     a reload would renew.)*
+- **The gate's `fetchMe()` retries one API 401 with the next token.**
+  - The renewal at once cannot cover a page closed, or a renewal that
+    fails, within its round trip: the next load sends the refused token
+    again. RFC 6750, section 3.1, `invalid_token`: "The client MAY request
+    a new access token and retry the protected resource request."
+  - In `fetchMe()`, not `send()`: `send()` is transport only
+    (`web/src/api/client.ts:1-2`), `apiPostAs` must never read its
+    credential again (U104), and only the actor query shows the sign-in
+    screen (b9 spec `:758-765`; `web/src/auth/AuthGate.tsx:16`).
+  - Only a 401 from the API is retried, not the store's own `signed_out`,
+    which a retry would answer the same.
+  - A retry whose renewal fails for want of signal rejects with a plain
+    Error, which `failureOf` reads as no failure
+    (`web/src/auth/actorContext.ts:14-15`), as before this change.
+  - Rejected: a listener that refetches the actor when the renewal lands,
+    which leaves the sign-in screen up when the renewal stalls or fails.
+  - *(Added after review 1, R3.)*
 - **The U104 stamp read comes before the sign-in exchange.**
   - From the library's `storeUser` to the callback's subject write there is
     then nothing but microtasks: the library raises `userLoaded` with no
@@ -584,8 +619,17 @@ under the library's key. No test file plants one by hand.
     `web/src/auth/oidc.ts:115-116`; esm `:3319-3333`, `:2731-2736`), its
     `localStorage` store is synchronous (esm `:3535-3541`), and `bounded()`
     is a `Promise.race` (`web/src/api/deadline.ts`).
-  - So no other tab's renewal can settle between the two, and the claim in
-    Which stored user serves a call holds by construction.
+  - So this tab awaits nothing between the two. Tabs share no lock (HTML
+    Standard, Web storage, 12.1: "authors are encouraged to assume that
+    there is no locking mechanism"), so another tab sees the two writes
+    one storage propagation apart, not at once. A renewal that read the
+    new user must finish a refresh round trip before its subject check, so
+    in practice the subject has reached it. If it has not, the outcome is
+    row 4 of The four late settles. *(Amended after review 1, R2: this
+    bullet first called the window closed by construction.)*
+  - Rejected: a cross-tab Web Lock around `renew()` and the callback, which
+    would close the window and row 4. It is a new mechanism against two
+    drivers in two tabs of one phone, and phones are personal (U115).
   - Cost: work stamped under another driver in another tab during the
     exchange no longer undoes the sign-in. The send guard still compares
     each entry's stamp before any send (`web/src/capture/outbox.ts:247-249`),
