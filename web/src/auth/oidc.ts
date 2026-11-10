@@ -1,7 +1,9 @@
 // The one module that imports oidc-client-ts. It ships in the entry (U175,
 // ADR-0016's amendment), since the driver's renewal, sign-in and sign-out wait
-// on it. The module functions act on one UserManager built from VITE_AUTH_*;
-// createAuth exists so a test can hand it a navigator and metadata.
+// on it. Two UserManagers share one store: a reader for storage, and a network
+// manager built once discovery has answered (TYRE-471 spec, Two UserManagers
+// over one store). createAuth exists so a test can hand it a navigator and
+// metadata.
 import {
   ErrorResponse,
   UserManager,
@@ -11,7 +13,8 @@ import {
   type User,
 } from "oidc-client-ts";
 
-import { REQUEST_TIMEOUT_SECONDS, bounded } from "../api/deadline";
+import { REQUEST_TIMEOUT_SECONDS } from "../api/deadline";
+import { fetchDiscovery } from "../api/discovery";
 import { BRANDING_PREFIX, clearSession } from "../api/token";
 
 export interface Tokens {
@@ -76,6 +79,26 @@ function forgetIdentity(): void {
   branded.forEach((key) => storage.removeItem(key));
 }
 
+// What a sign-in, a renewal and a sign-out need from discovery.
+function isDiscovery(body: unknown): body is Partial<OidcMetadata> {
+  const d = body as Partial<
+    Record<"issuer" | "authorization_endpoint" | "token_endpoint", unknown>
+  > | null;
+  return (
+    typeof d?.issuer === "string" &&
+    typeof d.authorization_endpoint === "string" &&
+    typeof d.token_endpoint === "string"
+  );
+}
+
+// A document that names none of them is a plain Error, read as no signal
+// (TYRE-471 spec, Discovery).
+async function discover(url: string): Promise<Partial<OidcMetadata>> {
+  const body = await fetchDiscovery(url);
+  if (!isDiscovery(body)) throw new Error("sign-in discovery named no endpoints");
+  return body;
+}
+
 export function createAuth(settings: AuthSettings, redirectNavigator?: INavigator): Auth {
   const base = {
     authority: settings.authority,
@@ -92,27 +115,33 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
     automaticSilentRenew: false,
     monitorSession: false,
     loadUserInfo: false,
-    // oidc-client-ts sets no request timeout of its own, and a stalled
-    // discovery, key or code-exchange request would leave the page blank
-    // (ADR-0016). This one ends once the response headers arrive, so it
-    // does not bound a stalled body (docs/lessons.md, 2026-10-02).
+    // oidc-client-ts sets no request timeout of its own. This one ends once
+    // the response headers arrive, so the caller bounds the code exchange's
+    // body (callback.ts, TYRE-388; docs/lessons.md, 2026-10-02).
     requestTimeoutInSeconds: REQUEST_TIMEOUT_SECONDS,
   };
 
   // Storage only: getUser() and removeUser() make no request, so a live token
   // never waits on discovery (TYRE-471 spec, Two UserManagers over one store).
   const reader = new UserManager(base);
-  const manager = new UserManager(
-    { ...base, ...(settings.metadata ? { metadata: settings.metadata } : {}) },
-    redirectNavigator,
-  );
+  let network: Promise<UserManager> | null = settings.metadata
+    ? Promise.resolve(new UserManager({ ...base, metadata: settings.metadata }, redirectNavigator))
+    : null;
 
-  // A fresh page fetches discovery before either redirect and before a
-  // renewal's refresh POST, and the library's timeout ends at its headers, so
-  // that request is bounded. The redirect itself resolves only when the page
-  // comes back, so bounding it would fail a slow but working sign-in
-  // (TYRE-381). What arrives late is cached for the next call.
-  const discovered = () => bounded(manager.metadataService.getMetadata(), "sign-in discovery");
+  // The library reads metadata only when a manager is built, so this one is
+  // built once discovery has answered. A failure is forgotten, so the next
+  // call fetches again (U199; TYRE-471 spec, Discovery).
+  function networkManager(): Promise<UserManager> {
+    if (network !== null) return network;
+    const pending = discover(reader.settings.metadataUrl).then(
+      (metadata) => new UserManager({ ...base, metadata }, redirectNavigator),
+    );
+    network = pending;
+    void pending.catch(() => {
+      if (network === pending) network = null;
+    });
+    return pending;
+  }
 
   // Without a refresh token the library falls back to a hidden iframe on
   // silent_redirect_uri, which defaults to redirect_uri, "/". A session that
@@ -141,11 +170,15 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
   }
 
   return {
+    // The redirect resolves only when the page comes back, so bounding it
+    // would fail a slow but working sign-in (TYRE-381). Discovery before it
+    // is bounded.
     async signIn(returnTo) {
-      await discovered();
+      const manager = await networkManager();
       await manager.signinRedirect({ state: { returnTo } });
     },
     async completeSignIn(url) {
+      const manager = await networkManager();
       const user = await manager.signinRedirectCallback(url);
       try {
         return { ...tokensOf(user), returnTo: returnToOf(user.state) };
@@ -161,10 +194,10 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
     async renew() {
       if ((await refreshable()) === null) return null;
       // Before the refresh token is sent, so bounding this cannot spend it
-      // twice (spec section 4, The auth chunk). Its timeout is a plain
-      // Error, which goes through as offline.
-      await discovered();
-      // Again: another tab's sign-out can remove the shared user during
+      // twice (TYRE-471 spec, Renewal). Its timeout is a plain Error, which
+      // goes through as offline.
+      const manager = await networkManager();
+      // Read again: another tab's sign-out can remove the shared user during
       // discovery, and signinSilent reads it for itself.
       const sent = await refreshable();
       if (sent === null) return null;
@@ -172,8 +205,8 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
       try {
         // The settings' timeout does not reach the refresh request
         // (docs/lessons.md, 2026-10-01). Passed here it bounds only the wait
-        // for headers, so the token store bounds the whole renewal (spec
-        // section 4, Renewal).
+        // for headers, so the token store bounds the whole renewal
+        // (TYRE-471 spec, Renewal).
         renewed = await manager.signinSilent({
           silentRequestTimeoutInSeconds: REQUEST_TIMEOUT_SECONDS,
         });
@@ -227,7 +260,7 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
       // depends on the return.
       const hint = (await reader.getUser().catch(() => null))?.id_token;
       await reader.removeUser();
-      await discovered();
+      const manager = await networkManager();
       await manager.signoutRedirect(hint === undefined ? {} : { id_token_hint: hint });
     },
   };

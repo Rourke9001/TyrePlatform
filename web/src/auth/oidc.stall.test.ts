@@ -5,7 +5,8 @@ import { REQUEST_TIMEOUT_SECONDS } from "../api/deadline";
 import { LIBRARY_USER_KEY, plantSession } from "../test/librarySession";
 import { createAuth } from "./oidc";
 
-// No metadata, so the library fetches discovery, the request these bound.
+// No metadata, so the app fetches discovery, the request these bound
+// (TYRE-471 spec, Discovery).
 const IDP = "https://idp.test";
 const SETTINGS = {
   authority: `${IDP}/`,
@@ -165,9 +166,9 @@ it("signOut removes the stored user when discovery cannot be fetched at all", as
   expect(window.localStorage.getItem(LIBRARY_USER_KEY)).toBeNull();
 });
 
-// A fresh page's first renewal fetches discovery before the refresh POST,
-// and the store keeps a renewal in flight until it settles (token.ts), so a
-// discovery that never settles would hold every later send.
+// A fresh page's first renewal fetches discovery before the refresh POST, so
+// a stalled one must reject at its own bound, before any token is sent
+// (TYRE-471 spec, Discovery).
 it("renew rejects once the bound passes on a stalled discovery, before any token is sent", async () => {
   storeUser(-60);
   discoveryBodyStalls();
@@ -182,9 +183,9 @@ it("renew rejects once the bound passes on a stalled discovery, before any token
 });
 
 // Another tab's sign-out removes the shared stored user while this tab's
-// renewal waits on discovery. signinSilent reads the user itself, and with no
-// refresh token it would try a hidden iframe on "/" (spec section 4, The
-// auth chunk).
+// renewal waits on discovery. renew() reads it again after discovery, because
+// signinSilent reads it for itself and with no refresh token would try a
+// hidden iframe on "/" (TYRE-471 spec, Renewal).
 it("renew answers null, with no iframe, when the stored user goes during discovery", async () => {
   storeUser(-60);
   const answer = discoveryHeld();
