@@ -519,7 +519,9 @@ New tests, each shown failing first:
   renewal is in flight keeps its user.
 - The old `tyre.auth.mirror` key is removed at load and at sign-out.
 - On 401s:
-  - a 401 on an unexpired token that is not fresh renews on the next call;
+  - a 401 on an unexpired token that is not fresh renews at once, and a
+    reload after it serves the renewed token *(amended after review 0,
+    F1)*;
   - a 401 on a fresh one latches;
   - a slow 401 for an older token leaves the renewed one alone.
 - The branding tenant key is written by `fetchMe`, removed at sign-in and at
