@@ -323,7 +323,7 @@ pipeline: ## One job from triage to a reviewed PR with an agent team: make pipel
 	@bash scripts/pipeline.sh "$$T"
 
 .PHONY: pipeline-launch-test
-pipeline-launch-test: ## The pipeline launcher's key check and launch shape, with a stub claude (TYRE-412)
+pipeline-launch-test: ## The pipeline launcher's key check and launch shape, models and environment included, with a stub claude (TYRE-412, TYRE-476)
 	bash scripts/pipeline.test.sh
 
 .PHONY: hooks-test

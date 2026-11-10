@@ -14,5 +14,14 @@ if [ -n "$(printf '%s\n' "${keys[@]}" | sort | uniq -d)" ]; then
 fi
 # Exported here, never in settings: every named subagent would be a teammate.
 export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+# An agent whose dispatch and agent file name no model runs on Opus, not on
+# the lead's Fable (U205, ADR-0023).
+export CLAUDE_CODE_SUBAGENT_MODEL=opus
+# Set in the caller's shell, it would put every agent on one model (TYRE-476).
+unset CLAUDE_CODE_SUBAGENT_MODEL_FORCE
+# Set in the caller's shell, it would outrank --effort (TYRE-476).
+unset CLAUDE_CODE_EFFORT_LEVEL
+# The lead runs on Fable at high effort (U205).
+lead=(--model fable --effort high)
 # Git Bash rewrites a leading / into a Windows path when it starts claude.exe.
-MSYS2_ARG_CONV_EXCL='/pipeline ' exec claude "/pipeline $1"
+MSYS2_ARG_CONV_EXCL='/pipeline ' exec claude "${lead[@]}" "/pipeline $1"
