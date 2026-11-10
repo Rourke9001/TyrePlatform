@@ -278,9 +278,11 @@ eight or nine that #166 and #167 took, and the two later passes read a fix
 delta, not the whole branch. Agents hand over file paths, so the lead's
 context holds reports by reference.
 
-Model tiers: the implementer stays on Sonnet, as today. The finders and the
-fixer run on the session's top model. A reviewer on a different tier from
-the author stands in for the cross-vendor review this setup does not have.
+Model tiers: ADR-0023's amendment of 10 Nov 2026 (TYRE-476, U205) names the
+model for each step. A reviewer on a different tier from the author stands
+in for the cross-vendor review this setup does not have, and when the
+implementer runs on Opus, the auditors its files trigger are the
+independent check.
 
 ## Left to the builder
 
@@ -306,7 +308,8 @@ Not said by the owner; each can be overruled:
 - The review runs before the push, not on an open PR.
 - The lead rules disputed engineering findings from the red team.
 - `/design-audit` runs before the cap stop.
-- The fixer is the lead's subagent on the top model, new each round.
+- The fixer is the lead's subagent, new each round, on the model ADR-0023's
+  amendment names (TYRE-476).
 - The lead reports a grouping mismatch with the implementation order and
   carries on.
 - The wording of the "On the path" test.

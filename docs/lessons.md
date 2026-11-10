@@ -30,6 +30,21 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-10 - Git Bash's grep without -U does not match a CR, so a CR check with it passes on a CR LF file (TYRE-476)
+
+**What happened:** while TYRE-476's plan was checked in scratch, a test that
+the review script's result file held no CR used `grep -q $'\r' file`. On Git
+Bash it found nothing in a file whose lines all ended in CR LF, so a script
+that kept the CRs passed. `grep -qU $'\r' file` found them. So did bash
+reading the file (`c=$(cat file); [[ "$c" == *$'\r'* ]]`) and
+`tr -cd '\r' < file | wc -c`, which counted every one.
+
+**The rule:** never test for a CR with plain grep in a script that runs on
+Windows. Read the file with bash, `c=$(cat file)` then
+`[[ "$c" == *$'\r'* ]]`, or count with `tr -cd '\r' < file | wc -c`, or give
+grep `-U`, and show the check red on a file that holds a CR before trusting
+it.
+
 ## 2026-11-10 - TaskStop on a background `make api-run` leaves its API container running (TYRE-471)
 
 **What happened:** twice an e2e step started `make api-run` as a background
