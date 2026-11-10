@@ -7,7 +7,7 @@ import { ThemeProvider } from "./ThemeProvider";
 import { deriveBrandTheme } from "./derive";
 import { useBranding } from "./themeContext";
 import { ActorContext } from "../auth/actorContext";
-import { writeMirror } from "../api/token";
+import { SUBJECT_KEY, rememberTenant, writeMirror } from "../api/token";
 import { bearerSession } from "../test/bearerSession";
 import { me, testQueryClient } from "../test/fixtures";
 
@@ -48,8 +48,10 @@ function signedIn(tenantId: string | null) {
     expiresAt: Date.now() + 3_600_000,
     obtainedAt: 0,
     subject: "oid-a",
-    tenantId,
+    tenantId: null,
   });
+  window.localStorage.setItem(SUBJECT_KEY, "oid-a");
+  if (tenantId !== null) rememberTenant(tenantId);
 }
 
 beforeEach(() => {
@@ -67,7 +69,7 @@ afterEach(() => {
 });
 
 describe("the branding cache key", () => {
-  it("is the signed-in tenant the mirror learnt from /api/me", async () => {
+  it("is the tenant /api/me last proved, from its own key", async () => {
     signedIn("t-1");
     mount();
     await waitFor(() => expect(window.localStorage.getItem("tyre.branding.t-1")).not.toBeNull());
@@ -82,8 +84,8 @@ describe("the branding cache key", () => {
     expect(brandingKeys()).toEqual([]);
   });
 
-  // Only the actor changes. ThemeProvider is not recreated and the mirror
-  // stays unknown, so the move can come only from ThemeProvider reading the
+  // Only the actor changes. ThemeProvider is not recreated and the tenant key
+  // stays unset, so the move can come only from ThemeProvider reading the
   // actor (ADR-0016).
   it("moves to the tenant when /api/me answers, without a reload", async () => {
     signedIn(null);

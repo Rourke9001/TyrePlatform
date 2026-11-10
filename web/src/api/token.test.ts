@@ -4,9 +4,12 @@ import { REQUEST_TIMEOUT_SECONDS } from "./deadline";
 import {
   MIRROR_KEY,
   SUBJECT_KEY,
+  TENANT_KEY,
   authConfigured,
   bearerMode,
+  brandingTenant,
   clearMirror,
+  forgetTenant,
   lastKnownSubject,
   readMirror,
   rememberSubject,
@@ -58,18 +61,29 @@ describe("the mirror", () => {
     expect(lastKnownSubject()).toBe("oid-a");
     expect(window.localStorage.getItem(SUBJECT_KEY)).toBe("oid-a");
   });
+});
 
-  it("records the tenant /api/me proved, and does nothing without a mirror", () => {
+describe("the branding tenant", () => {
+  it("is what rememberTenant wrote, until forgetTenant removes it", () => {
+    rememberSubject("oid-a");
+    expect(brandingTenant()).toBeNull();
     rememberTenant("t-1");
-    expect(readMirror()).toBeNull();
-    writeMirror(MIRROR);
+    expect(brandingTenant()).toBe("t-1");
+    expect(window.localStorage.getItem(TENANT_KEY)).toBe("t-1");
+    forgetTenant();
+    expect(brandingTenant()).toBeNull();
+  });
+
+  // A GET /api/me that answers after signOut()'s local clear must not put
+  // the key back (TYRE-471 spec, Signing out).
+  it("writes nothing when no driver is signed in", () => {
     rememberTenant("t-1");
-    expect(readMirror()?.tenantId).toBe("t-1");
+    expect(window.localStorage.getItem(TENANT_KEY)).toBeNull();
   });
 
   // A full store must not fail a successful /api/me (me.ts calls this).
   it("does not throw when the store is full", () => {
-    writeMirror(MIRROR);
+    rememberSubject("oid-a");
     const full = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("full", "QuotaExceededError");
     });
@@ -78,6 +92,15 @@ describe("the mirror", () => {
     } finally {
       full.mockRestore();
     }
+  });
+
+  // First paint reads it (ThemeProvider.tsx), so storage that refuses
+  // access is no tenant, never a throw.
+  it("reads storage that refuses access as no tenant", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    expect(brandingTenant()).toBeNull();
   });
 });
 
