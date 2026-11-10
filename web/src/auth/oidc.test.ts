@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { UserManager, type INavigator, type NavigateParams } from "oidc-client-ts";
+import { ErrorResponse, UserManager, type INavigator, type NavigateParams } from "oidc-client-ts";
 
 import { MIRROR_KEY, SUBJECT_KEY, credential } from "../api/token";
 import { bearerSession } from "../test/bearerSession";
@@ -493,5 +493,96 @@ describe("signOut", () => {
     await vi.waitFor(() => expect(urls).toHaveLength(1));
 
     await expect(credential()).rejects.toMatchObject({ status: 401, code: "signed_out" });
+  });
+});
+
+describe("discovery", () => {
+  const DISCOVERY_URL = `${IDP}/.well-known/openid-configuration`;
+  const answered = () =>
+    Promise.resolve(
+      new Response(JSON.stringify(SETTINGS.metadata), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+  // Discovery answers as `discovery` says; the token endpoint renews.
+  function provider(discovery: () => Promise<Response>) {
+    const calls = { discovery: 0, token: 0 };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === DISCOVERY_URL) {
+          calls.discovery += 1;
+          return discovery();
+        }
+        calls.token += 1;
+        return Promise.resolve(tokenResponse(idToken("oid-a")));
+      }),
+    );
+    return calls;
+  }
+
+  // U199: a failed discovery is not kept, or only a reload could sign in
+  // or renew again (TYRE-471 spec, Discovery).
+  it("fetches discovery once per page, and again after one that failed", async () => {
+    storeUser({ id_token: idToken("oid-a"), refresh_token: "rt-old" });
+    let first = true;
+    const calls = provider(() => {
+      if (!first) return answered();
+      first = false;
+      return Promise.reject(new TypeError("Failed to fetch"));
+    });
+    const auth = createAuth({ ...SETTINGS, metadata: undefined });
+
+    await expect(auth.renew()).rejects.toBeInstanceOf(TypeError);
+    await expect(auth.renew()).resolves.toMatchObject({ accessToken: "at-new" });
+    await expect(auth.renew()).resolves.toMatchObject({ accessToken: "at-new" });
+    expect(calls).toEqual({ discovery: 2, token: 2 });
+  });
+
+  it.each([
+    [
+      "a status that is not 2xx",
+      () =>
+        new Response(JSON.stringify(SETTINGS.metadata), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+    ],
+    [
+      "a captive portal's HTML",
+      () =>
+        new Response("<html>sign in to the wifi</html>", {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        }),
+    ],
+    [
+      "a document with no token endpoint",
+      () =>
+        new Response(
+          JSON.stringify({ issuer: `${IDP}/`, authorization_endpoint: `${IDP}/authorize` }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    ],
+  ])("treats %s as no signal, and fetches again on the next call", async (_, bad) => {
+    let first = true;
+    const calls = provider(() => {
+      if (!first) return answered();
+      first = false;
+      return Promise.resolve(bad());
+    });
+    const { navigator, urls } = capturing();
+    const auth = createAuth({ ...SETTINGS, metadata: undefined }, navigator);
+
+    const error: unknown = await auth.signIn("/").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ErrorResponse);
+    expect(urls).toEqual([]);
+
+    void auth.signIn("/");
+    await vi.waitFor(() => expect(urls).toHaveLength(1));
+    expect(calls.discovery).toBe(2);
   });
 });
