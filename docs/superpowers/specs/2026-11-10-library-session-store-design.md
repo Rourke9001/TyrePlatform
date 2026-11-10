@@ -169,9 +169,12 @@ no notion of, each in its own key:
   proved, read for the branding cache key at first paint (b9 spec, Cached
   state).
   - `fetchMe()` writes it, and only while the last-known subject is still
-    the one its call was sent under, so a late answer for the previous
-    driver never lands on a new sign-in's key. *(Amended after review 0,
-    F2.)*
+    the one its call was sent under, as this tab reads it. A late answer
+    for the previous driver so lands on a new sign-in's key only if that
+    sign-in's subject write has not yet reached this tab (tabs share no
+    lock, Which stored user serves a call); the next `GET /api/me` then
+    rewrites the key. *(Amended after review 0, F2, and again in fix round 2,
+    to drop "never".)*
   - Every sign-in and `signOut()` remove it.
 
 **The old key.** A phone signed in before this change still holds
@@ -197,8 +200,9 @@ key's name stays in the code.
     read the new user must finish a network round trip before its subject
     check, so in practice the subject has reached it by then. If it has
     not, the outcome is row 4 of The four late settles: the new driver
-    signs in once more. Its removal is conditional, so it removes nothing
-    it did not store. *(Amended after reviews 0 and 1, F4 and R2: the
+    signs in once more. Its removal is conditional: it removes the stored
+    user only while that user, as this tab reads it, holds the renewal's
+    token. *(Amended after reviews 0 and 1, F4 and R2: the
     U104 stamp read used to sit between the two writes, and the first
     amendment called the remaining window closed.)*
   - This is also what clears a lasting mismatch: a page closed between the
