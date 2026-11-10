@@ -168,7 +168,10 @@ no notion of, each in its own key:
 - **The branding tenant** (`tyre.auth.tenant`): the tenant `GET /api/me`
   proved, read for the branding cache key at first paint (b9 spec, Cached
   state).
-  - `fetchMe()` writes it.
+  - `fetchMe()` writes it, and only while the last-known subject is still
+    the one its call was sent under, so a late answer for the previous
+    driver never lands on a new sign-in's key. *(Amended after review 0,
+    F2.)*
   - Every sign-in and `signOut()` remove it.
 
 **The old key.** A phone signed in before this change still holds
@@ -187,9 +190,12 @@ key's name stays in the code.
   - It is not removed at read time. The library stores a new sign-in's user
     before the callback writes the subject, and a removal at read time
     would race another tab's sign-in.
-  - A renewal settles only after a network round trip, by which time that
-    callback has written the subject. Its removal is conditional, so it
-    removes nothing it did not store.
+  - The callback writes the subject with nothing awaited after the library
+    stores the user, only microtasks (The redirect callback). A renewal
+    settles only after a network round trip, so by then the subject is
+    written. Its removal is conditional, so it removes nothing it did not
+    store. *(Amended after review 0, F4: the U104 stamp read used to sit
+    between the two, so a renewal could settle inside it.)*
   - This is also what clears a lasting mismatch: a page closed between the
     library's write and the subject's. Today does the same, by renewing
     whenever the copy is unusable (`web/src/api/token.ts:242-248`).
@@ -288,11 +294,17 @@ memory, so a reload clears both.
 - only that token is marked, so a slow 401 for an older token leaves a
   since-renewed one alone;
 - the library's stored user is not removed, since its refresh token still
-  renews.
+  renews;
+- when the refused token is still the stored user's, the store starts its
+  one renewal at once, through `renewOnce`, so U199's bound and the late
+  settles hold. The library's user is replaced before a reload could send
+  the refused token again. *(Amended after review 0, F1.)*
 
-**The redirect callback.** The library stores the new user. Then, in this
-order and before anything calls the API:
-1. the U104 compare;
+**The redirect callback.** Before the exchange, it reads the driver stamps
+of the work held on the phone (U104). The library then stores the new user.
+Then, with nothing awaited between, in this order and before anything calls
+the API:
+1. the U104 compare, against the stamps read before the exchange;
 2. the branding tenant key is removed;
 3. the last-known subject is written;
 4. the access token is recorded as obtained now, so the fresh-token lock
@@ -551,11 +563,34 @@ under the library's key. No test file plants one by hand.
     and it names the driver, against U102 and b9 spec section 6.
   - Seeding the tenant key would save one platform-brand first paint per
     phone, once, which is not worth a reader of the old format.
-- **A 401 marks the token in memory.**
+- **A 401 marks the token in memory and starts a renewal at once.**
   - `refused()` is called synchronously (`web/src/api/client.ts:70`).
   - Removing the library's user would turn a silent renewal into a full
     sign-in, and the b9 spec keeps the silent one (`:664-668`).
-  - A reload forgets the mark; the next 401 on that token renews then.
+  - A reload forgets the mark. The first call after a reload is the gate's
+    `GET /api/me`, which is not retried on a 401
+    (`web/src/api/apiError.ts:19-27`), so the sign-in screen would show
+    (`web/src/auth/AuthGate.tsx:16`) though the refresh token renews. The
+    renewal at once replaces the library's user first, and it goes through
+    `renewOnce`, so it is the store's one renewal.
+  - *(Amended after review 0, F1: this call first said the next 401 after
+    a reload would renew.)*
+- **The U104 stamp read comes before the sign-in exchange.**
+  - From the library's `storeUser` to the callback's subject write there is
+    then nothing but microtasks: the library raises `userLoaded` with no
+    handler (`monitorSession` and `automaticSilentRenew` are off,
+    `web/src/auth/oidc.ts:115-116`; esm `:3319-3333`, `:2731-2736`), its
+    `localStorage` store is synchronous (esm `:3535-3541`), and `bounded()`
+    is a `Promise.race` (`web/src/api/deadline.ts`).
+  - So no other tab's renewal can settle between the two, and the claim in
+    Which stored user serves a call holds by construction.
+  - Cost: work stamped under another driver in another tab during the
+    exchange no longer undoes the sign-in. The send guard still compares
+    each entry's stamp before any send (`web/src/capture/outbox.ts:247-249`),
+    and phones are personal (U115).
+  - Rejected: a "sign-in finishing" marker in storage, a second cross-tab
+    key built to protect the same discard (U204).
+  - *(Added after review 0, F4.)*
 - **The fresh-token lock and the obtained times live in memory.** The lock
   is already page-scoped (b9 spec `:642`).
 - **The branding tenant gets its own key, rather than only the `/api/me`
