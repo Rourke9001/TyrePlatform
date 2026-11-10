@@ -305,51 +305,25 @@ describe("credential", () => {
     expect(token.sessionLapsed()).toBe(false);
   });
 
-  // The refresh request's own timeout ends when its headers arrive, so a
-  // stalled body would hold every caller of the one renewal (TYRE-471 spec,
+  // U199: a renewal past its bound is abandoned, so the next call starts a
+  // new one, and a timeout is no signal, never a lapse (TYRE-471 spec,
   // Renewal).
-  it("answers as offline once the bound passes, starts no second renewal, and adopts the late one", async () => {
+  it("answers as offline once the bound passes, and the next call starts a new renewal", async () => {
     const { token, oidc, ApiError } = await fresh();
-    let finish: (tokens: typeof RENEWED) => void = () => undefined;
-    vi.mocked(oidc.renew).mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    );
-    vi.useFakeTimers();
-    const watch = (call: Promise<unknown>) => {
-      const seen: { value: unknown } = { value: "pending" };
-      void call.then(
-        (value) => {
-          seen.value = value;
-        },
-        (error: unknown) => {
-          seen.value = error;
-        },
-      );
-      return seen;
-    };
+    vi.mocked(oidc.renew)
+      .mockReturnValueOnce(new Promise<never>(() => undefined))
+      .mockResolvedValueOnce(RENEWED);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
-    const first = watch(token.credential());
+    const first = token.credential().catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_SECONDS * 1000);
-    expect(first.value).toBeInstanceOf(Error);
-    expect(first.value).not.toBeInstanceOf(ApiError);
+    const error = await first;
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ApiError);
     expect(token.sessionLapsed()).toBe(false);
 
-    // Joins the stuck renewal and is answered without waiting out a second
-    // bound.
-    const second = watch(token.credential());
-    await vi.advanceTimersByTimeAsync(0);
-    expect(second.value).toBeInstanceOf(Error);
-    expect(oidc.renew).toHaveBeenCalledTimes(1);
-
-    finish(RENEWED);
-    // The library stores what it renewed.
-    plantSession({ accessToken: "at-2", subject: "oid-a" });
-    await vi.advanceTimersByTimeAsync(0);
     await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
-    expect(oidc.renew).toHaveBeenCalledTimes(1);
+    expect(oidc.renew).toHaveBeenCalledTimes(2);
   });
 
   it("renews again after a failed renewal settles", async () => {

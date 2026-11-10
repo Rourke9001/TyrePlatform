@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { REQUEST_TIMEOUT_SECONDS } from "./deadline";
 import { SUBJECT_KEY } from "./token";
 import { bearerSession } from "../test/bearerSession";
-import { plantSession, storedAccessToken } from "../test/librarySession";
+import { LIBRARY_USER_KEY, plantSession, storedAccessToken } from "../test/librarySession";
 
 // The token store over the real oidc.ts and the real library, with only the
 // identity provider stubbed, so what is stored after a late settle is the
@@ -84,6 +85,23 @@ function identityProvider(...answers: Response[]) {
   return { sent, fetchMock };
 }
 
+// R1's own renew(), which holds a refusal's conditional removal, so once it
+// has settled a late refusal has done all it will.
+async function r1Settled(oidc: typeof import("../auth/oidc")): Promise<void> {
+  const r1 = vi.mocked(oidc.renew).mock.results[0]?.value as Promise<unknown> | undefined;
+  await r1?.catch(() => undefined);
+}
+
+// The removal sameDriver makes when a late success is for a subject that is
+// not the last-known one.
+async function lateRemoval(
+  oidc: typeof import("../auth/oidc"),
+  accessToken: string,
+): Promise<void> {
+  await vi.waitFor(() => expect(oidc.discardUser).toHaveBeenCalledWith(accessToken));
+  await (vi.mocked(oidc.discardUser).mock.results[0]?.value as Promise<void> | undefined);
+}
+
 // The latch, the lock and the two remembered tokens are token.ts's module
 // state.
 async function fresh() {
@@ -150,4 +168,166 @@ it("keeps that user when a sign-in writes its subject while the renewal is in fl
 
   await expect(call).resolves.toEqual({ accessToken: "at-b2", subject: "oid-b" });
   expect(storedAccessToken()).toBe("at-b2");
+});
+
+describe("a renewal past its bound (U199)", () => {
+  // Driver S's session, expired, so the first call renews it. The first
+  // renewal, R1, has a body that stalls past the bound.
+  beforeEach(() => {
+    plantSession({
+      accessToken: "at-s0",
+      subject: "oid-s",
+      expiresInSeconds: -60,
+      refreshToken: "rt-s0",
+    });
+    window.localStorage.setItem(SUBJECT_KEY, "oid-s");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  });
+
+  async function abandoned(
+    token: typeof import("./token"),
+    ApiError: typeof import("./apiError").ApiError,
+  ) {
+    const first = token.credential().catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_SECONDS * 1000);
+    const error = await first;
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ApiError);
+    expect(token.sessionLapsed()).toBe(false);
+  }
+
+  it("rejects as no signal at the bound, and the next call starts a new renewal", async () => {
+    const r1 = stalled(200);
+    const idp = identityProvider(r1.response, json(200, tokens("at-r2", "rt-r2")));
+    const { token, ApiError } = await fresh();
+
+    await abandoned(token, ApiError);
+    await expect(token.credential()).resolves.toEqual({ accessToken: "at-r2", subject: "oid-s" });
+    // Entra does not revoke a refresh token when it is redeemed.
+    expect(idp.sent).toEqual(["rt-s0", "rt-s0"]);
+  });
+
+  // Owner, 10 Nov 2026: only a refusal lapses the session.
+  it("never lapses the session or removes the stored user, however often it times out", async () => {
+    const idp = identityProvider(
+      stalled(200).response,
+      stalled(200).response,
+      stalled(200).response,
+    );
+    const { token, ApiError } = await fresh();
+
+    for (let i = 0; i < 3; i++) {
+      await abandoned(token, ApiError);
+      expect(storedAccessToken()).toBe("at-s0");
+    }
+    expect(idp.sent).toHaveLength(3);
+  });
+
+  // TYRE-471 spec, The four late settles, row 1.
+  it.each([
+    ["succeeds", 200, tokens("at-r1", "rt-r1"), "at-r1"],
+    ["is refused", 400, { error: "invalid_grant" }, "at-r2"],
+  ])(
+    "after a retry succeeded, R1 that %s late leaves S a live token",
+    async (_, status, body, live) => {
+      const r1 = stalled(status);
+      const idp = identityProvider(r1.response, json(200, tokens("at-r2", "rt-r2")));
+      const { token, oidc, ApiError } = await fresh();
+      await abandoned(token, ApiError);
+      await expect(token.credential()).resolves.toMatchObject({ accessToken: "at-r2" });
+
+      r1.finish(body);
+      // A late success changes the store; a late refusal must leave it alone.
+      if (status === 200) await vi.waitFor(() => expect(storedAccessToken()).toBe("at-r1"));
+      else await r1Settled(oidc);
+
+      expect(storedAccessToken()).toBe(live);
+      await expect(token.credential()).resolves.toEqual({ accessToken: live, subject: "oid-s" });
+      expect(idp.sent).toHaveLength(2);
+    },
+  );
+
+  // Rows 2 and 3: a sign-out finishes its local clear before any request
+  // that can fail (TYRE-471 spec, Signing out), so these are its effects.
+  // Another tab cannot clear this tab's memory, only the shared keys.
+  it.each([
+    ["this tab's sign-out", true, "succeeds", 200, tokens("at-r1", "rt-r1")],
+    ["this tab's sign-out", true, "is refused", 400, { error: "invalid_grant" }],
+    ["another tab's sign-out", false, "succeeds", 200, tokens("at-r1", "rt-r1")],
+    ["another tab's sign-out", false, "is refused", 400, { error: "invalid_grant" }],
+  ])(
+    "after %s, R1 that %s late leaves the store empty and the page signed out",
+    async (_, thisTab, __, status, body) => {
+      const r1 = stalled(status);
+      const idp = identityProvider(r1.response);
+      const { token, oidc, ApiError } = await fresh();
+      await abandoned(token, ApiError);
+      if (thisTab) token.clearSession();
+      else window.localStorage.removeItem(SUBJECT_KEY);
+      window.localStorage.removeItem(LIBRARY_USER_KEY);
+
+      r1.finish(body);
+      // The store ends as it started, empty, so a late success is awaited
+      // through its own removal, not through the store.
+      if (status === 200) await lateRemoval(oidc, "at-r1");
+      else await r1Settled(oidc);
+
+      expect(storedAccessToken()).toBeNull();
+      await expect(token.credential()).rejects.toMatchObject({
+        status: 401,
+        code: "signed_out",
+      });
+      expect(idp.sent).toHaveLength(1);
+    },
+  );
+
+  // Row 4: driver B signs in in another tab while R1 runs on.
+  it("after another driver's sign-in, R1 that succeeds late is removed, and B signs in again once", async () => {
+    const r1 = stalled(200);
+    identityProvider(r1.response);
+    const { token, oidc, ApiError } = await fresh();
+    await abandoned(token, ApiError);
+    plantSession({ accessToken: "at-b", subject: "oid-b", refreshToken: "rt-b" });
+    window.localStorage.setItem(SUBJECT_KEY, "oid-b");
+
+    r1.finish(tokens("at-r1", "rt-r1"));
+    await lateRemoval(oidc, "at-r1");
+
+    expect(storedAccessToken()).toBeNull();
+    await expect(token.credential()).rejects.toMatchObject({ status: 401, code: "signed_out" });
+  });
+
+  it("after another driver's sign-in, R1 that is refused late leaves B's session alone", async () => {
+    const r1 = stalled(400);
+    const idp = identityProvider(r1.response);
+    const { token, oidc, ApiError } = await fresh();
+    await abandoned(token, ApiError);
+    plantSession({ accessToken: "at-b", subject: "oid-b", refreshToken: "rt-b" });
+    window.localStorage.setItem(SUBJECT_KEY, "oid-b");
+
+    r1.finish({ error: "invalid_grant" });
+    await r1Settled(oidc);
+
+    expect(storedAccessToken()).toBe("at-b");
+    await expect(token.credential()).resolves.toEqual({ accessToken: "at-b", subject: "oid-b" });
+    expect(idp.sent).toHaveLength(1);
+  });
+
+  // The provider honoured that refresh token, so the session is a real one
+  // (TYRE-471 spec, The four late settles).
+  it("after the retry was refused, R1 that succeeds late brings S's session back", async () => {
+    const r1 = stalled(200);
+    identityProvider(r1.response, json(400, { error: "invalid_grant" }));
+    const { token, ApiError } = await fresh();
+    await abandoned(token, ApiError);
+    await expect(token.credential()).rejects.toMatchObject({ status: 401, code: "signed_out" });
+    expect(storedAccessToken()).toBeNull();
+    expect(token.sessionLapsed()).toBe(true);
+
+    r1.finish(tokens("at-r1", "rt-r1"));
+    await vi.waitFor(() => expect(storedAccessToken()).toBe("at-r1"));
+
+    await expect(token.credential()).resolves.toEqual({ accessToken: "at-r1", subject: "oid-s" });
+    expect(token.sessionLapsed()).toBe(false);
+  });
 });
