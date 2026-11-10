@@ -21,7 +21,7 @@ export interface Me {
   // reason as capabilities above; a third value must not break this client.
   displayCodePolicy: string;
   // The tenant RLS proved for this request (ADR-0016), never the token's
-  // claim. The mirror keeps it for the branding cache key.
+  // claim. rememberTenant keeps it for the branding cache key (token.ts).
   tenantId: string;
   // FR-CFG-021, FR-CFG-022: the codes money, pressure and distance render
   // with (src/api/money.ts, src/units/units.ts). Optional because an API

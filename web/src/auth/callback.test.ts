@@ -82,6 +82,33 @@ async function holdEntryStampedFor(
 }
 
 describe("completeRedirect", () => {
+  // One company's brand must not paint for the next driver (TYRE-471 spec,
+  // The redirect callback).
+  it("removes the branding tenant key at sign-in", async () => {
+    const { callback, oidc, token } = await fresh();
+    window.localStorage.setItem(token.TENANT_KEY, "t-old");
+    vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
+
+    await expect(callback.completeRedirect()).resolves.toBe("signed-in");
+    expect(window.localStorage.getItem(token.TENANT_KEY)).toBeNull();
+  });
+
+  it("reports a sign-in whose tenant key cannot be removed as not finished, and removes its user", async () => {
+    const { callback, oidc, token } = await fresh();
+    vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
+    const store = window.localStorage;
+    const real = store.removeItem.bind(store);
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation((key: string) => {
+      if (key === token.TENANT_KEY) throw new DOMException("blocked", "SecurityError");
+      real(key);
+    });
+
+    await expect(callback.completeRedirect()).resolves.toBe("failed");
+    expect(callback.signInDidNotFinish()).toBe(true);
+    expect(oidc.discardUser).toHaveBeenCalledWith("at-a");
+    expect(token.lastKnownSubject()).toBeNull();
+  });
+
   it("does nothing on a URL that is not a callback", async () => {
     window.history.replaceState(null, "", "/my");
     const { callback, oidc } = await fresh();

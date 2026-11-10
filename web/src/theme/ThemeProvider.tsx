@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchBranding, type Branding } from "../api/branding";
 import { getDevTenantId } from "../api/devTenant";
-import { BRANDING_PREFIX, devHeaderPath, readMirror } from "../api/token";
+import { BRANDING_PREFIX, brandingTenant, devHeaderPath } from "../api/token";
 import { deriveBrandTheme } from "./derive";
 import { PLATFORM_BRAND, applyCssVars, brandVars } from "./tokens";
 import { useActor } from "../auth/actorContext";
@@ -18,13 +18,14 @@ const PLATFORM_BRANDING: Branding = {
   logoUrl: null,
 };
 
-// The cache key is the signed-in tenant the mirror learnt from GET /api/me
-// (ADR-0016). A key shared by every tenant would paint one company's brand
-// for the next person on the phone; unknown means no cache, only the fetch.
+// The cache key is the tenant GET /api/me last proved, kept in its own key
+// (token.ts, ADR-0016). A key shared by every tenant would paint one
+// company's brand for the next person on the phone; unknown means no cache,
+// only the fetch.
 // Under the DEV header path the dev tenant stays the key (TYRE-28).
 function brandingTenantKey(actorTenant: string | null): string | null {
   if (devHeaderPath()) return getDevTenantId() ?? "default";
-  return readMirror()?.tenantId ?? actorTenant;
+  return brandingTenant() ?? actorTenant;
 }
 
 function cacheKey(tenantKey: string): string {

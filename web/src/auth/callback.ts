@@ -2,6 +2,7 @@ import {
   OTHER_DRIVER_KEY,
   bearerMode,
   clearMirror,
+  forgetTenant,
   rememberSubject,
   writeMirror,
 } from "../api/token";
@@ -100,6 +101,7 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
   }
 
   try {
+    forgetTenant();
     writeMirror({
       accessToken: signedIn.accessToken,
       expiresAt: signedIn.expiresAt,

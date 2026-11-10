@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ErrorResponse, UserManager, type INavigator, type NavigateParams } from "oidc-client-ts";
 
-import { MIRROR_KEY, SUBJECT_KEY, credential } from "../api/token";
+import { MIRROR_KEY, SUBJECT_KEY, TENANT_KEY, credential } from "../api/token";
 import { bearerSession } from "../test/bearerSession";
 import { LIBRARY_USER_KEY, plantSession, storedAccessToken } from "../test/librarySession";
 import { createAuth } from "./oidc";
@@ -432,12 +432,14 @@ describe("signOut", () => {
     window.localStorage.setItem("tyre.branding.t-1", "{}");
     window.localStorage.setItem("tyre.branding.default", "{}");
     window.localStorage.setItem("tyre.dev.tenant-id", "kept");
+    window.localStorage.setItem(TENANT_KEY, "t-1");
 
     let atNavigate: Record<string, string | null> = {};
     const { navigator, urls } = capturing(() => {
       atNavigate = {
         mirror: window.localStorage.getItem(MIRROR_KEY),
         subject: window.localStorage.getItem(SUBJECT_KEY),
+        tenant: window.localStorage.getItem(TENANT_KEY),
         branding: window.localStorage.getItem("tyre.branding.t-1"),
         user: window.localStorage.getItem(LIBRARY_USER_KEY),
       };
@@ -449,7 +451,13 @@ describe("signOut", () => {
     expect(`${url.origin}${url.pathname}`).toBe(`${IDP}/logout`);
     expect(url.searchParams.get("id_token_hint")).toBe(id);
     expect(url.searchParams.get("post_logout_redirect_uri")).toBe(`${ORIGIN}/`);
-    expect(atNavigate).toEqual({ mirror: null, subject: null, branding: null, user: null });
+    expect(atNavigate).toEqual({
+      mirror: null,
+      subject: null,
+      tenant: null,
+      branding: null,
+      user: null,
+    });
     expect(window.localStorage.getItem("tyre.branding.default")).toBeNull();
     expect(window.localStorage.getItem("tyre.dev.tenant-id")).toBe("kept");
   });

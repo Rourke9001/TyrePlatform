@@ -12,6 +12,10 @@ export const MIRROR_KEY = "tyre.auth.mirror";
 // from it (U104), so only signOut() clears it. A 401 clears the mirror and
 // leaves this alone.
 export const SUBJECT_KEY = "tyre.auth.subject";
+// The tenant GET /api/me proved, read for the branding cache key at first
+// paint (b9 spec, Cached state). Every sign-in and signOut() remove it
+// (TYRE-471 spec, The session).
+export const TENANT_KEY = "tyre.auth.tenant";
 export const BRANDING_PREFIX = "tyre.branding.";
 // One-shot: written before the U104 undo signs someone out, read and cleared
 // by the sign-in screen when the end-session redirect comes back.
@@ -74,16 +78,31 @@ export function rememberSubject(subject: string): void {
   window.localStorage.setItem(SUBJECT_KEY, subject);
 }
 
-// Called on every successful GET /api/me (me.ts). A full store costs only the
-// branding cache key, so it must not turn that success into a failure.
-export function rememberTenant(tenantId: string): void {
-  const mirror = readMirror();
-  if (mirror === null || mirror.tenantId === tenantId) return;
+export function brandingTenant(): string | null {
   try {
-    writeMirror({ ...mirror, tenantId });
+    return window.localStorage.getItem(TENANT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+// Called on every successful GET /api/me (me.ts). An answer that lands
+// after signOut() cleared the subject must not put the key back (TYRE-471
+// spec, Signing out). A full store costs only the branding cache key, so it
+// must not turn that success into a failure.
+export function rememberTenant(tenantId: string): void {
+  if (lastKnownSubject() === null) return;
+  try {
+    window.localStorage.setItem(TENANT_KEY, tenantId);
   } catch {
     // Best effort.
   }
+}
+
+// The redirect callback's step 2. It throws, so a sign-in whose tenant key
+// cannot go does not finish (TYRE-471 spec, The redirect callback).
+export function forgetTenant(): void {
+  window.localStorage.removeItem(TENANT_KEY);
 }
 
 // A production build has only the bearer path. Under vite dev and vitest the
@@ -168,6 +187,7 @@ export function clearSession(): void {
   held = null;
   window.localStorage.removeItem(MIRROR_KEY);
   window.localStorage.removeItem(SUBJECT_KEY);
+  window.localStorage.removeItem(TENANT_KEY);
 }
 
 function setLapsed(value: boolean): void {
