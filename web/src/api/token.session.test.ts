@@ -170,6 +170,27 @@ it("keeps that user when a sign-in writes its subject while the renewal is in fl
   expect(storedAccessToken()).toBe("at-b2");
 });
 
+// A reload forgets the refused mark, and the gate's GET /api/me is not
+// retried on a 401, so the refused token must leave the library before the
+// page can reload (TYRE-471 spec, Sending).
+it("replaces a token refused with 401 in the library at once, so a reload never sends it again", async () => {
+  plantSession({ accessToken: "at-1", subject: "oid-a", refreshToken: "rt-1" });
+  window.localStorage.setItem(SUBJECT_KEY, "oid-a");
+  const idp = identityProvider(json(200, tokens("at-2", "rt-2")));
+  const { token, oidc } = await fresh();
+
+  expect(token.refused("at-1")).toBe(false);
+  await vi.waitFor(() => expect(storedAccessToken()).toBe("at-2"));
+  await r1Settled(oidc);
+
+  const reloaded = await fresh();
+  await expect(reloaded.token.credential()).resolves.toEqual({
+    accessToken: "at-2",
+    subject: "oid-a",
+  });
+  expect(idp.sent).toEqual(["rt-1"]);
+});
+
 describe("a renewal past its bound (U199)", () => {
   // Driver S's session, expired, so the first call renews it. The first
   // renewal, R1, has a body that stalls past the bound.
