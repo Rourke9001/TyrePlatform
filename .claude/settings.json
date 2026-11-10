@@ -37,6 +37,7 @@
       "Bash(gh api:*)",
       "Bash(gh run:*)",
       "Bash(timeout 540 gh run watch:*)",
+      "Bash(bash scripts/pipeline-review.sh:*)",
       "mcp__claude_ai_Atlassian_Rovo__getJiraIssue",
       "mcp__claude_ai_Atlassian_Rovo__searchJiraIssuesUsingJql",
       "mcp__claude_ai_Atlassian_Rovo__getConfluencePage",
