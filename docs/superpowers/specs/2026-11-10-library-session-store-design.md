@@ -48,11 +48,11 @@ a rule this design rests on.
 | --- | --- | --- | --- |
 | The library keeps the session | Same | None | Keep |
 | The app asks for a token before each call: cached if live, renewed if not | Same (`credential()`) | None | Keep |
-| Renewal on demand, not on a timer | Same (`automaticSilentRenew: false`) | ADR-0016: a phone suspends background timers. MSAL also renews on demand | Keep |
+| Renewal on demand, not on a timer, as MSAL does | Same | None. oidc-client-ts defaults to a timer (`automaticSilentRenew`), set off so renewal is the store's decision (`web/src/auth/oidc.ts:86-88`) | Keep |
 | Only a refusal sends the user to sign in | Same | U199 with Q1 (owner, 10 Nov 2026) | Keep |
-| The session survives a browser restart where the app asks for it | Same (`localStorage`, the library's documented `userStore` option) | U102 | Keep |
+| The library's default store, `sessionStorage` | `localStorage`, through the library's documented `userStore` setting | U102: a phone empties `sessionStorage` whenever it closes the browser, so drivers would need an emailed code on most cold starts (`web/src/auth/oidc.ts:83-84`; b9 spec `:538-549`) | Keep |
 | The auth library loads with the app | Same | U175 | Keep |
-| On a personal device, whoever is signed in owns the session and its queued work | A stored session serves only the last driver whose sign-in passed the stamp compare, and someone else's sign-in is undone while one driver's work is held | U104 and U111 B, written for shared phones. U115 (8 Oct 2026) later found phones are personally owned | Review against U115, outside this ticket (see below) |
+| On a personal device, whoever is signed in owns the session and its queued work | A stored session serves only the last driver whose sign-in passed the stamp compare, and someone else's sign-in is undone while one driver's work is held | U104 and U111 B, written for shared phones. U115 (8 Oct 2026) found phones are personally owned and kept the undo | Keep (see below) |
 | The library's request timeout bounds its requests | The app fetches discovery under `deadline()`, and each library call is bounded by its caller | The library's timeout ends when the headers arrive (`docs/lessons.md:604`) | Keep. A fix upstream (authts) would remove it; filing that is the owner's call |
 | A 401 is retried after a renewal | A 401 on a token obtained under 60 s ago stops the store for the page | b9 spec, "A fresh token refused": a misconfigured API refuses every token, and renewing again cannot help | Keep. It costs one comparison in memory here |
 | Cached branding is per tenant | The tenant id is kept for the first paint | b9 spec, Cached state: one company's brand must not paint for the next driver | Keep |
@@ -64,22 +64,31 @@ a rule this design rests on.
   ending that person's Entra session. They refuse sign-out while work is
   held. They stamp every draft and outbox row with the capturing driver
   (PD-S3; b9 spec, The outbox and the driver stamp).
-- **Why that is the standard for shared devices but not here.** Shared
-  devices carry these safeguards (SAP's offline SDK, Apple's Shared iPad).
-  U115 found these phones are personally owned, so the standard for this
-  app is the single-user model.
+- **The standard they come from.** Shared devices carry these safeguards
+  (SAP's offline SDK, Apple's Shared iPad). On a personally owned phone the
+  standard is the single-user model.
+- **They were already weighed against personal phones.**
+  - U115 (owner, 8 Oct 2026, TYRE-392 comment 13477) found that drivers do
+    not share phones. It closed the shared-phone work, and kept the U104
+    undo for the rare second account: "nothing is lost and nothing sends
+    under the wrong driver".
+  - ADR-0016 decision 8 accepts the rare cases: a rehire with a new
+    account, or a borrowed or reissued phone. The b9 spec's 5 Nov rider
+    (`:929-934`) says the same.
 - **What they cost in this ticket.**
   - One comparison when a stored session is read.
-  - `sameDriver`.
+  - The subject check in `sameDriver`.
   - The last row of "The four late settles".
 - **What retiring them would touch.** Mostly outside this ticket: the
   outbox stamps and their Dexie version, the draft-start refusal, the
   callback's compare and undo, the waiting-driver message, and sign-out's
   refusal.
-- **Recommendation.** Keep them here. Raise one ticket to check U104
-  against U115 and the single-user model, if the owner would schedule it
-  before the pilot (U130). This design does not depend on the outcome: if
-  U104 goes, the comparison and `sameDriver` go with it.
+- **The subject key would stay without them.** The clean-up after a
+  sign-out (rows 2 and 3 of "The four late settles") reads the cleared
+  subject key to know a sign-out happened.
+- **Recommendation.** Keep them, with no new ticket. U115 already decided
+  the undo earns its cost for the borrowed-phone case, and this ticket's
+  share of it is one comparison.
 
 ## Goals
 
@@ -359,6 +368,12 @@ For an abandoned renewal R1 of driver S that settles late:
 | Another tab signed out | As the row above | As the row above | Signed out, store empty |
 | Another driver B signed in, in another tab | R1's user overwrites B's. S is not the subject, so `sameDriver` removes R1's own user. B signs in again once | Its removal finds B's refresh token and removes nothing | Signed out for B once, then B's own session |
 
+One more case: the retry was refused, so the stored user was removed and
+the driver was shown the sign-in prompt. Then R1 succeeds late. The library
+stores R1's user, S is still the subject, and `sameDriver` keeps it. The next
+call finds a live token and the prompt goes. This is accepted: the identity
+provider honoured that refresh token, so the session is a real one.
+
 The last row's success case happens today too: a renewal that settles in one
 tab after another driver's sign-in in another discards that sign-in
 (`web/src/api/token.ts:208-216`). It needs two tabs, and a renewal left
@@ -586,6 +601,10 @@ under the library's key. No test file plants one by hand.
   (`npm run bundle:check -- --record`). The check fails only on a rise.
 - Which assertions in the nine unit test files move to the new helper, and
   which are deleted for the reason above.
+- How fake-timer tests handle `getUser()`. Each read calls the library's
+  `_events.load` (esm `:2955-2965`), which re-arms its access-token expiry
+  timers. No lint rule limits a test's import of oidc-client-ts; the stall
+  tests import it today.
 
 ## How we will know it worked
 
