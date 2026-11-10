@@ -30,6 +30,23 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-10 - TaskStop on a background `make api-run` leaves its API container running (TYRE-471)
+
+**What happened:** twice an e2e step started `make api-run` as a background
+Bash task and stopped it with `TaskStop`, which reported success, and the
+API's `golang` container was still running on :8080 afterwards. The first
+one (`cool_payne`) went unnoticed and served later e2e runs across reseeds
+with a stale pool, the TYRE-92 failure (2026-09-03 entry); two later
+`docker stop` calls on it were refused by the permission classifier. The
+second (`elegant_darwin`) showed in `docker ps` after `TaskStop`, and
+`docker stop elegant_darwin` stopped it.
+
+**The rule:** after `TaskStop` on a background `make api-run`, run
+`docker ps`. If a `golang` container still holds :8080, stop it by name with
+`docker stop <name>`, and confirm
+`curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/me` prints
+000.
+
 ## 2026-11-08 - A Go check in front of a Postgres cast passed texts the cast refuses (2026-11-07; TYRE-379, #166)
 
 **What happened:** #166's stage 5 rounds 5 to 7 found one gap five times.
