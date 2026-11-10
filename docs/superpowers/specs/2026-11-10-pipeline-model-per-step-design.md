@@ -1,6 +1,7 @@
 # Pipeline models: each step runs on the model the owner chose
 
-Date: 2026-11-10. Ticket: TYRE-476. Status: awaiting the owner's approval.
+Date: 2026-11-10. Ticket: TYRE-476. Status: approved by the owner on
+10 Nov 2026, with the two answers under Settled by the owner.
 The mapping is owner ruling U205 (10 Nov 2026, on the ticket). Builds on
 ADR-0018, ADR-0023 and
 `docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`.
@@ -47,7 +48,7 @@ settings hold.
 - The close-out routine's model. It is a cloud setting outside the repo and
   is the owner's live step (see Owner's live step).
 - Any change to `.claude/settings.json`, apart from the one allow rule
-  under Open for the owner, if the owner wants it.
+  the owner added (Settled by the owner).
 - Token budgets or cost tracking.
 
 ## Anti-goals
@@ -194,7 +195,7 @@ range the lead set through the branch's upstream (Review loop step 2,
 unchanged). `--max-findings` is pinned because the skill keeps the last
 value typed, so without it a cap the owner once set in another session
 would limit every pipeline review unseen. The value is the owner's choice
-(see Open for the owner). The script passes no permission mode, so the
+(see Settled by the owner). The script passes no permission mode, so the
 child takes the owner's. It saves the process's stdout and stderr in the
 state directory, one file each, named by `<k>`.
 
@@ -290,25 +291,23 @@ Each of these describes code the branch changes, so the branch corrects it
   2026-11-09 entries describe what a teammate and a lead can collect, which
   holds.
 
-## Open for the owner
+## Settled by the owner
 
-The builder check raised two points only the owner can settle. The spec is
-written to the recommended answer for each, and the approval settles them.
+The builder check raised two points only the owner could settle. The owner
+answered both with the approval on 10 Nov 2026.
 
-1. **How many findings a review reports.** The real-range spike returned
-   exactly 10 findings and the planted one 9, so the skill's default cap is
-   probably 10. Recommended: `--max-findings default`, which is what the
-   review loop has run on since ADR-0023. The other choice is `all`, which
-   reports every finding and gives the verifier and the fixers more to do
-   in each round. Either value may also become the saved choice for the
-   owner's own `/code-review` sessions, because the skill keeps the last
-   one typed.
-2. **An allow rule for the new script.** `.claude/settings.json` already
-   allows each command the lead runs, such as
-   `git branch -f pipeline-review-base` (`.claude/settings.json:31`).
-   Recommended: add `Bash(bash scripts/pipeline-review.sh:*)`, so a review
-   never waits on a prompt in the middle of the loop. Without it the call
-   depends on the owner's auto mode, which approved both spikes.
+1. **How many findings a review reports.** `--max-findings default`, which
+   is what the review loop has run on since ADR-0023. The real-range spike
+   returned exactly 10 findings and the planted one 9, so the default cap
+   is probably 10. The other choice was `all`. The value may also become
+   the saved choice for the owner's own `/code-review` sessions, because
+   the skill keeps the last one typed.
+2. **An allow rule for the new script.** The owner added
+   `Bash(bash scripts/pipeline-review.sh:*)` to `.claude/settings.json`
+   and the branch carries that edit as its own commit. A review then never
+   waits on a prompt in the middle of the loop. The builder invokes the
+   script in exactly that form, `bash scripts/pipeline-review.sh <args>`,
+   or the rule does not match.
 
 ## Owner's live step
 
