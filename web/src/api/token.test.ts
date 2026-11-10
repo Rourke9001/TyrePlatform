@@ -37,7 +37,7 @@ describe("the branding tenant", () => {
   it("is what rememberTenant wrote, until forgetTenant removes it", () => {
     rememberSubject("oid-a");
     expect(brandingTenant()).toBeNull();
-    rememberTenant("t-1");
+    rememberTenant("t-1", "oid-a");
     expect(brandingTenant()).toBe("t-1");
     expect(window.localStorage.getItem(TENANT_KEY)).toBe("t-1");
     forgetTenant();
@@ -45,9 +45,19 @@ describe("the branding tenant", () => {
   });
 
   // A GET /api/me that answers after signOut()'s local clear must not put
-  // the key back (TYRE-471 spec, Signing out).
+  // the key back (TYRE-471 spec, Signing out), nor one sent with no driver
+  // signed in.
   it("writes nothing when no driver is signed in", () => {
-    rememberTenant("t-1");
+    rememberTenant("t-1", "oid-a");
+    rememberTenant("t-1", null);
+    expect(window.localStorage.getItem(TENANT_KEY)).toBeNull();
+  });
+
+  // A late answer for the driver before must not land on a new sign-in's
+  // key (TYRE-471 spec, The session).
+  it("writes nothing for a call sent under another driver than the last-known one", () => {
+    rememberSubject("oid-b");
+    rememberTenant("t-1", "oid-a");
     expect(window.localStorage.getItem(TENANT_KEY)).toBeNull();
   });
 
@@ -58,10 +68,21 @@ describe("the branding tenant", () => {
       throw new DOMException("full", "QuotaExceededError");
     });
     try {
-      expect(() => rememberTenant("t-2")).not.toThrow();
+      expect(() => rememberTenant("t-2", "oid-a")).not.toThrow();
     } finally {
       full.mockRestore();
     }
+  });
+
+  // Blocked storage reads as no subject, so nothing is written and nothing
+  // throws.
+  it("writes nothing, and does not throw, when storage refuses access", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    const set = vi.spyOn(Storage.prototype, "setItem");
+    expect(() => rememberTenant("t-1", "oid-a")).not.toThrow();
+    expect(set).not.toHaveBeenCalled();
   });
 
   // First paint reads it (ThemeProvider.tsx), so storage that refuses
@@ -95,7 +116,7 @@ describe("clearSession", () => {
     bearerSession();
     const { token } = await fresh();
     token.rememberSubject("oid-a");
-    token.rememberTenant("t-1");
+    token.rememberTenant("t-1", "oid-a");
     token.recordObtained("at-1");
 
     token.clearSession();

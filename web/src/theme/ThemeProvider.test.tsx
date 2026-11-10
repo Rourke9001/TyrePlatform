@@ -46,7 +46,7 @@ function signedIn(tenantId: string | null) {
   bearerSession();
   plantSession({ accessToken: "at", subject: "oid-a" });
   window.localStorage.setItem(SUBJECT_KEY, "oid-a");
-  if (tenantId !== null) rememberTenant(tenantId);
+  if (tenantId !== null) rememberTenant(tenantId, "oid-a");
 }
 
 beforeEach(() => {

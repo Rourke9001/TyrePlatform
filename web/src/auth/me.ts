@@ -1,5 +1,5 @@
 import { apiGet } from "../api/client";
-import { rememberTenant } from "../api/token";
+import { lastKnownSubject, rememberTenant } from "../api/token";
 
 // Wire shape of GET /api/me. Capabilities are strings, not a union: the
 // server owns the vocabulary, so an unrecognised one degrades instead of
@@ -32,7 +32,9 @@ export interface Me {
 }
 
 export async function fetchMe(): Promise<Me> {
+  // Before the call, so rememberTenant can tell whose answer it is (token.ts).
+  const subject = lastKnownSubject();
   const me = await apiGet<Me>("/api/me");
-  rememberTenant(me.tenantId);
+  rememberTenant(me.tenantId, subject);
   return me;
 }

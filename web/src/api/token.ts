@@ -52,16 +52,17 @@ export function brandingTenant(): string | null {
   }
 }
 
-// Called on every successful GET /api/me (me.ts). An answer that lands
-// after signOut() cleared the subject must not put the key back (TYRE-471
-// spec, Signing out). A full store costs only the branding cache key, so it
-// must not turn that success into a failure.
-export function rememberTenant(tenantId: string): void {
-  if (lastKnownSubject() === null) return;
+// Called on every successful GET /api/me (me.ts), with the last-known subject
+// read before that call. An answer that lands once a sign-out or another
+// tab's sign-in has changed it is the driver before's, so it writes nothing
+// (TYRE-471 spec, The session).
+export function rememberTenant(tenantId: string, sentUnder: string | null): void {
+  if (sentUnder === null || lastKnownSubject() !== sentUnder) return;
   try {
     window.localStorage.setItem(TENANT_KEY, tenantId);
   } catch {
-    // Best effort.
+    // A full store costs only the branding cache key, so a successful
+    // /api/me does not fail on it.
   }
 }
 
