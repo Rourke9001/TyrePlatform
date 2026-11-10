@@ -1897,3 +1897,15 @@ looked wrong until the suite was made to assert its own runtime identity
 **The rule:** for any test guarding a security property, first prove the
 test *can* fail — run it in the broken configuration, or make it assert the
 preconditions that give it teeth.
+
+## 2026-11-10 — make check runs past the Bash tool's 600 s limit
+
+**What happened:** `make check` on a TYRE-471 branch passed the Bash tool's
+600000 ms limit while its last steps were still running, so the call moved to
+the background and its exit code was never read. The web suite alone takes
+about 176 s, and the build, lint and production checks add the rest.
+
+**The rule:** run `make check` as its three parts, each a separate foreground
+target with its own exit code and no pipe: `make fmt`, `make lint`, then
+`VITEST_MAX_WORKERS=4 make test`. Report each exit code. If `make test` alone
+passes the limit, run its prerequisites one target per call.
