@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cases for scripts/pipeline.sh (TYRE-412). The stub is a script, so Git Bash's
+# Cases for scripts/pipeline.sh (TYRE-412, TYRE-476). The stub is a script, so Git Bash's
 # path conversion never touches it; only a live launch proves "/pipeline ..."
 # arrives intact on Windows.
 set -uo pipefail
@@ -11,13 +11,19 @@ mkdir -p "$work/bin"
 
 cat >"$work/bin/claude" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' "$#" "$1" "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-unset}" \
-  "${MSYS2_ARG_CONV_EXCL:-unset}" >"$STUB_DIR/called"
+printf '%s\n' "$#" "$@" "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-unset}" \
+  "${MSYS2_ARG_CONV_EXCL:-unset}" "${CLAUDE_CODE_SUBAGENT_MODEL-unset}" \
+  "${CLAUDE_CODE_SUBAGENT_MODEL_FORCE-unset}" "${CLAUDE_CODE_EFFORT_LEVEL-unset}" >"$STUB_DIR/called"
 EOF
 chmod +x "$work/bin/claude"
 
 export STUB_DIR="$work" PATH="$work/bin:$PATH"
 unset CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS MSYS2_ARG_CONV_EXCL
+# A launch that missed the stub would exec a real /pipeline session.
+[ "$(command -v claude)" = "$work/bin/claude" ] || { echo "FAIL: the stub claude is not first on PATH"; exit 1; }
+# Values a caller's shell can hold. The launcher overrides the first and
+# clears the other two (U205, TYRE-476).
+export CLAUDE_CODE_SUBAGENT_MODEL=haiku CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_EFFORT_LEVEL=low
 fails=0
 
 refused() {
@@ -49,10 +55,13 @@ refused "a leading space" " TYRE-12"
 refused "a comma list" "TYRE-12,TYRE-13"
 refused "a leading zero" "TYRE-012"
 
+# The stub's record: the argument count, each argument, then the agent-teams
+# flag, the path exclusion, the backstop model, FORCE and EFFORT_LEVEL.
+shape() { printf '%s\n' 5 --model fable --effort high "/pipeline $1" 1 '/pipeline ' opus unset unset; }
+want=$(shape TYRE-412)
 rm -f "$work/called"
-want=$'1\n/pipeline TYRE-412\n1\n/pipeline '
 if bash "$launcher" TYRE-412 && [ "$(cat "$work/called")" = "$want" ]; then
-  echo "PASS: launches /pipeline TYRE-412 with the flag and the path exclusion"
+  echo "PASS: launches /pipeline TYRE-412 with the models, the flag and the path exclusion"
 else
   echo "FAIL: launch shape was: $(cat "$work/called" 2>/dev/null || echo 'claude not called')"
   fails=$((fails + 1))
@@ -69,9 +78,9 @@ launches() {
   fi
 }
 
-want2=$'1\n/pipeline TYRE-412 TYRE-413\n1\n/pipeline '
+want2=$(shape "TYRE-412 TYRE-413")
 launches "a bundle of two keys" "TYRE-412 TYRE-413" "$want2"
-launches "a key that is a prefix of another" "TYRE-1 TYRE-12" $'1\n/pipeline TYRE-1 TYRE-12\n1\n/pipeline '
+launches "a key that is a prefix of another" "TYRE-1 TYRE-12" "$(shape "TYRE-1 TYRE-12")"
 
 # Through make, as the owner types it: a value with shell or make syntax must
 # reach the script as data and be refused, never expanded by make or parsed by
@@ -104,7 +113,7 @@ fi
 
 rm -f "$work/called"
 if make -s -C "$here/.." pipeline T=TYRE-412 && [ "$(cat "$work/called")" = "$want" ]; then
-  echo "PASS: make pipeline launches /pipeline TYRE-412 with the flag and the path exclusion"
+  echo "PASS: make pipeline launches /pipeline TYRE-412 with the models, the flag and the path exclusion"
 else
   echo "FAIL: make pipeline launch shape was: $(cat "$work/called" 2>/dev/null || echo 'claude not called')"
   fails=$((fails + 1))
