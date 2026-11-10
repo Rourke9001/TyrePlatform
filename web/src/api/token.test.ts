@@ -488,7 +488,7 @@ describe("refused", () => {
     expect(oidc.renew).not.toHaveBeenCalled();
   });
 
-  // A reload forgets the mark, so the renewal starts at once, before any
+  // A reload forgets the mark, so the renewal starts at once, not on a
   // further call (TYRE-471 spec, Sending).
   it("starts the store's one renewal at once on a 401 for the stored user's token", async () => {
     const { token, oidc } = await fresh();

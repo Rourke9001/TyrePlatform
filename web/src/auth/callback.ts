@@ -76,10 +76,11 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
   const url = new URL(window.location.href);
   if (!bearerMode() || !isRedirectCallback(url)) return "none";
 
-  // Read before the exchange, so nothing is awaited from the library storing
-  // the user to the subject write below. A renewal in another tab settling
-  // in between would find an oid that is not the subject and remove the
-  // user (TYRE-471 spec, The redirect callback).
+  // Read before the exchange, so this tab awaits nothing from the library
+  // storing the user to the subject write. Tabs share no lock: a renewal in
+  // another tab that still reads the old subject when it settles removes the
+  // user, and the new driver signs in once more (TYRE-471 spec, The redirect
+  // callback).
   const stamps = await heldStamps();
 
   // Bounded, because the first render waits on this (TYRE-388).
