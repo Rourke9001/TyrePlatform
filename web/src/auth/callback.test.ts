@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { bearerSession } from "../test/bearerSession";
+import { plantSession } from "../test/librarySession";
 
-vi.mock("./oidc", () => ({
+vi.mock("./oidc", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./oidc")>()),
   completeSignIn: vi.fn(),
   signOut: vi.fn(),
   renew: vi.fn(),
@@ -16,6 +18,14 @@ const SIGNED_IN = {
   subject: "oid-a",
   returnTo: "/capture/v1",
 };
+
+// The library stores the user before the exchange returns.
+function signsIn(oidc: typeof import("./oidc")) {
+  vi.mocked(oidc.completeSignIn).mockImplementation(() => {
+    plantSession({ accessToken: "at-a", subject: "oid-a" });
+    return Promise.resolve(SIGNED_IN);
+  });
+}
 
 async function fresh() {
   vi.resetModules();
@@ -87,7 +97,7 @@ describe("completeRedirect", () => {
   it("removes the branding tenant key at sign-in", async () => {
     const { callback, oidc, token } = await fresh();
     window.localStorage.setItem(token.TENANT_KEY, "t-old");
-    vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
+    signsIn(oidc);
 
     await expect(callback.completeRedirect()).resolves.toBe("signed-in");
     expect(window.localStorage.getItem(token.TENANT_KEY)).toBeNull();
@@ -136,22 +146,21 @@ describe("completeRedirect", () => {
     expect(oidc.completeSignIn).not.toHaveBeenCalled();
   });
 
-  it("writes the mirror and the subject, goes to the stored path, and flushes under the new token", async () => {
+  it("writes the subject, records the token as fresh, goes to the stored path, and flushes under the new token", async () => {
     const { callback, oidc, token, outbox, draft } = await fresh();
-    vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
+    signsIn(oidc);
     await holdEntryStampedFor(outbox, draft, "oid-a");
 
     await expect(callback.completeRedirect()).resolves.toBe("signed-in");
     expect(callback.signInDidNotFinish()).toBe(false);
 
-    const mirror = token.readMirror();
-    expect(mirror?.subject).toBe("oid-a");
-    expect(Date.now() - (mirror?.obtainedAt ?? 0)).toBeLessThan(5_000);
     expect(token.lastKnownSubject()).toBe("oid-a");
     expect(`${window.location.pathname}${window.location.search}`).toBe("/capture/v1");
     await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
     const init = vi.mocked(fetch).mock.calls[0][1];
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer at-a");
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(token.refused("at-a")).toBe(true);
   });
 
   // U104: the compare comes first, and nothing calls the API as the new
@@ -160,14 +169,13 @@ describe("completeRedirect", () => {
     const { callback, oidc, token, outbox, draft } = await fresh();
     await holdEntryStampedFor(outbox, draft, "oid-b");
     token.rememberSubject("oid-b");
-    vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
+    signsIn(oidc);
 
     await expect(callback.completeRedirect()).resolves.toBe("undone");
     expect(callback.signInDidNotFinish()).toBe(false);
 
     expect(oidc.signOut).toHaveBeenCalledTimes(1);
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
-    expect(token.readMirror()).toBeNull();
     // The real signOut clears the key; the mock does not, so this reads
     // "not oid-a" rather than a value.
     expect(token.lastKnownSubject()).not.toBe("oid-a");
@@ -179,7 +187,7 @@ describe("completeRedirect", () => {
     const { callback, oidc, token, outbox, draft } = await fresh();
     await holdEntryStampedFor(outbox, draft, "oid-b");
     token.rememberSubject("oid-b");
-    vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
+    signsIn(oidc);
     let markerAtSignOut: string | null = null;
     vi.mocked(oidc.signOut).mockImplementation(() => {
       markerAtSignOut = window.sessionStorage.getItem("tyre.auth.other-driver");
@@ -193,7 +201,7 @@ describe("completeRedirect", () => {
   it("reads a failed stamp read as nothing held, so the sign-in proceeds, and the send guard still holds (TYRE-317, spec section 4)", async () => {
     const { callback, oidc, token, draft, outbox } = await fresh();
     await holdEntryStampedFor(outbox, draft, "oid-b");
-    vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
+    signsIn(oidc);
     vi.spyOn(draft.db.drafts, "get").mockRejectedValue(new Error("storage unavailable"));
     const held = vi.spyOn(draft.db.table("outbox"), "toArray");
     held.mockRejectedValueOnce(new Error("storage unavailable"));
@@ -213,18 +221,17 @@ describe("completeRedirect", () => {
 
   it("reports an error return as not finished, and removes the query", async () => {
     window.history.replaceState(null, "", "/?error=access_denied&state=s1");
-    const { callback, oidc, token } = await fresh();
+    const { callback, oidc } = await fresh();
     vi.mocked(oidc.completeSignIn).mockRejectedValue(new Error("access_denied"));
 
     await expect(callback.completeRedirect()).resolves.toBe("failed");
     expect(callback.signInDidNotFinish()).toBe(true);
     expect(window.location.search).toBe("");
-    expect(token.readMirror()).toBeNull();
   });
 
   it("does not replay once the query is gone", async () => {
     const { callback, oidc } = await fresh();
-    vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
+    signsIn(oidc);
     await callback.completeRedirect();
     await expect(callback.completeRedirect()).resolves.toBe("none");
     expect(oidc.completeSignIn).toHaveBeenCalledTimes(1);
@@ -233,8 +240,8 @@ describe("completeRedirect", () => {
   // The library stored its user before the write failed; left there, the
   // next load would renew it and never show the sign-in screen (spec
   // section 6).
-  it("reports a sign-in whose mirror cannot be written as not finished, and removes the library's user", async () => {
-    const { callback, oidc, token } = await fresh();
+  it("reports a sign-in whose writes storage refuses as not finished, and removes the library's user", async () => {
+    const { callback, oidc } = await fresh();
     vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("full", "QuotaExceededError");
@@ -244,7 +251,6 @@ describe("completeRedirect", () => {
     expect(callback.signInDidNotFinish()).toBe(true);
     expect(oidc.discardUser).toHaveBeenCalledTimes(1);
     expect(oidc.discardUser).toHaveBeenCalledWith("at-a");
-    expect(token.readMirror()).toBeNull();
   });
 
   it("still reports failed when the library's user cannot be removed", async () => {
@@ -275,7 +281,6 @@ describe("completeRedirect", () => {
     expect(callback.signInDidNotFinish()).toBe(true);
     expect(oidc.discardUser).toHaveBeenCalledTimes(1);
     expect(oidc.discardUser).toHaveBeenCalledWith("at-a");
-    expect(token.readMirror()).toBeNull();
   });
 });
 

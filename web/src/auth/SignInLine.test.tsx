@@ -13,7 +13,10 @@ import { SignInLine } from "./SignInLine";
 import authCss from "./auth.css?raw";
 
 // A renewal that finds no session, which lapses the token store.
-vi.mock("./oidc", () => ({ renew: vi.fn(() => Promise.resolve(null)) }));
+vi.mock("./oidc", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./oidc")>()),
+  renew: vi.fn(() => Promise.resolve(null)),
+}));
 
 const LAPSED = "Your sign-in has run out. Sign in to carry on.";
 

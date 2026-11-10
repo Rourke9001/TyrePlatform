@@ -244,7 +244,7 @@ async function sendEntry(entry: OutboxEntry, credential: () => Promise<Sender>):
     await recordFailure(entry, error);
     return;
   }
-  // Against the credential about to be attached, never a mirror read again,
+  // Against the credential about to be attached, never a session read again,
   // and under force too. A refusal leaves state, attempts and backoff as
   // they were (U104).
   const stamp = { driverSubject: entry.driverSubject ?? null, legacy: entry.legacy ?? false };

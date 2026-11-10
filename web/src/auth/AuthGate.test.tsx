@@ -7,13 +7,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ActorContext, useActor, type AuthFailure } from "./actorContext";
 import { ActorProvider } from "./ActorProvider";
 import { AuthGate } from "./AuthGate";
-import { writeMirror } from "../api/token";
+import { SUBJECT_KEY } from "../api/token";
 import { bearerSession } from "../test/bearerSession";
+import { plantSession } from "../test/librarySession";
 import { me } from "../test/fixtures";
 import { db } from "../capture/draft";
 import { OutboxIndicator } from "../capture/OutboxIndicator";
 
-vi.mock("./oidc", () => ({
+vi.mock("./oidc", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./oidc")>()),
   signIn: vi.fn(() => new Promise(() => undefined)),
   completeSignIn: vi.fn(),
   renew: vi.fn(),
@@ -158,15 +160,10 @@ describe("a refetch of /api/me answering 401 while an actor is held", () => {
 
   it("keeps the actor, and never unmounts the capture", async () => {
     bearerSession();
-    // Older than the fresh-token window, so the 401 reads as a lapse, not as
+    // Planted, not obtained by this page, so the 401 reads as a lapse, not as
     // an API that refuses every token (token.ts, refused()).
-    writeMirror({
-      accessToken: "at-a",
-      expiresAt: Date.now() + 3_600_000,
-      obtainedAt: Date.now() - 5 * 60_000,
-      subject: "oid-a",
-      tenantId: "t0",
-    });
+    plantSession({ accessToken: "at-a", subject: "oid-a" });
+    window.localStorage.setItem(SUBJECT_KEY, "oid-a");
     const fetchMock = vi
       .fn()
       .mockImplementationOnce(() =>

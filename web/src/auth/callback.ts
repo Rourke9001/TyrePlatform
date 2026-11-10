@@ -1,10 +1,9 @@
 import {
   OTHER_DRIVER_KEY,
   bearerMode,
-  clearMirror,
   forgetTenant,
+  recordObtained,
   rememberSubject,
-  writeMirror,
 } from "../api/token";
 import { bounded } from "../api/deadline";
 import { flushOutbox, heldStamps } from "../capture/outbox";
@@ -87,7 +86,8 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
   } catch {
     didNotFinish = true;
     // An exchange that finishes past the bound stores a user the compare
-    // below never saw, so it goes too (U104).
+    // below never saw, so it goes too, while it is still that exchange's
+    // (U104; TYRE-471 spec, The redirect callback).
     exchange.then(discardLate, () => undefined);
     return "failed";
   } finally {
@@ -100,22 +100,17 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
     return "undone";
   }
 
+  // Before anything calls the API: the tenant key goes, the subject is
+  // written, and the token is recorded as fresh (TYRE-471 spec, The redirect
+  // callback).
   try {
     forgetTenant();
-    writeMirror({
-      accessToken: signedIn.accessToken,
-      expiresAt: signedIn.expiresAt,
-      obtainedAt: Date.now(),
-      subject: signedIn.subject,
-      tenantId: null,
-    });
     rememberSubject(signedIn.subject);
   } catch {
-    // The library has stored its user. Left beside an empty mirror or no
-    // last-known subject, the next load would renew a session the entry
-    // cannot track and no draft could start (U104; spec section 6). Both go,
-    // so that load shows the sign-in screen.
-    clearMirror();
+    // The library has stored its user, and its ID token names the person
+    // (spec section 6). With no last-known subject it serves no call and no
+    // draft could start under it (U104). It goes while it is still this
+    // sign-in's, so the next load shows the sign-in screen.
     try {
       await discardUser(signedIn.accessToken);
     } catch {
@@ -124,6 +119,7 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
     didNotFinish = true;
     return "failed";
   }
+  recordObtained(signedIn.accessToken);
   window.history.replaceState(null, "", safeReturnPath(signedIn.returnTo));
   void flushOutbox({ ignoreBackoff: true });
   return "signed-in";

@@ -193,26 +193,13 @@ export async function stubIdentityProvider(
   return stub;
 }
 
-// A lapsed session: the mirror and the library's stored user gone, so the
-// next call finds nothing to renew. The entry never reads the library's
-// keys; only this test does.
+// A lapsed session: the library's stored user gone, so the next call finds
+// nothing to renew. The app reads that user only through getUser(); only
+// this test touches its key.
 export async function lapseSession(page: Page): Promise<void> {
   await page.evaluate(() => {
     for (const key of Object.keys(window.localStorage)) {
-      if (key === "tyre.auth.mirror" || key.startsWith("oidc.user:"))
-        window.localStorage.removeItem(key);
+      if (key.startsWith("oidc.user:")) window.localStorage.removeItem(key);
     }
-  });
-}
-
-// A token older than the fresh-token window (src/api/token.ts), so a stubbed
-// 401 reads as a lapsed token and not as a misconfigured API.
-export async function ageToken(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const raw = window.localStorage.getItem("tyre.auth.mirror");
-    if (raw === null) throw new Error("no mirror to age");
-    const mirror = JSON.parse(raw) as { obtainedAt: number };
-    mirror.obtainedAt = Date.now() - 5 * 60_000;
-    window.localStorage.setItem("tyre.auth.mirror", JSON.stringify(mirror));
   });
 }

@@ -3,8 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/client";
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
 import { RuntimeConfigError } from "../api/runtimeConfig";
-import { MIRROR_KEY, SUBJECT_KEY } from "../api/token";
+import { SUBJECT_KEY, sender } from "../api/token";
 import { bearerSession } from "../test/bearerSession";
+import { plantSession } from "../test/librarySession";
 import { clearDraft, db, loadDraft, savePosition, startDraft } from "./draft";
 import {
   attemptSend,
@@ -546,17 +547,8 @@ describe("the driver stamp under a bearer session", () => {
   beforeEach(() => {
     clearDevActorId();
     bearerSession();
-    window.localStorage.setItem(
-      MIRROR_KEY,
-      JSON.stringify({
-        accessToken: "at-a",
-        subject: "oid-a",
-        expiresAt: Date.now() + 3_600_000,
-        obtainedAt: Date.now() - 600_000,
-        tenantId: null,
-      }),
-    );
-    window.localStorage.setItem(SUBJECT_KEY, "oid-b");
+    plantSession({ accessToken: "at-a", subject: "oid-a" });
+    window.localStorage.setItem(SUBJECT_KEY, "oid-a");
   });
 
   async function entryStampedFor(subject: string) {
@@ -571,7 +563,13 @@ describe("the driver stamp under a bearer session", () => {
     const entry = await entryStampedFor("oid-b");
     const before = (await listOutbox())[0];
 
-    await attemptSend(entry.clientUuid, { force: true });
+    // Another tab's sign-in writes a new last-known subject after this send
+    // took its credential (U104).
+    await attemptSend(entry.clientUuid, { force: true }, async () => {
+      const who = await sender();
+      window.localStorage.setItem(SUBJECT_KEY, "oid-b");
+      return who;
+    });
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect((await listOutbox())[0]).toEqual(before);
@@ -584,21 +582,12 @@ describe("the driver stamp under a bearer session", () => {
     vi.stubGlobal("fetch", fetchMock);
     const entry = await entryStampedFor("oid-a");
 
-    // The mirror changes after the compare (another tab renewed or signed
+    // The stored user changes after the compare (another tab renewed or signed
     // in); the send must still carry the credential the compare used.
     const table = db.table("outbox");
     const original = table.update.bind(table);
     vi.spyOn(table, "update").mockImplementation(((key: string, changes: object) => {
-      window.localStorage.setItem(
-        MIRROR_KEY,
-        JSON.stringify({
-          accessToken: "at-b",
-          subject: "oid-b",
-          expiresAt: Date.now() + 3_600_000,
-          obtainedAt: Date.now() - 600_000,
-          tenantId: null,
-        }),
-      );
+      plantSession({ accessToken: "at-b", subject: "oid-b" });
       return original(key, changes);
     }) as typeof table.update);
 

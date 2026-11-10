@@ -2,30 +2,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { REQUEST_TIMEOUT_SECONDS } from "./deadline";
 import {
-  MIRROR_KEY,
   SUBJECT_KEY,
   TENANT_KEY,
   authConfigured,
   bearerMode,
   brandingTenant,
-  clearMirror,
   forgetTenant,
-  lastKnownSubject,
-  readMirror,
   rememberSubject,
   rememberTenant,
-  writeMirror,
-  type Mirror,
 } from "./token";
 import { bearerSession } from "../test/bearerSession";
+import { LIBRARY_USER_KEY, plantSession } from "../test/librarySession";
 
-const MIRROR: Mirror = {
-  accessToken: "at-1",
-  expiresAt: Date.now() + 3_600_000,
-  obtainedAt: Date.now(),
-  subject: "oid-a",
-  tenantId: null,
-};
+// The store reads the library's user for real, planted by plantSession();
+// only the calls that reach the identity provider are mocked.
+vi.mock("../auth/oidc", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../auth/oidc")>()),
+  renew: vi.fn(),
+  discardUser: vi.fn(() => Promise.resolve()),
+}));
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -36,31 +31,6 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.restoreAllMocks();
   vi.useRealTimers();
-});
-
-describe("the mirror", () => {
-  it("reads back what was written", () => {
-    writeMirror(MIRROR);
-    expect(readMirror()).toEqual(MIRROR);
-  });
-
-  // A half-written or hand-edited value is no session at all, never a throw
-  // on the path every API call takes.
-  it("reads malformed JSON or the wrong shape as no mirror", () => {
-    window.localStorage.setItem(MIRROR_KEY, "{not json");
-    expect(readMirror()).toBeNull();
-    window.localStorage.setItem(MIRROR_KEY, JSON.stringify({ accessToken: 1 }));
-    expect(readMirror()).toBeNull();
-  });
-
-  it("clears the mirror and leaves the last-known subject alone", () => {
-    writeMirror(MIRROR);
-    rememberSubject("oid-a");
-    clearMirror();
-    expect(readMirror()).toBeNull();
-    expect(lastKnownSubject()).toBe("oid-a");
-    expect(window.localStorage.getItem(SUBJECT_KEY)).toBe("oid-a");
-  });
 });
 
 describe("the branding tenant", () => {
@@ -104,6 +74,53 @@ describe("the branding tenant", () => {
   });
 });
 
+describe("the key a phone signed in before TYRE-471 still holds", () => {
+  // U102 and b9 spec section 6: it names the driver, and nothing else removes
+  // it (TYRE-471 spec, The old key).
+  it("is removed when the store loads and when the session is cleared", async () => {
+    window.localStorage.setItem("tyre.auth.mirror", "{}");
+    const { token } = await fresh();
+    expect(window.localStorage.getItem("tyre.auth.mirror")).toBeNull();
+
+    window.localStorage.setItem("tyre.auth.mirror", "{}");
+    token.clearSession();
+    expect(window.localStorage.getItem("tyre.auth.mirror")).toBeNull();
+  });
+});
+
+describe("clearSession", () => {
+  // A page a rejected sign-out leaves in place compares nothing against the
+  // last driver's tokens (TYRE-471 spec, Signing out).
+  it("clears the subject, the tenant key and what the store compares against", async () => {
+    bearerSession();
+    const { token } = await fresh();
+    token.rememberSubject("oid-a");
+    token.rememberTenant("t-1");
+    token.recordObtained("at-1");
+
+    token.clearSession();
+
+    expect(window.localStorage.getItem(SUBJECT_KEY)).toBeNull();
+    expect(window.localStorage.getItem(TENANT_KEY)).toBeNull();
+    // Not latched, because clearSession forgot when at-1 was obtained.
+    expect(token.refused("at-1")).toBe(false);
+  });
+
+  // A fresh token refused stops the store "for the rest of the page load"
+  // (TYRE-471 spec, A fresh token refused), so only a reload clears it.
+  it("keeps the latch", async () => {
+    bearerSession();
+    const { token } = await fresh();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    token.recordObtained("at-1");
+    expect(token.refused("at-1")).toBe(true);
+
+    token.clearSession();
+
+    expect(token.isLatched()).toBe(true);
+  });
+});
+
 describe("the DEV bearer flag", () => {
   it("is off by default under vitest and on when the flag says bearer", () => {
     expect(bearerMode()).toBe(false);
@@ -122,14 +139,6 @@ describe("authConfigured", () => {
     expect(authConfigured()).toBe(true);
   });
 });
-
-vi.mock("../auth/oidc", () => ({
-  renew: vi.fn(),
-  signIn: vi.fn(),
-  completeSignIn: vi.fn(),
-  signOut: vi.fn(),
-  discardUser: vi.fn(() => Promise.resolve()),
-}));
 
 // Module state such as the latch lives in the module, so each case imports a
 // fresh copy.
@@ -150,18 +159,19 @@ describe("credential", () => {
     rememberSubject("oid-a");
   });
 
-  it("hands back a valid mirrored token without renewing", async () => {
+  it("hands back a live stored token without renewing", async () => {
     const { token, oidc } = await fresh();
-    token.writeMirror(MIRROR);
+    plantSession({ accessToken: "at-1", subject: "oid-a" });
     await expect(token.credential()).resolves.toEqual({ accessToken: "at-1", subject: "oid-a" });
     expect(oidc.renew).not.toHaveBeenCalled();
   });
 
   // Every sign-in writes the last-known subject or does not finish, so a
-  // library user left without one (a callback whose discard failed) must not
-  // spend its refresh token (spec section 4, Renewal).
+  // library user left without one (a callback whose discard failed) is
+  // neither used nor renewed (TYRE-471 spec, Renewal).
   it("answers 401 signed_out without renewing when no driver has signed in", async () => {
     window.localStorage.removeItem(SUBJECT_KEY);
+    plantSession({ accessToken: "at-1", subject: "oid-a" });
     const { token, oidc, ApiError } = await fresh();
 
     const error = await token.credential().catch((e: unknown) => e);
@@ -173,13 +183,12 @@ describe("credential", () => {
   });
 
   // 60 seconds early, so no token expires between the check and the server.
-  it("renews a token that is about to expire and mirrors the result", async () => {
+  it("renews a token that is about to expire", async () => {
     const { token, oidc } = await fresh();
-    token.writeMirror({ ...MIRROR, expiresAt: Date.now() + 30_000, tenantId: "t-1" });
+    plantSession({ accessToken: "at-1", subject: "oid-a", expiresInSeconds: 30 });
     vi.mocked(oidc.renew).mockResolvedValue(RENEWED);
 
     await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
-    expect(token.readMirror()).toMatchObject({ accessToken: "at-2", tenantId: "t-1" });
     expect(oidc.discardUser).not.toHaveBeenCalled();
   });
 
@@ -196,9 +205,9 @@ describe("credential", () => {
 
   // renew() answers null for no refresh token and for a refused one
   // (oidc.test.ts pins which). The API is never called.
-  it("answers 401 signed_out, clears the mirror and keeps the last-known subject", async () => {
+  it("answers 401 signed_out on a renewal that finds no session, and keeps the last-known subject", async () => {
     const { token, oidc, ApiError } = await fresh();
-    token.writeMirror({ ...MIRROR, expiresAt: 0 });
+    plantSession({ accessToken: "at-1", subject: "oid-a", expiresInSeconds: -60 });
     token.rememberSubject("oid-a");
     vi.mocked(oidc.renew).mockResolvedValue(null);
     const lapsed = vi.fn();
@@ -208,7 +217,6 @@ describe("credential", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect((error as InstanceType<typeof ApiError>).status).toBe(401);
     expect((error as InstanceType<typeof ApiError>).code).toBe("signed_out");
-    expect(token.readMirror()).toBeNull();
     expect(token.lastKnownSubject()).toBe("oid-a");
     expect(token.sessionLapsed()).toBe(true);
     expect(lapsed).toHaveBeenCalledTimes(1);
@@ -218,7 +226,7 @@ describe("credential", () => {
   // stored user it never recorded is dropped at renewal, not adopted.
   it("drops a renewal that returns another subject, and keeps the last-known one", async () => {
     const { token, oidc, ApiError } = await fresh();
-    token.writeMirror({ ...MIRROR, expiresAt: 0 });
+    plantSession({ accessToken: "at-1", subject: "oid-a", expiresInSeconds: -60 });
     vi.mocked(oidc.renew).mockResolvedValue({ ...RENEWED, subject: "oid-b" });
 
     const error = await token.credential().catch((e: unknown) => e);
@@ -227,7 +235,6 @@ describe("credential", () => {
     expect((error as InstanceType<typeof ApiError>).code).toBe("signed_out");
     expect(oidc.discardUser).toHaveBeenCalledTimes(1);
     expect(oidc.discardUser).toHaveBeenCalledWith("at-2");
-    expect(token.readMirror()).toBeNull();
     expect(token.lastKnownSubject()).toBe("oid-a");
   });
 
@@ -235,7 +242,7 @@ describe("credential", () => {
   // flight; the renewal must not write it back (U111 B).
   it("drops a renewal that settles after the last-known subject was cleared", async () => {
     const { token, oidc } = await fresh();
-    token.writeMirror({ ...MIRROR, expiresAt: 0 });
+    plantSession({ accessToken: "at-1", subject: "oid-a", expiresInSeconds: -60 });
     vi.mocked(oidc.renew).mockImplementation(() => {
       window.localStorage.removeItem(SUBJECT_KEY);
       return Promise.resolve(RENEWED);
@@ -245,23 +252,21 @@ describe("credential", () => {
     expect(oidc.discardUser).toHaveBeenCalledTimes(1);
     expect(oidc.discardUser).toHaveBeenCalledWith("at-2");
     expect(token.lastKnownSubject()).toBeNull();
-    expect(token.readMirror()).toBeNull();
   });
 
-  // Discarding is best effort; the mirror is cleared and the call refused
-  // whether or not the library could remove its stored user.
+  // Discarding is best effort; the call is refused whether or not the
+  // library could remove its stored user.
   it("refuses the renewal even when the stored user cannot be discarded", async () => {
     const { token, oidc } = await fresh();
-    token.writeMirror({ ...MIRROR, expiresAt: 0 });
+    plantSession({ accessToken: "at-1", subject: "oid-a", expiresInSeconds: -60 });
     vi.mocked(oidc.renew).mockResolvedValue({ ...RENEWED, subject: "oid-b" });
     vi.mocked(oidc.discardUser).mockRejectedValueOnce(new Error("storage"));
 
     await expect(token.credential()).rejects.toMatchObject({ status: 401, code: "signed_out" });
-    expect(token.readMirror()).toBeNull();
     expect(token.lastKnownSubject()).toBe("oid-a");
   });
 
-  // Another tab's sign-in writes the shared mirror. This tab's calls then
+  // Another tab's sign-in stores a user this tab reads. This tab's calls then
   // succeed, so its line must stop saying the sign-in has run out.
   it("ends the lapse, and says so, once a usable token is back", async () => {
     const { token, oidc } = await fresh();
@@ -271,7 +276,7 @@ describe("credential", () => {
     await expect(token.credential()).rejects.toMatchObject({ status: 401 });
     expect(token.sessionLapsed()).toBe(true);
 
-    token.writeMirror(MIRROR);
+    plantSession({ accessToken: "at-1", subject: "oid-a" });
     await expect(token.credential()).resolves.toEqual({ accessToken: "at-1", subject: "oid-a" });
     expect(token.sessionLapsed()).toBe(false);
     expect(changed).toHaveBeenCalledTimes(2);
@@ -300,22 +305,8 @@ describe("credential", () => {
     expect(token.sessionLapsed()).toBe(false);
   });
 
-  // A private window refuses the write; the renewed token is still good.
-  it("still returns a renewed token when the mirror cannot be written", async () => {
-    const { token, oidc } = await fresh();
-    vi.mocked(oidc.renew).mockResolvedValue(RENEWED);
-    const full = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new DOMException("full", "QuotaExceededError");
-    });
-    try {
-      await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
-    } finally {
-      full.mockRestore();
-    }
-  });
-
   // The refresh request's own timeout ends when its headers arrive, so a
-  // stalled body would hold every caller of the one renewal (spec section 4,
+  // stalled body would hold every caller of the one renewal (TYRE-471 spec,
   // Renewal).
   it("answers as offline once the bound passes, starts no second renewal, and adopts the late one", async () => {
     const { token, oidc, ApiError } = await fresh();
@@ -354,6 +345,8 @@ describe("credential", () => {
     expect(oidc.renew).toHaveBeenCalledTimes(1);
 
     finish(RENEWED);
+    // The library stores what it renewed.
+    plantSession({ accessToken: "at-2", subject: "oid-a" });
     await vi.advanceTimersByTimeAsync(0);
     await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
     expect(oidc.renew).toHaveBeenCalledTimes(1);
@@ -370,55 +363,31 @@ describe("credential", () => {
     expect(oidc.renew).toHaveBeenCalledTimes(2);
   });
 
-  // A blocked store must neither renew on every call nor hide a refused
-  // fresh token from the latch.
-  it("holds a renewed token in memory when storage refuses it, and still latches", async () => {
-    const { token, oidc } = await fresh();
-    vi.mocked(oidc.renew).mockResolvedValue(RENEWED);
-    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const full = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new DOMException("full", "QuotaExceededError");
-    });
-    try {
-      await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
-      await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
-      expect(oidc.renew).toHaveBeenCalledTimes(1);
-
-      expect(token.refused("at-2")).toBe(true);
-      await expect(token.credential()).rejects.toMatchObject({ status: 503 });
-      expect(logged).toHaveBeenCalledTimes(1);
-      expect(oidc.renew).toHaveBeenCalledTimes(1);
-    } finally {
-      full.mockRestore();
-    }
-  });
-
-  // Another tab's sign-out clears the shared mirror; this tab must not keep
+  // Another tab's sign-out removes the stored user; this tab must not keep
   // answering with the old identity.
-  it("renews, and so signs out, when another tab cleared the mirror", async () => {
+  it("renews, and so signs out, when another tab's sign-out removed the stored user", async () => {
     const { token, oidc } = await fresh();
-    vi.mocked(oidc.renew).mockResolvedValueOnce(RENEWED).mockResolvedValueOnce(null);
-    await expect(token.credential()).resolves.toMatchObject({ accessToken: "at-2" });
+    plantSession({ accessToken: "at-1", subject: "oid-a" });
+    vi.mocked(oidc.renew).mockResolvedValue(null);
+    await expect(token.credential()).resolves.toMatchObject({ accessToken: "at-1" });
 
-    token.clearMirror();
+    window.localStorage.removeItem(LIBRARY_USER_KEY);
     await expect(token.credential()).rejects.toMatchObject({ status: 401, code: "signed_out" });
-    expect(oidc.renew).toHaveBeenCalledTimes(2);
+    expect(oidc.renew).toHaveBeenCalledTimes(1);
   });
 
-  // An old refusal drops the held token, so the next call renews.
-  it("drops a held token on a refusal past the fresh window", async () => {
+  // A private window can refuse every storage access. The store still loads,
+  // and with no session it answers signed out.
+  it("loads, and answers signed out, when storage refuses every access", async () => {
+    for (const method of ["getItem", "setItem", "removeItem"] as const) {
+      vi.spyOn(Storage.prototype, method).mockImplementation(() => {
+        throw new DOMException("blocked", "SecurityError");
+      });
+    }
     const { token, oidc } = await fresh();
-    vi.mocked(oidc.renew).mockResolvedValue(RENEWED);
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new DOMException("full", "QuotaExceededError");
-    });
-    await token.credential();
 
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(Date.now() + 61_000);
-    expect(token.refused("at-2")).toBe(false);
-    await token.credential();
-    expect(oidc.renew).toHaveBeenCalledTimes(2);
+    await expect(token.credential()).rejects.toMatchObject({ status: 401, code: "signed_out" });
+    expect(oidc.renew).not.toHaveBeenCalled();
   });
 
   it("answers 503 auth_unavailable, without renewing, when the build carries no VITE_AUTH_* values", async () => {
@@ -435,65 +404,99 @@ describe("credential", () => {
 describe("refused", () => {
   beforeEach(() => {
     bearerSession();
+    rememberSubject("oid-a");
   });
 
   // A wrong AUTH_AUDIENCE, AUTH_CLIENT_ID or scope refuses every valid
-  // token; renewing again cannot help.
-  it("latches on a 401 for a token obtained seconds ago, and then refuses every call with 503", async () => {
+  // token; renewing again cannot help (TYRE-471 spec, A fresh token refused).
+  it("latches on a 401 for a token this page renewed seconds ago, and then refuses every call with 503", async () => {
     const { token, oidc } = await fresh();
-    token.writeMirror({ ...MIRROR, obtainedAt: Date.now() });
+    vi.mocked(oidc.renew).mockResolvedValue(RENEWED);
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(token.credential()).resolves.toMatchObject({ accessToken: "at-2" });
 
-    expect(token.refused("at-1")).toBe(true);
-    const error = await token.credential().catch((e: unknown) => e);
-    expect(error).toMatchObject({ status: 503, code: "auth_unavailable" });
-    expect(token.refused("at-1")).toBe(true);
+    expect(token.refused("at-2")).toBe(true);
+    await expect(token.credential()).rejects.toMatchObject({
+      status: 503,
+      code: "auth_unavailable",
+    });
+    expect(token.refused("at-2")).toBe(true);
     expect(logged).toHaveBeenCalledTimes(1);
-    expect(oidc.renew).not.toHaveBeenCalled();
-  });
-
-  // A slow 401 for at-1 can land after a renewal to at-2.
-  it("leaves a mirror that has moved on to another token alone", async () => {
-    const { token } = await fresh();
-    token.writeMirror({ ...MIRROR, accessToken: "at-2" });
-
-    expect(token.refused("at-1")).toBe(false);
-    expect(token.readMirror()?.accessToken).toBe("at-2");
+    expect(oidc.renew).toHaveBeenCalledTimes(1);
   });
 
   it("keeps answering true once latched, even for another token", async () => {
     const { token } = await fresh();
-    token.writeMirror({ ...MIRROR, obtainedAt: Date.now() });
     vi.spyOn(console, "error").mockImplementation(() => undefined);
+    token.recordObtained("at-1");
 
     expect(token.refused("at-1")).toBe(true);
     expect(token.refused("at-9")).toBe(true);
   });
 
-  // obtainedAt is device-clock time, so a clock corrected backwards leaves it
-  // in the future, which is not "less than 60 seconds earlier" (spec
-  // section 4, A fresh token refused).
-  it("does not latch on a token whose obtainedAt is ahead of the clock", async () => {
-    const { token, oidc } = await fresh();
-    token.writeMirror({ ...MIRROR, obtainedAt: Date.now() + 2 * 3_600_000 });
-    token.rememberSubject("oid-a");
-    vi.mocked(oidc.renew).mockResolvedValue(RENEWED);
+  // The obtained time is device-clock time, so a clock corrected backwards
+  // leaves it in the future, which is not "earlier".
+  it("does not latch on a token whose obtained time is ahead of the clock", async () => {
+    const { token } = await fresh();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const now = Date.now();
+    token.recordObtained("at-1");
+    vi.setSystemTime(now - 2 * 3_600_000);
 
     expect(token.refused("at-1")).toBe(false);
     expect(token.isLatched()).toBe(false);
-    expect(token.readMirror()).toBeNull();
-    await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
-    expect(oidc.renew).toHaveBeenCalledTimes(1);
   });
 
-  it("clears the mirror on a 401 for an older token, so the next call renews", async () => {
-    const { token } = await fresh();
-    token.writeMirror({ ...MIRROR, obtainedAt: Date.now() - 5 * 60_000 });
-    token.rememberSubject("oid-a");
+  it("does not latch on a token obtained more than 60 seconds earlier, and renews it on the next call", async () => {
+    const { token, oidc } = await fresh();
+    vi.mocked(oidc.renew)
+      .mockResolvedValueOnce(RENEWED)
+      .mockResolvedValueOnce({ ...RENEWED, accessToken: "at-3" });
+    await expect(token.credential()).resolves.toMatchObject({ accessToken: "at-2" });
+    plantSession({ accessToken: "at-2", subject: "oid-a" });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 61_000);
+
+    expect(token.refused("at-2")).toBe(false);
+    await expect(token.credential()).resolves.toMatchObject({ accessToken: "at-3" });
+    expect(oidc.renew).toHaveBeenCalledTimes(2);
+  });
+
+  // The refresh token still renews, so the library keeps its user (TYRE-471
+  // spec, Sending).
+  it("renews on the next call after a 401 on an unexpired token that is not fresh, and the library keeps its user", async () => {
+    const { token, oidc } = await fresh();
+    plantSession({ accessToken: "at-1", subject: "oid-a" });
+    vi.mocked(oidc.renew).mockResolvedValue(RENEWED);
 
     expect(token.refused("at-1")).toBe(false);
-    expect(token.readMirror()).toBeNull();
-    expect(token.lastKnownSubject()).toBe("oid-a");
+    await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
+    expect(oidc.renew).toHaveBeenCalledTimes(1);
+    expect(oidc.discardUser).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(LIBRARY_USER_KEY)).not.toBeNull();
+  });
+
+  // A slow 401 for at-1 can land after a renewal to at-2.
+  it("leaves a since-renewed token alone on a slow 401 for an older one", async () => {
+    const { token, oidc } = await fresh();
+    plantSession({ accessToken: "at-2", subject: "oid-a" });
+
+    expect(token.refused("at-1")).toBe(false);
+    await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
+    expect(oidc.renew).not.toHaveBeenCalled();
+  });
+
+  // The e2e stub issues one access-token string per subject on every renewal
+  // (e2e/idp.ts).
+  it("renews a refused token once, even when the provider issues the same string again", async () => {
+    const { token, oidc } = await fresh();
+    plantSession({ accessToken: "at-1", subject: "oid-a" });
+    vi.mocked(oidc.renew).mockResolvedValue({ ...RENEWED, accessToken: "at-1" });
+
+    expect(token.refused("at-1")).toBe(false);
+    await expect(token.credential()).resolves.toMatchObject({ accessToken: "at-1" });
+    await expect(token.credential()).resolves.toMatchObject({ accessToken: "at-1" });
+    expect(oidc.renew).toHaveBeenCalledTimes(1);
   });
 });
 
