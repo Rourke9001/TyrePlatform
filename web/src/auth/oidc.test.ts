@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { User, UserManager, type INavigator, type NavigateParams } from "oidc-client-ts";
+import { UserManager, type INavigator, type NavigateParams } from "oidc-client-ts";
 
 import { MIRROR_KEY, SUBJECT_KEY, credential } from "../api/token";
 import { bearerSession } from "../test/bearerSession";
+import { LIBRARY_USER_KEY, plantSession, storedAccessToken } from "../test/librarySession";
 import { createAuth } from "./oidc";
 
 const ORIGIN = "http://localhost:5173";
@@ -21,8 +22,6 @@ const SETTINGS = {
     end_session_endpoint: `${IDP}/logout`,
   },
 };
-// oidc-client-ts 3.5.0: "oidc." + user:${authority}:${client_id}.
-const USER_KEY = `oidc.user:${IDP}/:pwa`;
 
 function b64url(value: unknown): string {
   return btoa(JSON.stringify(value)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
@@ -56,14 +55,12 @@ function tokenResponse(id: string): Response {
 }
 
 function storeUser(fields: { id_token?: string; refresh_token?: string }): void {
-  const user = new User({
-    access_token: "at-old",
-    token_type: "Bearer",
-    profile: { sub: "pairwise-1", iss: `${IDP}/`, aud: "pwa", exp: 0, iat: 0, oid: "oid-a" },
-    expires_at: Math.floor(Date.now() / 1000) + 3600,
-    ...fields,
+  plantSession({
+    accessToken: "at-old",
+    subject: "oid-a",
+    idToken: fields.id_token,
+    refreshToken: fields.refresh_token ?? null,
   });
-  window.localStorage.setItem(USER_KEY, user.toStorageString());
 }
 
 // Captures where the library would navigate. The promise never settles, as a
@@ -94,6 +91,66 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+});
+
+describe("storedSession", () => {
+  // A live token never waits on discovery (TYRE-471 spec, The session).
+  it("reads the stored user with no request", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    plantSession({ accessToken: "at-old", subject: "oid-a" });
+
+    await expect(createAuth({ ...SETTINGS, metadata: undefined }).storedSession()).resolves.toEqual(
+      {
+        accessToken: "at-old",
+        expiresAt: expect.any(Number) as number,
+        subject: "oid-a",
+      },
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("reads no user, a user with no oid, and a stored value that does not parse as no session", async () => {
+    const auth = createAuth(SETTINGS);
+    await expect(auth.storedSession()).resolves.toBeNull();
+    plantSession({ accessToken: "at-old", subject: null });
+    await expect(auth.storedSession()).resolves.toBeNull();
+    window.localStorage.setItem(LIBRARY_USER_KEY, "{not json");
+    await expect(auth.storedSession()).resolves.toBeNull();
+  });
+});
+
+describe("discardUser", () => {
+  // A late settle must not remove a session that a later renewal or sign-in
+  // stored (TYRE-471 spec, Renewal).
+  it("removes the stored user only while it holds the given access token", async () => {
+    plantSession({ accessToken: "at-new", subject: "oid-a" });
+    const auth = createAuth(SETTINGS);
+
+    await auth.discardUser("at-old");
+    expect(storedAccessToken()).toBe("at-new");
+    await auth.discardUser("at-new");
+    expect(storedAccessToken()).toBeNull();
+  });
+});
+
+describe("the module's storedSession", () => {
+  // Blocked site data makes the localStorage getter itself throw, so the
+  // managers cannot be built. That is no session, and the store answers
+  // signed out, as it did with its own copy (TYRE-471 spec, The session).
+  // This file does not mock oidc.ts, so resetModules gives a fresh singleton.
+  it("reads a localStorage getter that throws as no session", async () => {
+    bearerSession();
+    vi.resetModules();
+    const oidc = await import("./oidc");
+    const token = await import("../api/token");
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+
+    await expect(oidc.storedSession()).resolves.toBeNull();
+    await expect(token.credential()).rejects.toMatchObject({ status: 401, code: "signed_out" });
+  });
 });
 
 describe("signIn", () => {
@@ -135,7 +192,7 @@ describe("completeSignIn", () => {
     expect(signedIn.returnTo).toBe("/capture/v1");
     expect(signedIn.expiresAt).toBeGreaterThan(Date.now());
     // U102: the library's default is sessionStorage, which dies with the browser.
-    expect(window.localStorage.getItem(USER_KEY)).not.toBeNull();
+    expect(window.localStorage.getItem(LIBRARY_USER_KEY)).not.toBeNull();
     expect(window.sessionStorage.length).toBe(0);
   });
 
@@ -144,11 +201,45 @@ describe("completeSignIn", () => {
   // the library's user behind for the next load to renew.
   it("refuses a sign-in whose ID token carries no oid, and removes the stored user", async () => {
     await expect(callbackFor(idToken(null))).rejects.toThrow(/oid/);
-    expect(window.localStorage.getItem(USER_KEY)).toBeNull();
+    expect(window.localStorage.getItem(LIBRARY_USER_KEY)).toBeNull();
   });
 });
 
 describe("renew", () => {
+  // A stored value that does not parse is no session. It goes, so the
+  // renewal is a lapse and the driver signs in, rather than every call
+  // failing as offline.
+  it("removes a stored value that does not parse, and returns null with no request", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    window.localStorage.setItem(LIBRARY_USER_KEY, "{not json");
+
+    await expect(createAuth(SETTINGS).renew()).resolves.toBeNull();
+    expect(window.localStorage.getItem(LIBRARY_USER_KEY)).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  // Another renewal or a sign-in stored a different refresh token while
+  // this one was refused (TYRE-471 spec, The four late settles).
+  it("leaves a stored user that holds another refresh token when its own is refused", async () => {
+    storeUser({ id_token: idToken("oid-a"), refresh_token: "rt-old" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        plantSession({ accessToken: "at-other", subject: "oid-a", refreshToken: "rt-other" });
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: "invalid_grant" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }),
+    );
+
+    await expect(createAuth(SETTINGS).renew()).resolves.toBeNull();
+    expect(storedAccessToken()).toBe("at-other");
+  });
+
   // With no refresh token the library would open a hidden iframe on "/".
   it("returns null without any request when no refresh token is stored", async () => {
     const fetchSpy = vi.fn();
@@ -161,7 +252,7 @@ describe("renew", () => {
     expect(document.body.querySelectorAll("iframe")).toHaveLength(before);
     // Spec section 6: the ID token carries a name and an email address, and
     // a session that cannot renew is over.
-    expect(window.localStorage.getItem(USER_KEY)).toBeNull();
+    expect(window.localStorage.getItem(LIBRARY_USER_KEY)).toBeNull();
   });
 
   it("uses the refresh token and returns the new access token", async () => {
@@ -231,7 +322,7 @@ describe("renew", () => {
     );
 
     await expect(createAuth(SETTINGS).renew()).resolves.toBeNull();
-    expect(window.localStorage.getItem(USER_KEY)).toBeNull();
+    expect(window.localStorage.getItem(LIBRARY_USER_KEY)).toBeNull();
   });
 
   it("lets a network failure through as itself and keeps the stored user", async () => {
@@ -242,7 +333,7 @@ describe("renew", () => {
     );
 
     await expect(createAuth(SETTINGS).renew()).rejects.toBeInstanceOf(TypeError);
-    expect(window.localStorage.getItem(USER_KEY)).not.toBeNull();
+    expect(window.localStorage.getItem(LIBRARY_USER_KEY)).not.toBeNull();
   });
 
   // Spec section 4 "Renewal": a refused refresh token ends the session; only
@@ -269,7 +360,7 @@ describe("renew", () => {
     refusal(code, status);
 
     await expect(createAuth(SETTINGS).renew()).resolves.toBeNull();
-    expect(window.localStorage.getItem(USER_KEY)).toBeNull();
+    expect(window.localStorage.getItem(LIBRARY_USER_KEY)).toBeNull();
   });
 
   it.each([
@@ -280,7 +371,7 @@ describe("renew", () => {
     refusal(code, status);
 
     await expect(createAuth(SETTINGS).renew()).rejects.toMatchObject({ error: code });
-    expect(window.localStorage.getItem(USER_KEY)).not.toBeNull();
+    expect(window.localStorage.getItem(LIBRARY_USER_KEY)).not.toBeNull();
   });
 
   // ErrorResponse.form is the refresh POST body, refresh_token included.
@@ -313,11 +404,25 @@ describe("renew", () => {
     );
 
     await expect(createAuth(SETTINGS).renew()).resolves.toBeNull();
-    expect(window.localStorage.getItem(USER_KEY)).toBeNull();
+    expect(window.localStorage.getItem(LIBRARY_USER_KEY)).toBeNull();
   });
 });
 
 describe("signOut", () => {
+  // The stored user goes before the first request that can fail, even one
+  // whose stored value does not parse (TYRE-471 spec, Signing out).
+  it("removes a stored value that does not parse", async () => {
+    window.localStorage.setItem(LIBRARY_USER_KEY, "{not json");
+    const { navigator, urls } = capturing();
+
+    void createAuth(SETTINGS, navigator)
+      .signOut()
+      .catch(() => undefined);
+    await vi.waitFor(() => expect(urls).toHaveLength(1));
+
+    expect(window.localStorage.getItem(LIBRARY_USER_KEY)).toBeNull();
+  });
+
   // The e2e identity stub cannot see the id_token_hint, so this unit test does.
   it("clears the entry's keys first, then sends id_token_hint and lets the library remove its user", async () => {
     const id = idToken("oid-a");
@@ -334,7 +439,7 @@ describe("signOut", () => {
         mirror: window.localStorage.getItem(MIRROR_KEY),
         subject: window.localStorage.getItem(SUBJECT_KEY),
         branding: window.localStorage.getItem("tyre.branding.t-1"),
-        user: window.localStorage.getItem(USER_KEY),
+        user: window.localStorage.getItem(LIBRARY_USER_KEY),
       };
     });
     void createAuth(SETTINGS, navigator).signOut();

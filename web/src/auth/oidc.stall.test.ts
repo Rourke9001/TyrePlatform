@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { INavigator } from "oidc-client-ts";
 
 import { REQUEST_TIMEOUT_SECONDS } from "../api/deadline";
+import { LIBRARY_USER_KEY, plantSession } from "../test/librarySession";
 import { createAuth } from "./oidc";
 
 // No metadata, so the library fetches discovery, the request these bound.
@@ -12,8 +13,6 @@ const SETTINGS = {
   apiScope: "api://tyre-api/access_as_user",
   origin: "http://localhost:5173",
 };
-// oidc-client-ts 3.5.0: "oidc." + user:${authority}:${client_id}.
-const USER_KEY = `oidc.user:${IDP}/:pwa`;
 const DISCOVERY_URL = `${IDP}/.well-known/openid-configuration`;
 const DISCOVERY = {
   issuer: `${IDP}/`,
@@ -91,18 +90,13 @@ function discoveryHeld(): () => void {
 // The library's stored user, as a sign-in leaves it: its ID token names the
 // driver, and its refresh token can renew the session.
 function storeUser(expiresInSeconds: number) {
-  window.localStorage.setItem(
-    USER_KEY,
-    JSON.stringify({
-      id_token: "id-token-naming-the-driver",
-      access_token: "at",
-      refresh_token: "rt",
-      token_type: "Bearer",
-      scope: "openid profile offline_access",
-      profile: { sub: "s", oid: "oid-a" },
-      expires_at: Math.floor(Date.now() / 1000) + expiresInSeconds,
-    }),
-  );
+  plantSession({
+    accessToken: "at",
+    subject: "oid-a",
+    expiresInSeconds,
+    refreshToken: "rt",
+    idToken: "id-token-naming-the-driver",
+  });
 }
 
 const PENDING = "pending" as const;
@@ -153,7 +147,7 @@ it("signOut rejects once the bound passes, after clearing the local session", as
   expect(result).toBeInstanceOf(Error);
   expect(navigated).toEqual([]);
   expect(window.localStorage.getItem("tyre.auth.subject")).toBeNull();
-  expect(window.localStorage.getItem(USER_KEY)).toBeNull();
+  expect(window.localStorage.getItem(LIBRARY_USER_KEY)).toBeNull();
 });
 
 // Offline on a fresh page, which has not fetched discovery yet.
@@ -168,7 +162,7 @@ it("signOut removes the stored user when discovery cannot be fetched at all", as
   await expect(createAuth(SETTINGS, navigator).signOut()).rejects.toBeInstanceOf(Error);
 
   expect(navigated).toEqual([]);
-  expect(window.localStorage.getItem(USER_KEY)).toBeNull();
+  expect(window.localStorage.getItem(LIBRARY_USER_KEY)).toBeNull();
 });
 
 // A fresh page's first renewal fetches discovery before the refresh POST,
@@ -184,7 +178,7 @@ it("renew rejects once the bound passes on a stalled discovery, before any token
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(fetch).toHaveBeenCalledWith(DISCOVERY_URL, expect.anything());
   // Still there: a discovery that fails says nothing about the session.
-  expect(window.localStorage.getItem(USER_KEY)).not.toBeNull();
+  expect(window.localStorage.getItem(LIBRARY_USER_KEY)).not.toBeNull();
 });
 
 // Another tab's sign-out removes the shared stored user while this tab's
@@ -197,7 +191,7 @@ it("renew answers null, with no iframe, when the stored user goes during discove
 
   const renewing = createAuth(SETTINGS, navigator).renew();
   await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-  window.localStorage.removeItem(USER_KEY);
+  window.localStorage.removeItem(LIBRARY_USER_KEY);
   answer();
 
   expect(await afterTheBound(renewing)).toBe("resolved");

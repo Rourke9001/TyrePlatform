@@ -92,6 +92,7 @@ it("discards a code exchange that finishes after the bound, and records nothing"
   await vi.advanceTimersByTimeAsync(1000);
 
   expect(oidc.discardUser).toHaveBeenCalledTimes(1);
+  expect(oidc.discardUser).toHaveBeenCalledWith("at-a");
 
   expect(token.readMirror()).toBeNull();
   expect(token.lastKnownSubject()).toBeNull();
