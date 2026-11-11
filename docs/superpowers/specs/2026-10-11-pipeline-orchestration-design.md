@@ -310,9 +310,10 @@ answer only counts when typed in the lead.
 
 ## Failure and recovery
 
-- **A teammate errors or stops early.** The lead asks it to shut down and
-  waits for the confirmation, so two never work in the checkout at once,
-  then respawns it once from the state file. A second failure stops the run
+- **A teammate errors or stops early.** The lead shuts it down by a bounded
+  wait on the team listing and the checkout (`.claude/commands/pipeline.md`,
+  Shutting a teammate down; TYRE-478), so two never work in the checkout at
+  once, then respawns it once from the state file. A second failure stops the run
   and asks the owner.
 - **The lead's session dies.** `/resume` does not restore in-process
   teammates (agent-teams docs, Limitations). The owner runs
@@ -325,7 +326,9 @@ answer only counts when typed in the lead.
   the window resets resumes it.
 - **A teammate's task status lags.** Known limitation (agent-teams docs).
   The lead judges a stage by its output on disk and in git, never by task
-  status.
+  status. The team listing is read only beside what is on disk, to shut a
+  teammate down or to judge its silence (`.claude/commands/pipeline.md`,
+  Teammates; TYRE-478).
 - **A teammate goes idle without its report.** Its message may not have
   reached the lead yet (Task 0). The lead checks the stage's output on disk
   and in git, then asks it once for the report, and treats it as failed

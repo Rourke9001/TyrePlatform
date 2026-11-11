@@ -30,6 +30,24 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-11 - A lead that ended its turn for a shutdown approval sat idle until the owner typed (TYRE-477, TYRE-478)
+
+**What happened:** in TYRE-477's run the lead asked the planner, and later
+the implementer, to shut down, and ended its turn to wait for the approval.
+The planner's reached it about 30 minutes late, and the implementer's had
+not come after 50; each time the lead moved only once the owner typed.
+TYRE-478's spikes showed why. A teammate's message never surfaces during
+the lead's turn. It is delivered after a turn ends, though not after every
+turn end. A teammate that approves a shutdown leaves the team listing
+within seconds, whether or not its approval reaches the lead.
+
+**The rule:** never end a turn to wait for a shutdown approval. Wait in the
+foreground on `make pipeline-wait S=30` and read the team listing, as
+`.claude/commands/pipeline.md`, Shutting a teammate down, says. Before
+ending a turn for any teammate's message, start the background timer
+(Waiting for a teammate's message), so a late message costs minutes, not
+the owner's attention.
+
 ## 2026-11-11 - A `C:/` folder on `PATH` in Git Bash is never searched, so a stub is skipped and the real binary runs (2026-11-10; TYRE-476, TYRE-477)
 
 **What happened:** twice in the TYRE-476 run a subagent stubbed `claude` for

@@ -112,7 +112,133 @@ reply as an answer. No teammate dispatches a subagent or runs
 `/code-review`, because a teammate cannot collect it: the result is lost
 (ADR-0023). Every auditor, verifier and fixer is your own unnamed subagent
 instead, and the code review is a process you start (Review loop step 3), so
-each result reaches you.
+each result reaches you. How to wait for a teammate's message, and how to
+shut a teammate down, are the two subsections below.
+
+### Shutting a teammate down
+
+Every shutdown in this playbook runs these steps. Never end your turn to
+wait for the approval: a teammate's message reaches you only after your
+turn ends, and can come long after (docs/lessons.md, 2026-11-11, shutdown
+approval). Record the approval if it arrives; never wait for it.
+
+1. Record under `Waits:` in the state file what the teammate leaves.
+   Take the one case that fits, and keep it through step 5:
+   - **`planner` that reported:** the plan file's path (for a bundle,
+     `<state dir>/small-fix-plan.md`) and its time,
+     `date -u -r <path> +%FT%T.%NZ`, or `absent`;
+   - **`implementer` that reported ready:** `git rev-parse HEAD`, and
+     `git status --porcelain`, which prints nothing once it is ready
+     (Implementation);
+   - **a teammate that failed, whichever it is** (When something fails):
+     `git rev-parse HEAD`, and the `git status --porcelain` and
+     `git diff HEAD --numstat` output as they stand, and for `planner` the
+     plan file's time too.
+2. If the listing already does not list the teammate, record `absent
+   before the request` and go to step 5: a message to a name that has
+   left can start it again. Otherwise send the shutdown request, and
+   record its UTC time.
+3. Up to six times: run `make pipeline-wait S=30` in the foreground, then
+   read the team listing with `ListAgents`. Stop at the first read that
+   does not list the teammate, and record its UTC time and its number.
+4. **Shut down** means the teammate is absent from the listing and what
+   step 1 recorded is unchanged. Neither alone is enough. The plan file is
+   gitignored, so a clean tree says nothing about the planner, and the
+   listing is a status, which can lag. This is evidence on the listing and
+   the disk, not silence read as an answer (Teammates).
+5. Once it has left, read step 1's record again, in step 1's case:
+   - **`planner` that reported:** if the plan file's time changed, read
+     the plan again before the next stage. That is not a stop.
+   - **`implementer` that reported ready:** if HEAD moved or the tree is
+     dirty, the checkout is not in the state the run recorded. Stop (The
+     run cannot go on).
+   - **a teammate that failed, whichever it is:** it may finish a tool
+     call while it shuts down, and a command it started can outlive it
+     (docs/lessons.md, 2026-10-01). Read what step 1 recorded, run
+     `make pipeline-wait S=30`, and read it again, until two reads running
+     match, six reads at most. The numstat is read because porcelain
+     prints the same line for a file changed once or changed again. Spawn
+     its replacement only then. No match after six reads: stop (The run
+     cannot go on). Some writes are not seen: a command that writes
+     nothing to the tree, such as an orphaned gate, a rewrite of an
+     untracked file, and a second edit that leaves a file's line counts
+     the same. That is an accepted risk, and the replacement's spawn
+     prompt says a gate may still be running (When something fails).
+6. Still listed after the sixth read: stop it with `TaskStop`, giving its
+   name, run `make pipeline-wait S=30` once more, and read the listing.
+   Gone: step 5 applies. Still listed: stop (The run cannot go on). A
+   teammate that had reported loses nothing, since its report is in hand,
+   and one that failed is being replaced anyway.
+
+### Waiting for a teammate's message
+
+Wherever you end your turn for a teammate's message, a timer wakes you.
+That is the planner's plan and its replies to red-team findings and
+rulings, the implementer's "ready for review" and its answer after a "not
+ready", and a report you have asked for again. A teammate's message reaches
+you only after your turn ends, and an idle lead can be left unwoken
+(docs/lessons.md, 2026-11-11, shutdown approval).
+
+1. Before you end the turn, record a baseline under `Waits:`: the UTC
+   time and five values. They are the plan file's
+   `date -u -r <path> +%FT%T.%NZ` (for a bundle,
+   `<state dir>/small-fix-plan.md`), `git rev-parse HEAD`,
+   `git status --porcelain`, `git diff HEAD --numstat`, and the
+   `date -u -r` time of the executing-plans ledger. The ledger is the
+   `progress.md` under `.superpowers/sdd/` whose first line names the
+   plan; `rg -l --no-ignore -F <plan file name> .superpowers/sdd -g progress.md`
+   lists the candidates (`.superpowers/` is gitignored, so `rg` without
+   `--no-ignore` skips it). On this host `rg` prints the path with
+   backslashes, which Git Bash drops from an unquoted argument, so give
+   `date -u -r` the path with forward slashes and in double quotes. Either
+   time is `absent` when its file is; a "No such file" for a path `rg` has
+   just listed is a typing error to fix, not `absent`. Then,
+   unless a timer is already running, start `make pipeline-wait S=300` as
+   a background Bash call, record its task id, and end the turn. Run one
+   timer at a time.
+2. Woken by the message the stage waits for: stop the timer with
+   `TaskStop` and its task id, and go on. Woken by anything else, such as
+   an idle notice or another teammate's message: deal with it, and end the
+   turn again on the same timer. Never end a turn in this wait without a
+   running timer: if the timer's exit has surfaced while you dealt with
+   something, take step 3 before ending the turn.
+3. Woken by the timer's exit without that message: read the listing with
+   `ListAgents` and the five values step 1 records. Record the UTC time,
+   the listing's word for the teammate (`running`, `idle` or absent) and
+   what moved. A value moved when it differs from the last record; a
+   ledger that appears or disappears has moved. A wake where nothing moved
+   is quiet. Take the first case that fits:
+   - **Not listed, and no report:** it stopped early (When something
+     fails).
+   - **Something moved, or this is the first quiet wake in a row:** start
+     the timer again and end the turn. A message can still be in transit
+     at a timer's wake, so the first quiet wake never asks or fails a
+     teammate.
+   - **Listed `running`:** start the timer again and end the turn. A busy
+     teammate is never asked and never failed on silence, since a gate or
+     a long read can run many minutes with nothing written. The one
+     ceiling: twelve quiet wakes in a row while it is listed `running` (60
+     minutes) is a hung teammate, and it has failed (When something
+     fails).
+   - **Listed `idle`, not yet asked in this wait:** its turn has ended
+     without the report. Ask it once for the report, start the timer again
+     and end the turn.
+   - **Listed `idle`, already asked in this wait:** it has failed (When
+     something fails).
+4. A lost timer is an accepted risk. A background command's exit has
+   woken an idle lead in every run so far (Review loop step 3), but
+   nothing documents it, and anthropics/claude-code issue 92563 reports it
+   failing. Each wake is recorded, so a gap well over 300 seconds between
+   two `Waits:` records is a missed wake. One such gap in a real run
+   reopens the design that spec rejected
+   (`docs/superpowers/specs/2026-11-11-bounded-lead-waits-design.md`,
+   Rejected).
+5. At an owner stop, stop any running timer with `TaskStop`, start none,
+   and wait for the owner.
+6. A resume (Before anything, step 5) starts every wait afresh. A timer
+   id, a wake count or an ask that an earlier session recorded under
+   `Waits:` is history: that session's timer is not running, and its
+   teammates are gone.
 
 ## Triage (you)
 
@@ -189,8 +315,8 @@ the code the plan touches, and a gap it leaves costs a fix round) with:
 
 For a bundle, the prompt instead asks for one short plan per key, each
 under its key, in `<state dir>/small-fix-plan.md`, written for the PR body.
-For a bundle, once it reports, ask `planner` to shut down and wait for its
-confirmation.
+Wait for its report (Waiting for a teammate's message). For a bundle, once
+it reports, shut `planner` down (Shutting a teammate down).
 
 ## Red team. Skipped for a small fix.
 
@@ -205,7 +331,8 @@ For round r = 1, 2, 3:
    "lead's ruling (<source>)". A ruled finding is not a finding again
    unless the agent shows the ruling itself is wrong.
 2. Record its verdict and its findings by severity in the state file.
-3. Send every Critical and Important finding to `planner`. Sort each one
+3. Send every Critical and Important finding to `planner`, and wait for its
+   reply (Waiting for a teammate's message). Sort each one
    the planner disputes or cannot close as product or engineering, as in
    Spec. Rule an engineering dispute yourself with a source (a URL or
    `file:line`), record it under "Lead's rulings" in the state file, and
@@ -223,7 +350,9 @@ If round 3 returned a Critical, STOP and put it to the owner (Red-team
 dispute), and send the ruling to `planner`; there is no round 4.
 
 However the loop ends, wait for `planner` to report every fix and ruling
-applied, then ask it to shut down and wait for its confirmation. Comment on
+applied (Waiting for a teammate's message; when its last report already
+covers everything sent to it, that report is in hand and no timer starts),
+then shut it down (Shutting a teammate down). Comment on
 the ticket: the final verdict, and the counts fixed and ruled.
 
 ## Implementation (implementer)
@@ -265,20 +394,23 @@ Spawn a teammate named `implementer` (general-purpose, on the model the
 > evidence; wait for its answer. Send anything that is not a bug to the
 > lead with the evidence. With your last message, report the final-review
 > line and the rulings and deferred minors the skill lists. When the skill
-> reaches finishing-a-development-branch, do not present its menu: send the
-> lead "ready for review <branch>" with the `make check` exit code, then
-> stop; do not push or open a PR.
+> reaches finishing-a-development-branch, do not present its menu: end with
+> an empty `git status --porcelain`, send the lead "ready for review
+> <branch>" with the `make check` exit code, then stop; do not push or open
+> a PR.
 
-When the implementer reports, write its report verbatim to
+Wait for its report (Waiting for a teammate's message). When the
+implementer reports, write its report verbatim to
 `<state dir>/implementer-report.md` before anything else: the skill deletes
-its own ledger when it finishes. "Ready" with a non-zero `make check` exit
-is not ready: tell it so and wait. A bug it sends up goes into review 0's
+its own ledger when it finishes. "Ready" with a non-zero `make check` exit,
+or with anything in `git status --porcelain`, is not ready: tell it so and
+wait. A bug it sends up goes into review 0's
 findings file (Review loop step 3), so the verifier verifies and classes it
 before Review loop step 5 acts on it. Put each finding that is not a bug
 through CLAUDE.md's schedule test: a ticket linked to its key for one that
-passes, the PR's "Set aside" list for the rest (U130). Then ask
-`implementer` to shut down, and wait for its confirmation before the review
-loop, so two writers are never in the checkout together.
+passes, the PR's "Set aside" list for the rest (U130). Then shut
+`implementer` down (Shutting a teammate down) before the review loop, so
+two writers are never in the checkout together.
 
 ## Review loop (you)
 
@@ -562,15 +694,18 @@ Give each fixer this brief verbatim, its placeholders filled:
 
 ## When something fails
 
-- A teammate goes idle without the report its stage needs: check its
-  stage's output first (git log, the executing-plans ledger under
-  `.superpowers/sdd/`), then ask it once for the report. Its reply can
-  arrive late. Treat it as failed only when neither shows progress.
-- A teammate errors or stops early: ask it to shut down and wait for its
-  confirmation, so two never work in this checkout at once, then spawn a
-  new one from the state file once, on the model its spawn line names, or
-  for the implementer the model its `Implementer model:` line records. If
-  that fails too, stop and tell the owner.
+- A teammate goes idle without the report its stage needs: Waiting for a
+  teammate's message says when to ask it once and when it has failed. It
+  reads the stage's output first (git log, the executing-plans ledger under
+  `.superpowers/sdd/`), since a reply can arrive late.
+- A teammate errors, stops early, or has failed by Waiting for a teammate's
+  message: shut it down (Shutting a teammate down), so two never work in
+  this checkout at once, then spawn a new one from the state file once, on
+  the model its spawn line names, or for the implementer the model its
+  `Implementer model:` line records. End its spawn prompt with: "A gate the
+  teammate before you started may still be running, so run a failing
+  baseline once more before you stop and ask." If that fails too, stop and
+  tell the owner.
 - A finder, verifier or fixer that returns nothing, or whose hand-back
   does not end with its terminal line (`VERDICT:` for the verifier,
   `STATUS:` for a fixer, and exit 0 with a last line `REVIEW: ok` for the
@@ -586,13 +721,20 @@ Give each fixer this brief verbatim, its placeholders filled:
   that still misses a raw finding after its second dispatch, or a review
   that reads the wrong diff twice (step 4); a dirty tree after a fixer
   (Close a round, row D); a finder (the review script included), verifier
-  or fixer that returns nothing twice (above, and row A). A second red gate is the row "Red gate"
+  or fixer that returns nothing twice (above, and row A). Shutting a
+  teammate down adds three: a teammate still listed after `TaskStop`, a
+  failed teammate's checkout that has not settled in six reads, and an
+  implementer whose HEAD moved or tree went dirty while it shut down. Hand-over
+  step 4 adds three: no CI run listed for the pushed head 60 minutes after
+  the push, a run you cancelled at 60 minutes still not `completed` after
+  two watches, and a whole-run re-run that did not take. A second red gate is the row "Red gate"
   (row F), and a round outside the two that leaves something open is "The
   cap".
 - A usage limit: stop. The state file holds the run;
   `make pipeline T="$ARGUMENTS"` resumes it.
 - Judge a stage by its output on disk, in git and on GitHub, never by a
-  task's status, which can lag.
+  task's status, which can lag. The team listing is read only where the two
+  Teammates subsections say, and always beside what is on disk.
 
 ## State file template
 
@@ -613,6 +755,8 @@ Give each fixer this brief verbatim, its placeholders filled:
 - Unrelated: <finding>: <ticket>, commented | raised
 - Fix <id>: before=<sha>; started | after=<sha>; lint exit <code | n/a>, test exit <code | n/a>; reports <path>[, <retry path>][, <gate report path>][, <gate retry path>]; re-review <path | none>
 - PR: #<n>; CI <result> @ <head sha>
+- Waits:
+  - <UTC time>: <teammate | CI>: <baseline <values> | timer <task id> | wake: <running | idle | absent>, <moved <what> | quiet <n> in a row>[, asked] | shutdown request | absent before the request | gone at read <n> | TaskStop | settled at read <n> | push <sha> | rerun <run id> | cancel <run id>>
 - Owner answers:
   - <UTC time>: <stop>[, <finding ID>]: <answer verbatim>
 ```
