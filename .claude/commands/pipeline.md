@@ -662,25 +662,65 @@ Give each fixer this brief verbatim, its placeholders filled:
    Record the PR number at once, and stage `PR opened`.
 4. Wait for CI on the pushed head the way close-out waits
    (`.claude/commands/close-out.md`, step 2), never with
-   `gh pr checks --watch` (docs/lessons.md, 2026-09-16). Find the run:
+   `gh pr checks --watch` (docs/lessons.md, 2026-09-16). Record the push's
+   UTC time under `Waits:` as `push <sha>`. The 60 minute clock below runs
+   from it, or from a later `rerun` record for this head, or, on a resume
+   with neither recorded for this head, from the resume; read it with
+   `date -u` before each wait. Find the run:
    `gh run list -R Rourke9001/TyrePlatform --branch <branch> --commit <full head sha> --workflow CI --json databaseId,status,conclusion,url`.
-   If it is not listed yet, watch the branch's newest CI run, or the
-   repo's newest when the branch has none, as a wait, and list again.
-   Watch in the foreground, unpiped, Bash timeout 600000 ms:
+   If it is not listed yet, run `make pipeline-wait S=30` and list again.
+   Still not listed 60 minutes after the push: stop (The run cannot go
+   on). Watch in the foreground, unpiped, Bash timeout 600000 ms:
    `timeout 540 gh run watch <id> -R Rourke9001/TyrePlatform --interval 30 > /dev/null 2>&1`,
    then read
-   `gh api repos/Rourke9001/TyrePlatform/actions/runs/<id> --jq '.status, .conclusion'`,
-   and repeat until `completed`. Then read plain `gh pr checks <n>` once
-   and require every row to be terminal. A red job whose failure touches
-   no file in the diff is re-run once
-   (`gh run rerun <id> --failed -R Rourke9001/TyrePlatform`). Any other
-   red run is the CI fix (round `ci`): save the failing job's log with
-   `gh run view <id> -R Rourke9001/TyrePlatform --log-failed > <state dir>/ci-<id>.log 2>&1`,
-   write `<state dir>/ci-fix.md` naming that path as one finding
-   marked `on-path (red CI, <UTC time>)`, run it as a round outside the
-   two (Review loop), push, record stage `CI fix` after that push, and
-   wait again. A second
-   red, or a red after the job's `ci` round is spent, is a stop (Red gate).
+   `gh api repos/Rourke9001/TyrePlatform/actions/runs/<id> --jq '.status, .conclusion, .run_attempt, .run_started_at'`,
+   and repeat until `completed`. Past 60 minutes and still not
+   `completed`: cancel it (`gh run cancel <id> -R Rourke9001/TyrePlatform`),
+   record `cancel <id>`, and watch it at most twice. Still not `completed`
+   after the second watch: stop (The run cannot go on). A run you
+   cancelled is judged by the conclusion it ends with, like any other, so
+   one that finished `success` before the cancel took is green. Sixty
+   minutes is close-out's bound for the same wait, and three times the
+   longest job timeout in `ci.yml`. Then read plain `gh pr checks <n>`
+   once and require every row to be terminal.
+   The run is red when it is `completed` with any conclusion but
+   `success`. Read the attempt's jobs:
+   `gh api repos/Rourke9001/TyrePlatform/actions/runs/<id>/attempts/<run_attempt>/jobs --jq '.jobs[] | [.name, .status, .conclusion, .started_at] | @tsv'`.
+   A job is red when its conclusion is anything but `success` or
+   `skipped`. A job that ended `cancelled` or `timed_out` touches no file
+   in the diff, whatever the diff holds, and so does a red run with no red
+   job when the run itself ended `cancelled` or `timed_out`. For a red
+   run, take the first case that fits:
+   - **The head the `ci` round pushed:** stop (Red gate), with no re-run,
+     whatever its jobs ended (CLAUDE.md, The review loop: a second red
+     stops for the owner).
+   - **The one re-run is spent:** a `rerun` is recorded under `Waits:` for
+     this head, and the run's `run_attempt` is above 1. Stop (Red gate).
+     A recorded `rerun` with `run_attempt` still 1 did not happen, and is
+     not spent.
+   - **No red job's failure touches a file in the diff, and the run has a
+     red job or itself ended `cancelled` or `timed_out`:** re-run it once.
+     Run `gh run rerun <id> --failed -R Rourke9001/TyrePlatform`, and once
+     it returns, record `rerun <id>` with the UTC time. Then check that it
+     took, reading the run and its new attempt's jobs up to three times,
+     each after `make pipeline-wait S=30`: `run_attempt` has risen, and in
+     the new attempt each job that was red is not `completed`, or has a
+     `started_at` later than the new attempt's `run_started_at`. Compare
+     GitHub's times with each other, never with `date -u`. Every attempt
+     lists every job, with the old result carried over for a job that did
+     not run again, so a job being listed proves nothing. Taken: wait as
+     above. Not taken by the third read: wait as above until the run is
+     `completed`, run `gh run rerun <id> -R Rourke9001/TyrePlatform`, which
+     re-runs every job, and check it the same way. Not taken either: stop
+     (The run cannot go on).
+   - **Any other red run** is the CI fix (round `ci`): save the failing
+     job's log with
+     `gh run view <id> -R Rourke9001/TyrePlatform --log-failed > <state dir>/ci-<id>.log 2>&1`,
+     write `<state dir>/ci-fix.md` naming that path as one finding marked
+     `on-path (red CI, <UTC time>)`, run it as a round outside the two
+     (Review loop), push, record stage `CI fix` after that push, and wait
+     again.
+
    Record `CI <result> @ <head sha>` on the `PR:` line.
 5. Move every key to In Review, comment the PR link on each, delete
    `pipeline-review-base` (`git branch -D pipeline-review-base`), set
