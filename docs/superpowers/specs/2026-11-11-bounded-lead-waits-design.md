@@ -34,9 +34,14 @@ The findings are in
 
 - **A teammate's message does not reach the lead during the lead's turn**
   (spike S2, Claude Code 2.1.322: a message sent at 20:16:02Z had not
-  surfaced four tool rounds and 90 seconds later). It is delivered once
-  the lead's turn ends, and when the lead is idle it can be delayed until
-  something else advances the session (anthropics/claude-code issue 82687,
+  surfaced four tool rounds and 90 seconds later). It is delivered after
+  the lead's turn ends (spike S8: every held message arrived in one
+  batch within seconds of a turn ending, with no owner input), though not
+  at every turn end: the turn before brought none in the 30 seconds
+  before a timer woke the lead. A message sent while the lead was idle
+  woke it in 5 seconds (S8, sent 20:41:23Z). That path is the one that
+  failed in TYRE-477's run, and it can be delayed until something else
+  advances the session (anthropics/claude-code issue 82687,
   https://github.com/anthropics/claude-code/issues/82687). The agent-teams
   docs do not say an idle lead is woken
   (https://code.claude.com/docs/en/agent-teams).
@@ -50,8 +55,11 @@ The findings are in
   below means the listing's `running`.
 - **A foreground wait with a time bound works** and the harness does not
   refuse it (spike S1).
-- **A background command's exit reaches the lead** (spike S5), and has
-  woken an idle lead in every real run: Review loop step 3 waits "to be
+- **A background command's exit reaches the lead** (spike S5) **and wakes
+  an idle one** (spike S6: a 90 second timer started before the lead
+  ended its turn at the Spec approval stop began a new turn 6 seconds
+  after it exited, with no owner input). It has also woken an idle lead
+  in every real run: Review loop step 3 waits "to be
   woken when the script exits" (`pipeline.md`, Review loop step 3) and did
   so in TYRE-476's and TYRE-477's runs with no owner input. The docs do
   not promise this and issue 92563 reports it failing
