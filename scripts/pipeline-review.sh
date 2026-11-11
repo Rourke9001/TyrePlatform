@@ -107,18 +107,23 @@ text=$(jq -r 'if (.result | type) == "string" then .result else "" end' "$out" 2
 text=${text//$'\r'/}
 open='^```json[[:space:]]*$'
 close='^```[[:space:]]*$'
+# Every line that opens a code fence whose info string starts with json counts,
+# whatever its indent, quote marker, fence character, fence length or case.
+# More than one leaves the findings count ambiguous, so the review fails
+# (TYRE-476).
+any='^[[:space:]>]*(`{3,}|~{3,})[[:space:]]*[Jj][Ss][Oo][Nn]([[:space:]].*)?$'
 block=""
 st=0
+n=0
 while IFS= read -r line; do
+  if [[ "$line" =~ $any ]]; then n=$((n + 1)); fi
   if [ "$st" -eq 0 ]; then
     if [[ "$line" =~ $open ]]; then st=1; fi
-  elif [[ "$line" =~ $close ]]; then
-    st=2
-    break
-  else
-    block+="$line"$'\n'
+  elif [ "$st" -eq 1 ]; then
+    if [[ "$line" =~ $close ]]; then st=2; else block+="$line"$'\n'; fi
   fi
 done <<<"$text"
+[ "$n" -le 1 ] || fail findings "the result holds $n fenced json blocks"
 [ "$st" -eq 2 ] || fail findings "no fenced json block in result"
 jq -se 'length == 1 and (.[0] | type) == "array"' <<<"$block" >/dev/null 2>&1 ||
   fail findings "the fenced block is not a JSON array"
