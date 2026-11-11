@@ -1,7 +1,7 @@
 # Bounded waits: a pipeline lead never waits on something that cannot wake it
 
-Date: 2026-11-11. Ticket: TYRE-478. Status: written by the lead, awaiting
-the owner's approval. Builds on ADR-0018, ADR-0023 and
+Date: 2026-11-11. Ticket: TYRE-478. Status: approved by the owner on
+11 Nov 2026. Builds on ADR-0018, ADR-0023 and
 `docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`. The ticket
 cites no SRS requirement; this is pipeline tooling, no product code.
 
