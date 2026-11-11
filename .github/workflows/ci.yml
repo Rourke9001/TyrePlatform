@@ -148,6 +148,8 @@ jobs:
         run: make pipeline-launch-test
       - name: Pipeline review script cases
         run: make pipeline-review-test
+      - name: Pipeline wait cases
+        run: make pipeline-wait-test
       - name: Hook cases
         run: make hooks-test
 

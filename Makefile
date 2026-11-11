@@ -12,6 +12,13 @@ override T := $(value T)
 export T
 endif
 
+# S, the seconds the lead waits, is held as T is, so it reaches the script as
+# data (TYRE-470, TYRE-478).
+ifeq ($(origin S),command line)
+override S := $(value S)
+export S
+endif
+
 PG_CONTAINER ?= tyre-pg
 PG_PORT      ?= 5433
 PG_DB        ?= tyre
@@ -330,6 +337,14 @@ pipeline-launch-test: ## The pipeline launcher's key check and launch shape, mod
 pipeline-review-test: ## The review script's checks on a stub claude: exit, model, permissions, findings block, time bound (TYRE-476)
 	bash scripts/pipeline-review.test.sh
 
+.PHONY: pipeline-wait
+pipeline-wait: ## Wait S whole seconds, 1 to 600: the pipeline lead's bounded wait and its wake timer (TYRE-478)
+	@bash scripts/pipeline-wait.sh "$$S"
+
+.PHONY: pipeline-wait-test
+pipeline-wait-test: ## The wait's refusals and a 1 s wait, direct and through make (TYRE-478)
+	bash scripts/pipeline-wait.test.sh
+
 .PHONY: hooks-test
 hooks-test: ## The hooks: each one settings.json names is executable, and the merge and push guard's cases (TYRE-413)
 	bash scripts/hooks.test.sh
@@ -404,7 +419,7 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bi
 	$(MAKE) web-bundle
 
 .PHONY: test
-test: db-reset db-test db-test-privileged db-provision-test api-test web-test web-production deploy-gate-test deploy-guard-test deploy-smoke-test pipeline-launch-test pipeline-review-test hooks-test ## Every test in the repo
+test: db-reset db-test db-test-privileged db-provision-test api-test web-test web-production deploy-gate-test deploy-guard-test deploy-smoke-test pipeline-launch-test pipeline-review-test pipeline-wait-test hooks-test ## Every test in the repo
 
 .PHONY: check
 check: fmt lint test ## What CI runs. Run this before you commit.
