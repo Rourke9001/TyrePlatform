@@ -135,6 +135,10 @@ canned --arg r "Read the range."$'\n\n'"$r_two" '.result = $r | .modelUsage["cla
 passes "a Haiku key beside Opus, and prose before the block" 0 "models claude-haiku-4-5 claude-opus-5-5, findings 2"
 canned --arg r "$r_two"$'\n\n'"- Line 3 runs \`rm -rf\`, and a lone $fence ends the block." '.result = $r'
 passes "fence text inside a line after the block" 0 "models claude-opus-5-5, findings 2"
+# The indent before a marker is spaces and tabs alone, whatever the locale
+# counts as blank.
+canned --arg r "$r_two"$'\n\n'$'\xc2\xa0'"${fence}bash" '.result = $r'
+passes "a no-break space before fence text after the block" 0 "models claude-opus-5-5, findings 2"
 canned --arg r "${r_two//$'\n'/$'\r\n'}" '.result = $r'
 passes "a result whose lines end in CR LF" 0 "models claude-opus-5-5, findings 2"
 # Read by bash, since Git Bash's grep without -U does not match a CR.
