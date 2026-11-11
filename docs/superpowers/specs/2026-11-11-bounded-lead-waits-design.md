@@ -172,10 +172,17 @@ to it instead.
    tool call while it shuts down, and a command it started can outlive it
    (`docs/lessons.md`, 2026-10-01 entry: an orphaned `make` carried on).
    So for it the test is that the checkout has settled: once it has left
-   the listing, the lead reads HEAD and `git status --porcelain`, waits
-   30 seconds and reads them again, and repeats until two reads running
-   match, six reads at most. Its replacement spawns only then. No match
-   after six reads: stop for the owner (The run cannot go on).
+   the listing, the lead reads HEAD, `git status --porcelain` and
+   `git diff HEAD --numstat`, waits 30 seconds and reads them again, and
+   repeats until two reads running match, six reads at most. Its
+   replacement spawns only then. No match after six reads: stop for the
+   owner (The run cannot go on). The diff is read because porcelain
+   prints the same line for a file changed once or changed again (red
+   team round 1, I3). A command that writes nothing to the tree, such as
+   an orphaned gate, is not seen: that is an accepted risk, and the
+   replacement's spawn message says a gate from the teammate before it
+   may still be running, so a failing baseline is run once more before it
+   is a stop-and-ask.
 6. Still listed after the sixth read: stop the teammate with `TaskStop`
    and its name, wait once more, and read the listing. A teammate that
    had reported loses nothing, since its report is in hand; one that
@@ -207,8 +214,9 @@ lead has asked for again.
    stage's output on disk, record the UTC time and what moved, and take
    the first case that fits. "Moved" means any of these differs from the
    last wake: the plan file's modification time, HEAD, the
-   `git status --porcelain` output, or the modification time of the
-   executing-plans ledger under `.superpowers/sdd/`.
+   `git status --porcelain` output, the `git diff HEAD --numstat` output,
+   or the modification time of the executing-plans ledger under
+   `.superpowers/sdd/`.
    - **Not listed and no report:** it stopped early (A teammate errors or
      stops early).
    - **First quiet wake, or something moved:** start the timer again and
@@ -290,7 +298,18 @@ indent every workflow here uses.
   (`gh run cancel <id> -R Rourke9001/TyrePlatform`), waits for
   `completed`, and treats it as the red above. Sixty minutes is
   close-out's bound for the same wait (`close-out.md:99`), and three times
-  the longest job timeout.
+  the longest job timeout. Two edges from red team round 1, both stops
+  under The run cannot go on: the cancelled run is watched at most twice
+  (`timeout 540` each, `close-out.md:66`) and is a stop if it is still
+  not `completed`; and a head whose run is never listed is waited for in
+  30 second waits on the same clock, and is a stop at 60 minutes.
+- The re-run check above reads one clock: a job took when it is not
+  `completed`, or its `started_at` is later than the new attempt's
+  `run_started_at`. The lead's own clock is not compared with GitHub's
+  (red team round 1, I2). The whole run is re-run only once it is
+  `completed`. A red run with no red job is judged by the run's own
+  conclusion: `cancelled` or `timed_out` is re-run once, anything else is
+  the CI fix.
 
 Before anything step 5, which sends a resume to step 4, needs no change.
 
