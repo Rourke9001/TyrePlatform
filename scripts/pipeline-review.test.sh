@@ -179,6 +179,20 @@ canned --arg r "~~~json"$'\n'"$two"$'\n'"~~~"$'\n\n'"$(fenced '[]' 'No findings.
 failed "a tilde json block beside an empty array" 0 findings
 canned --arg r "\`${fence}json"$'\n'"$two"$'\n'"\`$fence"$'\n\n'"$(fenced '[]' 'No findings.')" '.result = $r'
 failed "a four-backtick json block beside an empty array" 0 findings
+# A json fence line inside another fence, or indented as code, opens no block
+# (CommonMark 0.31.2, sections 4.4 and 4.5).
+hunk=$'\n'"${fence}json"$'\n''{"k": 1}'$'\n'"$fence"$'\n'
+canned --arg r "$(fenced "$two" "The spec hunk:"$'\n\n'"\`${fence}markdown$hunk\`$fence")" '.result = $r'
+passes "a four-backtick fence quoting a json fence, after the block" 0 "models claude-opus-5-5, findings 2"
+canned --arg r "$(fenced "$two" "The spec hunk:"$'\n\n'"~~~markdown$hunk~~~")" '.result = $r'
+passes "a tilde fence quoting a json fence, after the block" 0 "models claude-opus-5-5, findings 2"
+canned --arg r "$(fenced "$two" "For example:"$'\n\n'"    ${fence}json"$'\n    {}\n    '"$fence")" '.result = $r'
+passes "a json fence indented four spaces, after the block" 0 "models claude-opus-5-5, findings 2"
+canned --arg r "$(fenced "$two" "For example:"$'\n\n\t'"${fence}json"$'\n\t{}\n\t'"$fence")" '.result = $r'
+passes "a json fence indented by a tab, after the block" 0 "models claude-opus-5-5, findings 2"
+# The block read is the fence the count saw, so a quoted one before it is not.
+canned --arg r "The spec hunk:"$'\n\n'"\`${fence}markdown"$'\n'"$(fenced '[]' '')"$'\n'"\`$fence"$'\n\n'"$r_two" '.result = $r'
+passes "a fence quoting an empty json array, before the block" 0 "models claude-opus-5-5, findings 2"
 
 canned .
 passes "a first run" 1 "models claude-opus-5-5, findings 2"
