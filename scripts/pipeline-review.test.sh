@@ -280,6 +280,13 @@ start=$SECONDS
 failed "a review past its time bound" 0 timeout STUB_SLEEP=20 PIPELINE_REVIEW_TIMEOUT=1
 if [ $((SECONDS - start)) -lt 10 ]; then echo "PASS: the bound ended the review"; else
   echo "FAIL: the review ran $((SECONDS - start)) s past a 1 s bound"; fails=$((fails + 1)); fi
+# timeout's own statuses, from a child that ends by itself inside the bound.
+for s in 124 137; do
+  failed "a child that exits $s inside the bound" 0 exit STUB_EXIT=$s
+  if [[ "$last" == "REVIEW: failed, exit: claude exited $s, "* ]]; then
+    echo "PASS: the exit detail names status $s"; else
+    echo "FAIL: the exit detail was: $last"; fails=$((fails + 1)); fi
+done
 
 refused "no arguments" bash "$script"
 refused "one argument" bash "$script" "state dir"

@@ -50,6 +50,7 @@ export CLAUDE_CODE_SUBAGENT_MODEL=opus
 # child ignore any advisorModel (TYRE-476).
 export CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1
 rc=0
+start=$SECONDS
 # --max-findings default: the skill keeps the last value typed, so a cap set in
 # another session would limit every review unseen (TYRE-476).
 # </dev/null: print mode reads a piped stdin, and the CLI's own warning says to
@@ -72,7 +73,10 @@ status_detail() {
   echo "${v//$'\r'/}"
 }
 
-if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+# timeout exits 124, or 137 once its kill follows, and a child that ends by
+# itself or is killed from outside can give either, so only a run that lasted
+# the bound is a timeout (TYRE-476).
+if { [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; } && [ $((SECONDS - start)) -ge "$bound" ]; then
   fail timeout "no result within $bound s"
 fi
 if [ "$rc" -ne 0 ]; then
