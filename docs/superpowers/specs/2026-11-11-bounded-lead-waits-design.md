@@ -254,8 +254,10 @@ loop: that bullet's own "wait for its confirmation" is one of the four.
 ### 4. CI
 
 **Timeouts.** Each job in `.github/workflows/` that has `runs-on` gets a
-job-level `timeout-minutes`, with a one-line comment in the style of
-`deploy.yml:64-66`. The value is at least twice the slowest of the 36
+job-level `timeout-minutes`, with a trailing comment that cites TYRE-478
+and this table. The one rationale sits in the lint's header, since a
+measurement repeated on seven lines would go stale (`docs/comments.md`,
+red team round 1, M3). The value is at least twice the slowest of the 36
 passing runs measured, rounded up to 5 minutes:
 
 | Workflow | Job | Slowest pass | `timeout-minutes` |
