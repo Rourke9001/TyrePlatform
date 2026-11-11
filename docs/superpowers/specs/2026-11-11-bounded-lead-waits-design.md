@@ -279,7 +279,7 @@ passes a job that has `uses`. It carries a self-test, as
 library, so it reads the files by line, relying on the two-space job
 indent every workflow here uses.
 
-**Hand-over step 4.** Three changes to its text:
+**Hand-over step 4.** These changes to its text:
 
 - Red is defined: the run for the pushed head is `completed` with any
   conclusion other than `success`. That covers `failure`, `cancelled` and
@@ -288,11 +288,11 @@ indent every workflow here uses.
   touches no file in the diff, whatever the diff holds: it is re-run once,
   and a second red is the Red gate stop, as now. After the re-run the lead
   checks it took: the run's `run_attempt` has risen, and in that attempt
-  the job's `started_at` is later than the re-run command. Every attempt
-  lists every job, with the old result carried over for a job that did
-  not run again (run 43050815288), so the job being listed proves
-  nothing. If `--failed` did not start that job, the lead re-runs the
-  whole run (`gh run rerun <id>`).
+  the job ran again, by the one-clock test below. Every attempt lists
+  every job, with the old result carried over for a job that did not run
+  again (run 43050815288), so the job being listed proves nothing. If
+  `--failed` did not start that job, the lead re-runs the whole run
+  (`gh run rerun <id>`).
 - The lead's own bound: if the run is not `completed` 60 minutes after
   the push or the re-run that started it, the lead cancels it
   (`gh run cancel <id> -R Rourke9001/TyrePlatform`), waits for
@@ -310,6 +310,13 @@ indent every workflow here uses.
   `completed`. A red run with no red job is judged by the run's own
   conclusion: `cancelled` or `timed_out` is re-run once, anything else is
   the CI fix.
+- Edges from red team round 2, each with one action: a red on the head
+  the `ci` round pushed is the Red gate stop with no re-run, cancelled or
+  not (CLAUDE.md, The review loop); a run the lead cancelled is judged by
+  the conclusion it ends with, so a cancel that raced a `success` is
+  green; a whole-run re-run that does not take either is a stop (The run
+  cannot go on); and the re-run is recorded after its command returns, so
+  a session that dies between the two has not spent it.
 
 Before anything step 5, which sends a resume to step 4, needs no change.
 
