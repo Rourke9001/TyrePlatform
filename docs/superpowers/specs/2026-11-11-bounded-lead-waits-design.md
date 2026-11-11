@@ -43,11 +43,11 @@ The findings are in
 - **A teammate that approves a shutdown leaves the team listing in
   seconds** (spike S3: request 20:13:23Z, gone from the listing by
   20:13:27Z), whether or not its approval ever surfaces.
-- **The team listing shows each teammate as idle or busy.** `ListAgents`
-  printed `spike · general-purpose · idle` once the spike teammate had
-  ended its turn, and the SendMessage tool's own description says a row
-  "says whether it is busy or idle right now". A teammate that has gone is
-  not listed.
+- **The team listing shows each teammate as `running` or `idle`** (spike
+  S7). `ListAgents` printed `spike3 · general-purpose · running` 20
+  seconds into the teammate's 50 second foreground command, and `idle`
+  once its turn had ended. A teammate that has gone is not listed. "Busy"
+  below means the listing's `running`.
 - **A foreground wait with a time bound works** and the harness does not
   refuse it (spike S1).
 - **A background command's exit reaches the lead** (spike S5), and has
@@ -90,6 +90,9 @@ The findings are in
 - Review loop step 3's wait for the review script. It is a background
   command whose exit has woken the lead in every run, and the ticket does
   not name it.
+- The lead's waits for its own subagents: the builder check, the red
+  team, the auditors, the verifier and the fixers. Each returns to the
+  lead as its result (ADR-0023), not as a teammate's message.
 - A new channel for teammate reports (see Rejected).
 - `.claude/settings.json`. The wait runs through `make`, which
   `Bash(make:*)` already allows (`.claude/settings.json:5`).
@@ -158,14 +161,20 @@ to it instead.
    state the run recorded: stop (The run cannot go on), as the playbook
    already does. If the planner's plan file changed, re-read it before the
    next stage; that is not a stop. A teammate that failed may finish a
-   tool call while it shuts down, so for it there is no comparison: the
-   lead records HEAD and the tree again once it has gone, and its
-   replacement starts from that.
+   tool call while it shuts down, and a command it started can outlive it
+   (`docs/lessons.md`, 2026-10-01 entry: an orphaned `make` carried on).
+   So for it the test is that the checkout has settled: once it has left
+   the listing, the lead reads HEAD and `git status --porcelain`, waits
+   30 seconds and reads them again, and repeats until two reads running
+   match, six reads at most. Its replacement spawns only then. No match
+   after six reads: stop for the owner (The run cannot go on).
 6. Still listed after the sixth read: stop the teammate with `TaskStop`
-   and its name, wait once more, and read the listing. Its report is
-   already in hand by then, so nothing is lost. Still listed: stop for the
-   owner (The run cannot go on: an agent failed twice), and add this case
-   to the list under When something fails.
+   and its name, wait once more, and read the listing. A teammate that
+   had reported loses nothing, since its report is in hand; one that
+   failed is being replaced anyway. Then step 5 applies as it would have.
+   Still listed: stop for the owner (The run cannot go on: an agent
+   failed twice), and add this case to the list under When something
+   fails.
 7. Record in the state file the UTC time of the request and of the read
    that found the teammate gone.
 
@@ -241,7 +250,7 @@ passing runs measured, rounded up to 5 minutes:
 | `ci.yml` | Infrastructure and workflows (`infra`) | 1.2 min | 5 |
 | `ci.yml` | Schema, isolation and valuation (`database`) | 0.9 min | 5 |
 | `ci.yml` | Comment style (`comments`) | 0.2 min | 5 |
-| `close-main-prs.yml` | `close` | not measured | 5 |
+| `close-main-prs.yml` | `close` | 8 s (its one run) | 5 |
 
 `deploy-staging` and `deploy-prod` in `ci.yml` call a reusable workflow
 and cannot carry the key; `deploy.yml`'s jobs carry it for them.
@@ -262,9 +271,12 @@ indent every workflow here uses.
 - A job that ended `cancelled` or `timed_out` is treated as a red that
   touches no file in the diff, whatever the diff holds: it is re-run once,
   and a second red is the Red gate stop, as now. After the re-run the lead
-  reads the run's new attempt and checks the job is in it; if
-  `--failed` re-ran nothing, it re-runs the whole run
-  (`gh run rerun <id>`).
+  checks it took: the run's `run_attempt` has risen, and in that attempt
+  the job's `started_at` is later than the re-run command. Every attempt
+  lists every job, with the old result carried over for a job that did
+  not run again (run 43050815288), so the job being listed proves
+  nothing. If `--failed` did not start that job, the lead re-runs the
+  whole run (`gh run rerun <id>`).
 - The lead's own bound: if the run is not `completed` 60 minutes after
   the push or the re-run that started it, the lead cancels it
   (`gh run cancel <id> -R Rourke9001/TyrePlatform`), waits for
