@@ -45,6 +45,10 @@ unset CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
 # The same backstop the launcher sets, so the child gets the spiked environment
 # whoever calls this script (TYRE-476).
 export CLAUDE_CODE_SUBAGENT_MODEL=opus
+# The review runs on Opus alone (U205), and the project and user settings name
+# a Fable advisor that the review's subagent inherits. This variable makes the
+# child ignore any advisorModel (TYRE-476).
+export CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1
 rc=0
 # --max-findings default: the skill keeps the last value typed, so a cap set in
 # another session would limit every review unseen (TYRE-476).

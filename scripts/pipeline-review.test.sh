@@ -19,7 +19,8 @@ cat >"$work/bin/claude" <<'EOF'
 read -r -t 5 _
 got=$?
 printf '%s\n' "$#" "$@" "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS-unset}" \
-  "${MSYS2_ARG_CONV_EXCL-unset}" "${CLAUDE_CODE_SUBAGENT_MODEL-unset}" "$PWD" "stdin $got" >"$STUB_DIR/called"
+  "${MSYS2_ARG_CONV_EXCL-unset}" "${CLAUDE_CODE_SUBAGENT_MODEL-unset}" \
+  "${CLAUDE_CODE_DISABLE_ADVISOR_TOOL-unset}" "$PWD" "stdin $got" >"$STUB_DIR/called"
 echo "stub stderr" >&2
 # exec, so the time bound's signal reaches sleep and no orphan holds the
 # temp directory open on Windows.
@@ -30,8 +31,9 @@ EOF
 chmod +x "$work/bin/claude"
 
 # The lead's session holds the agent-teams flag, and a caller may hold another
-# backstop. The child gets neither.
-export STUB_DIR="$work" PATH="$work/bin:$PATH" CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 CLAUDE_CODE_SUBAGENT_MODEL=haiku
+# backstop or leave the advisor tool on. The child gets none of them.
+export STUB_DIR="$work" PATH="$work/bin:$PATH" CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 CLAUDE_CODE_SUBAGENT_MODEL=haiku \
+  CLAUDE_CODE_DISABLE_ADVISOR_TOOL=0
 unset MSYS2_ARG_CONV_EXCL
 # A case that missed the stub would start a real review.
 [ "$(command -v claude)" = "$work/bin/claude" ] || { echo "FAIL: the stub claude is not first on PATH"; exit 1; }
@@ -94,7 +96,7 @@ refused() {
 canned .
 passes "a result with findings" 0 "models claude-opus-5-5, findings 2"
 want=$(printf '%s\n' 6 -p --model opus --output-format json \
-  "/code-review high --max-findings default" unset /code-review opus "$root" "stdin 1")
+  "/code-review high --max-findings default" unset /code-review opus 1 "$root" "stdin 1")
 if [ "$(cat "$work/called")" = "$want" ]; then
   echo "PASS: the child's arguments, environment, checkout and stdin"; else
   echo "FAIL: the child was started as: $(cat "$work/called")"; fails=$((fails + 1)); fi
