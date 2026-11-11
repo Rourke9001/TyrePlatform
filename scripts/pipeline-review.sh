@@ -42,8 +42,8 @@ cd "$here/.."
 # The flag makes every named subagent a teammate (scripts/pipeline.sh), and the
 # review needs none (TYRE-476).
 unset CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
-# The same backstop the launcher sets, so the child gets the spiked environment
-# whoever calls this script (TYRE-476).
+# The same backstop the launcher sets, and the one the spikes ran with, whoever
+# calls this script (TYRE-476).
 export CLAUDE_CODE_SUBAGENT_MODEL=opus
 # The review runs on Opus alone (U205), and the project and user settings name
 # a Fable advisor that the review's subagent inherits. This variable makes the
