@@ -105,117 +105,42 @@ fi
 # must fail, never read as a clean review (TYRE-476).
 text=$(jq -r 'if (.result | type) == "string" then .result else "" end' "$out" 2>/dev/null) || text=""
 text=${text//$'\r'/}
-# Sets col to the column of the first character of $2 that is not a space or
-# tab, when $2 starts at column $1, and rest to the text from there. A tab runs
-# to the next multiple of four (CommonMark 0.31.2, section 2.2).
-indent() {
-  local s=$2
-  col=$1
-  while :; do
-    case $s in
-    " "*) col=$((col + 1)) ;;
-    $'\t'*) col=$(((col / 4 + 1) * 4)) ;;
-    *) break ;;
-    esac
-    s=${s:1}
-  done
-  rest=$s
-}
-# One scan reads the code fences, so the count and the findings block are the
-# same blocks. It applies CommonMark 0.31.2's fence rule (section 4.5) after
-# dropping block quote markers indented up to three spaces, and at each open
-# list item's content column, and reads no other block structure. Every fence
-# whose info string's first word is json, in any case, counts, and more than
-# one leaves the findings count ambiguous, so the review fails (TYRE-476).
-quote='^ {0,3}> ?(.*)$'
-item='^([-+*]|[0-9]{1,9}[.)])([[:blank:]].*)?$'
-ticks='^(`{3,})([^`]*)$'
-tildes='^(~{3,})(.*)$'
-json='^[[:space:]]*[Jj][Ss][Oo][Nn]([[:space:]]|$)'
-# The findings block must open with the form the prompt shows.
-open='^```json[[:space:]]*$'
-fch="" # the open fence's character, empty when no fence is open
-flen=0
-fq=0   # the block quote depth the open fence sits in
-fc=0   # the content column of the list item the open fence sits in
-items=() # the content columns of the open list items, innermost last
-pq=0     # the block quote depth of the last line read outside a fence
-shut=""
-take=0 # the open fence is the first json one, whose content is the block
-strict=0
-closed=0
+# The findings block is the result's only fenced block, a ```json line at the
+# margin to the next ``` line at the margin, so the script never decides which
+# block holds the findings. Any other line that starts with a code fence marker
+# after any indent, quote or list markers fails the review by its number
+# (docs/superpowers/specs/2026-11-10-pipeline-model-per-step-design.md, What it
+# checks).
+open='^```json[[:blank:]]*$'
+shut='^```[[:blank:]]*$'
+mark='^([[:blank:]>]|[-+*][[:blank:]]|[0-9]{1,9}[.)][[:blank:]])*(`{3,}|~{3,})'
+marker="starts with a code fence marker after any indent, quote or list markers"
+st=0 # 0 before the block, 1 inside it, 2 after it
+ln=0
+at=0
+to=0
 block=""
-n=0
-while IFS= read -r raw; do
-  line=$raw
-  q=0
-  # Inside a fence, a marker past the fence's own depth is content.
-  while { [ -z "$fch" ] || [ "$q" -lt "$fq" ]; } && [[ "$line" =~ $quote ]]; do
-    line=${BASH_REMATCH[1]}
-    q=$((q + 1))
-  done
-  indent 0 "$line"
-  if [ -n "$fch" ]; then
-    if [ "$q" -lt "$fq" ] || { [ -n "$rest" ] && [ "$col" -lt "$fc" ]; }; then
-      # The line ends the block quote or list item the fence sits in, and the
-      # fence with it.
-      fch=""
-      take=0
-    elif [ $((col - fc)) -le 3 ] && [[ "$rest" =~ $shut ]]; then
-      fch=""
-      if [ "$take" -eq 1 ]; then closed=1; fi
-      take=0
-      continue
-    else
-      if [ "$take" -eq 1 ]; then block+="$line"$'\n'; fi
+while IFS= read -r line; do
+  ln=$((ln + 1))
+  if [[ "$line" =~ $mark ]]; then
+    if [ "$st" -eq 0 ] && [[ "$line" =~ $open ]]; then
+      st=1
+      at=$ln
       continue
     fi
+    if [ "$st" -eq 1 ] && [[ "$line" =~ $shut ]]; then
+      st=2
+      to=$ln
+      continue
+    fi
+    [ "$st" -ne 0 ] || fail findings "line $ln of the result $marker, and is not a \`\`\`json line at the margin"
+    [ "$st" -ne 1 ] || fail findings "line $ln of the result $marker, and is not a \`\`\` line at the margin to close the \`\`\`json block that opens at line $at"
+    fail findings "line $ln of the result $marker, and follows the \`\`\`json block at lines $at to $to"
   fi
-  # Item columns are read within one block quote depth.
-  if [ "$q" -ne "$pq" ]; then
-    items=()
-    pq=$q
-  fi
-  [ -n "$rest" ] || continue
-  # A line left of an item's content column ends the item here, a lazy
-  # continuation line too.
-  while [ "${#items[@]}" -gt 0 ] && [ "${items[-1]}" -gt "$col" ]; do unset 'items[-1]'; done
-  top=0
-  if [ "${#items[@]}" -gt 0 ]; then top=${items[-1]}; fi
-  while [ $((col - top)) -le 3 ]; do
-    if [[ "$rest" =~ $item ]]; then
-      mark=$((col + ${#BASH_REMATCH[1]}))
-      indent "$mark" "${BASH_REMATCH[2]}"
-      # An item that starts blank or with indented code has its content one
-      # column past the marker, and its first line opens no fence.
-      if [ -z "$rest" ] || [ $((col - mark)) -gt 4 ]; then
-        items+=("$((mark + 1))")
-        break
-      fi
-      items+=("$col")
-      top=$col
-      continue
-    fi
-    if [[ "$rest" =~ $ticks ]] || [[ "$rest" =~ $tildes ]]; then
-      fch=${rest:0:1}
-      flen=${#BASH_REMATCH[1]}
-      info=${BASH_REMATCH[2]}
-      fq=$q
-      fc=$top
-      shut="^[$fch]{$flen,}[[:space:]]*\$"
-      if [[ "$info" =~ $json ]]; then
-        n=$((n + 1))
-        if [ "$n" -eq 1 ]; then
-          take=1
-          if [[ "$raw" =~ $open ]]; then strict=1; fi
-        fi
-      fi
-    fi
-    break
-  done
+  if [ "$st" -eq 1 ]; then block+="$line"$'\n'; fi
 done <<<"$text"
-[ "$n" -le 1 ] || fail findings "the result holds $n fenced json blocks"
-[ "$strict" -eq 1 ] && [ "$closed" -eq 1 ] || fail findings "no fenced json block in result"
+[ "$st" -ne 0 ] || fail findings "no line of the result is \`\`\`json at the margin"
+[ "$st" -eq 2 ] || fail findings "no \`\`\` line at the margin closes the \`\`\`json block that opens at line $at"
 jq -se 'length == 1 and (.[0] | type) == "array"' <<<"$block" >/dev/null 2>&1 ||
   fail findings "the fenced block is not a JSON array"
 bad=$(jq -r 'to_entries | map(select(.value
