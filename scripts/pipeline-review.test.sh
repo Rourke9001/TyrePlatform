@@ -166,6 +166,19 @@ canned --arg r "$(fenced '{}'$'\n'"$two" 'One block, two values.')" '.result = $
 failed "a block that holds two JSON values" 0 findings
 canned --arg r "${fence}json"$'\n'"$two" '.result = $r'
 failed "a block with no closing fence" 0 findings
+# Two json blocks leave the count ambiguous, whichever one comes first.
+canned --arg r "Read the range."$'\n\n'"$(fenced '[]' "$r_two")" '.result = $r'
+failed "an empty array before the findings array" 0 findings
+canned --arg r "Read the range."$'\n\n'"$(fenced '{"advisorModel": "fable"}' "$r_two")" '.result = $r'
+failed "a fenced object before the findings array" 0 findings
+canned --arg r "${fence}JSON"$'\n'"$two"$'\n'"$fence"$'\n\n'"$(fenced '[]' 'No findings.')" '.result = $r'
+failed "a JSON block in capitals beside an empty array" 0 findings
+canned --arg r "  ${fence}json"$'\n'"$two"$'\n'"  $fence"$'\n\n'"$(fenced '[]' 'No findings.')" '.result = $r'
+failed "an indented json block beside an empty array" 0 findings
+canned --arg r "~~~json"$'\n'"$two"$'\n'"~~~"$'\n\n'"$(fenced '[]' 'No findings.')" '.result = $r'
+failed "a tilde json block beside an empty array" 0 findings
+canned --arg r "\`${fence}json"$'\n'"$two"$'\n'"\`$fence"$'\n\n'"$(fenced '[]' 'No findings.')" '.result = $r'
+failed "a four-backtick json block beside an empty array" 0 findings
 
 canned .
 passes "a first run" 1 "models claude-opus-5-5, findings 2"
