@@ -24,6 +24,7 @@ jobs:
   database:
     name: Schema, isolation and valuation
     runs-on: ubuntu-latest
+    timeout-minutes: 5 # TYRE-478; docs/superpowers/specs/2026-11-11-bounded-lead-waits-design.md, CI
     services:
       postgres:
         image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
@@ -113,6 +114,7 @@ jobs:
   comments:
     name: Comment style
     runs-on: ubuntu-latest
+    timeout-minutes: 5 # TYRE-478; docs/superpowers/specs/2026-11-11-bounded-lead-waits-design.md, CI
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Regression cases for the RULES patterns themselves (TYRE-192), before
@@ -132,6 +134,7 @@ jobs:
   infra:
     name: Infrastructure and workflows
     runs-on: ubuntu-latest
+    timeout-minutes: 5 # TYRE-478; docs/superpowers/specs/2026-11-11-bounded-lead-waits-design.md, CI
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Same targets make lint and make test run, so a template or workflow
@@ -156,6 +159,7 @@ jobs:
   api:
     name: Go
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # TYRE-478; docs/superpowers/specs/2026-11-11-bounded-lead-waits-design.md, CI
     # The store and httpapi tests are integration tests against RLS itself.
     # A mocked database cannot fail a policy, so this job carries the same
     # migrated Postgres the database job uses. Seeded, since B7.2 (TYRE-36):
@@ -214,6 +218,7 @@ jobs:
   web:
     name: Frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # TYRE-478; docs/superpowers/specs/2026-11-11-bounded-lead-waits-design.md, CI
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -270,6 +275,7 @@ jobs:
   e2e:
     name: Browser smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 20 # TYRE-478; docs/superpowers/specs/2026-11-11-bounded-lead-waits-design.md, CI
     # The one job that runs the real stack end to end (seeded Postgres, the
     # API, vite dev server, headless Chromium and WebKit): jsdom cannot
     # exercise real rendering, and deploy-staging below needs it (TYRE-65).

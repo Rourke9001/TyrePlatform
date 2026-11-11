@@ -24,6 +24,7 @@ jobs:
   close:
     name: Close
     runs-on: ubuntu-latest
+    timeout-minutes: 5 # TYRE-478; docs/superpowers/specs/2026-11-11-bounded-lead-waits-design.md, CI
     # An edited event can arrive for a pull request already closed.
     if: github.event.pull_request.state == 'open'
     steps:
