@@ -115,9 +115,11 @@ text=${text//$'\r'/}
 # after any indent, quote or list markers fails the review by its number
 # (docs/superpowers/specs/2026-11-10-pipeline-model-per-step-design.md, What it
 # checks).
-open='^```json[[:blank:]]*$'
-shut='^```[[:blank:]]*$'
-mark='^([[:blank:]>]|[-+*][[:blank:]]|[0-9]{1,9}[.)][[:blank:]])*(`{3,}|~{3,})'
+# A space or a tab, written out, since a locale's blank class can hold a
+# no-break space that the rule does not name.
+open=$'^```json[ \t]*$'
+shut=$'^```[ \t]*$'
+mark=$'^([ \t>]|[-+*][ \t]|[0-9]{1,9}[.)][ \t])*(`{3,}|~{3,})'
 marker="starts with a code fence marker after any indent, quote or list markers"
 st=0 # 0 before the block, 1 inside it, 2 after it
 ln=0
