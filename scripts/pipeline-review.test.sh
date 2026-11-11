@@ -82,6 +82,15 @@ failed() {
     echo "FAIL: $label exited $rc: $last"; fails=$((fails + 1)); fi
 }
 
+# A result with two json blocks fails on the count, not on a later check.
+twoblocks() {
+  local label=$1
+  review 0
+  if [ "$rc" -eq 1 ] && [ "$last" = "REVIEW: failed, findings: the result holds 2 fenced json blocks" ] &&
+    [ ! -e "$state/code-review-0.md" ]; then echo "PASS: $label"; else
+    echo "FAIL: $label exited $rc: $last"; fails=$((fails + 1)); fi
+}
+
 refused() {
   local label=$1 out; shift
   rm -f "$work/called"
@@ -190,6 +199,20 @@ canned --arg r "$(fenced "$two" "For example:"$'\n\n'"    ${fence}json"$'\n    {
 passes "a json fence indented four spaces, after the block" 0 "models claude-opus-5-5, findings 2"
 canned --arg r "$(fenced "$two" "For example:"$'\n\n\t'"${fence}json"$'\n\t{}\n\t'"$fence")" '.result = $r'
 passes "a json fence indented by a tab, after the block" 0 "models claude-opus-5-5, findings 2"
+# A fence in a list item is a block, on the marker's line or under it at the
+# item's content column (CommonMark 0.31.2, section 5.2).
+in_item() { printf '%s%sjson\n%s\n%s%s\n\n%s' "$1" "$fence" "$(sed "s/^/$2/" <<<"$two")" "$2" "$fence" "$(fenced '[]' '')"; }
+canned --arg r "$(in_item '1. ' '   ')" '.result = $r'
+twoblocks "a json block on an ordered item's line beside an empty array"
+canned --arg r "$(in_item '- ' '   ')" '.result = $r'
+twoblocks "a json block on a bullet item's line beside an empty array"
+canned --arg r "$(in_item '10. Findings:'$'\n\n''    ' '    ')" '.result = $r'
+twoblocks "a json block four spaces under an ordered item beside an empty array"
+canned --arg r "$(in_item '- Findings:'$'\n''  - In scripts:'$'\n\n''    ' '    ')" '.result = $r'
+twoblocks "a json block in a nested item beside an empty array"
+# A line left of an item's content column ends the item and its fence.
+canned --arg r "- ${fence}bash"$'\n''  bash scripts/a.sh'$'\n'"$r_two" '.result = $r'
+passes "a block after a list item whose fence it ends" 0 "models claude-opus-5-5, findings 2"
 # The block read is the fence the count saw, so a quoted one before it is not.
 canned --arg r "The spec hunk:"$'\n\n'"\`${fence}markdown"$'\n'"$(fenced '[]' '')"$'\n'"\`$fence"$'\n\n'"$r_two" '.result = $r'
 passes "a fence quoting an empty json array, before the block" 0 "models claude-opus-5-5, findings 2"

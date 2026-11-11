@@ -121,13 +121,14 @@ indent() {
   done
   rest=$s
 }
-# One scan reads the code fences by CommonMark 0.31.2's rules for fences
-# (section 4.5) inside block quotes, so a fence line inside another fence or
-# indented as code opens nothing, and the count and the findings block are the
-# same blocks. Every fence whose info string's first word is json, in any case,
-# counts, and more than one leaves the findings count ambiguous, so the review
-# fails (TYRE-476).
+# One scan reads the code fences, so the count and the findings block are the
+# same blocks. It applies CommonMark 0.31.2's fence rule (section 4.5) after
+# dropping block quote markers indented up to three spaces, and at each open
+# list item's content column, and reads no other block structure. Every fence
+# whose info string's first word is json, in any case, counts, and more than
+# one leaves the findings count ambiguous, so the review fails (TYRE-476).
 quote='^ {0,3}> ?(.*)$'
+item='^([-+*]|[0-9]{1,9}[.)])([[:blank:]].*)?$'
 ticks='^(`{3,})([^`]*)$'
 tildes='^(~{3,})(.*)$'
 json='^[[:space:]]*[Jj][Ss][Oo][Nn]([[:space:]]|$)'
@@ -136,6 +137,9 @@ open='^```json[[:space:]]*$'
 fch="" # the open fence's character, empty when no fence is open
 flen=0
 fq=0   # the block quote depth the open fence sits in
+fc=0   # the content column of the list item the open fence sits in
+items=() # the content columns of the open list items, innermost last
+pq=0     # the block quote depth of the last line read outside a fence
 shut=""
 take=0 # the open fence is the first json one, whose content is the block
 strict=0
@@ -152,11 +156,12 @@ while IFS= read -r raw; do
   done
   indent 0 "$line"
   if [ -n "$fch" ]; then
-    if [ "$q" -lt "$fq" ]; then
-      # The line ends the fence's block quote, and the fence with it.
+    if [ "$q" -lt "$fq" ] || { [ -n "$rest" ] && [ "$col" -lt "$fc" ]; }; then
+      # The line ends the block quote or list item the fence sits in, and the
+      # fence with it.
       fch=""
       take=0
-    elif [ "$col" -le 3 ] && [[ "$rest" =~ $shut ]]; then
+    elif [ $((col - fc)) -le 3 ] && [[ "$rest" =~ $shut ]]; then
       fch=""
       if [ "$take" -eq 1 ]; then closed=1; fi
       take=0
@@ -166,21 +171,48 @@ while IFS= read -r raw; do
       continue
     fi
   fi
-  [ "$col" -le 3 ] || continue
-  if [[ "$rest" =~ $ticks ]] || [[ "$rest" =~ $tildes ]]; then
-    fch=${rest:0:1}
-    flen=${#BASH_REMATCH[1]}
-    info=${BASH_REMATCH[2]}
-    fq=$q
-    shut="^[$fch]{$flen,}[[:space:]]*\$"
-    if [[ "$info" =~ $json ]]; then
-      n=$((n + 1))
-      if [ "$n" -eq 1 ]; then
-        take=1
-        if [[ "$raw" =~ $open ]]; then strict=1; fi
+  # Item columns are read within one block quote depth.
+  if [ "$q" -ne "$pq" ]; then
+    items=()
+    pq=$q
+  fi
+  [ -n "$rest" ] || continue
+  # A line left of an item's content column ends the item here, a lazy
+  # continuation line too.
+  while [ "${#items[@]}" -gt 0 ] && [ "${items[-1]}" -gt "$col" ]; do unset 'items[-1]'; done
+  top=0
+  if [ "${#items[@]}" -gt 0 ]; then top=${items[-1]}; fi
+  while [ $((col - top)) -le 3 ]; do
+    if [[ "$rest" =~ $item ]]; then
+      mark=$((col + ${#BASH_REMATCH[1]}))
+      indent "$mark" "${BASH_REMATCH[2]}"
+      # An item that starts blank or with indented code has its content one
+      # column past the marker, and its first line opens no fence.
+      if [ -z "$rest" ] || [ $((col - mark)) -gt 4 ]; then
+        items+=("$((mark + 1))")
+        break
+      fi
+      items+=("$col")
+      top=$col
+      continue
+    fi
+    if [[ "$rest" =~ $ticks ]] || [[ "$rest" =~ $tildes ]]; then
+      fch=${rest:0:1}
+      flen=${#BASH_REMATCH[1]}
+      info=${BASH_REMATCH[2]}
+      fq=$q
+      fc=$top
+      shut="^[$fch]{$flen,}[[:space:]]*\$"
+      if [[ "$info" =~ $json ]]; then
+        n=$((n + 1))
+        if [ "$n" -eq 1 ]; then
+          take=1
+          if [[ "$raw" =~ $open ]]; then strict=1; fi
+        fi
       fi
     fi
-  fi
+    break
+  done
 done <<<"$text"
 [ "$n" -le 1 ] || fail findings "the result holds $n fenced json blocks"
 [ "$strict" -eq 1 ] && [ "$closed" -eq 1 ] || fail findings "no fenced json block in result"
