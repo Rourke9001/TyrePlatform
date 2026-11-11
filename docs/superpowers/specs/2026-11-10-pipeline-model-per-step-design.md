@@ -210,8 +210,11 @@ state directory, one file each, named by `<k>`.
 - `modelUsage` has a key that starts with `claude-opus`, and every other
   key starts with `claude-haiku`, which U205 allows for file searches;
 - `result` holds a fenced `json` block that parses as an array, and every
-  element has a `file`. An empty array is a clean review. A `result` with
-  no such block is a failed review, whatever its prose says. The block is
+  element has a `file`. An empty array passes this check, and the lead
+  reads the reply's prose to tell a clean review from a reviewer that
+  stopped (`.claude/commands/pipeline.md`, Review loop step 3; TYRE-477).
+  A `result` with no such block is a failed review, whatever its prose
+  says. The block is
   the reply's only fenced block, and any other line that starts with a
   fence marker fails the review. The block opens with a line that is
   `` ```json `` at the margin and closes at the next line that is `` ``` ``

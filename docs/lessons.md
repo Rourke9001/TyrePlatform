@@ -30,6 +30,23 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-11 - A `C:/` folder on `PATH` in Git Bash is never searched, so a stub is skipped and the real binary runs (2026-11-10; TYRE-476, TYRE-477)
+
+**What happened:** twice in the TYRE-476 run a subagent stubbed `claude` for
+a probe and put the stub's folder on `PATH` as `C:/...`. Git Bash splits
+`PATH` at every colon, the drive's included, so the stub was not found and
+the real `claude` ran. On 10 Nov the red team started one real `claude -p`
+review from a scratch folder (115 s, 0.46 USD). On 11 Nov a verifier started
+five real `claude -p --model opus` reviews from scratch copies. The script's
+bound, set to 30 s for the probe, ended four, and the verifier killed the
+fifth, after about 970,000 input tokens, mostly cache reads. Neither run
+touched the repo.
+
+**The rule:** in Git Bash, never put a `C:/` path on `PATH`. Add a stub's
+folder in POSIX form, `/c/...` or what `cygpath -u` prints, and assert that
+`command -v <tool>` prints the stub before the first call. A brief for a
+subagent that stubs a binary carries the same two steps.
+
 ## 2026-11-10 - Git Bash's grep without -U does not match a CR, so a CR check with it passes on a CR LF file (TYRE-476)
 
 **What happened:** while TYRE-476's plan was checked in scratch, a test that
