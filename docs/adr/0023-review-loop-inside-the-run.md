@@ -227,7 +227,9 @@ used Opus alone, was denied no tool, and cited only files in its range. The
 script counts a review only when the process exits 0 inside its time bound,
 the JSON result is a success with no permission denial, `modelUsage` holds an
 Opus key and nothing but Haiku beside it, and `result` holds a fenced JSON
-array of findings. Claude Code does not document that last shape. A release
+array of findings. The block is the reply's only fenced block, and any other
+line that starts with a fence marker fails the review. Claude Code does not
+document that shape. A release
 that changes it fails the check and stops the run for the owner, and is never
 read as a clean review.
 

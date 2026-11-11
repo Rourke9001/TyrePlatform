@@ -82,14 +82,27 @@ failed() {
     echo "FAIL: $label exited $rc: $last"; fails=$((fails + 1)); fi
 }
 
-# A result with two json blocks fails on the count, not on a later check.
-twoblocks() {
-  local label=$1
+# A refusal of the result's shape is pinned to the whole line, since the line
+# number in it is what sends the lead to the reply.
+refuses() {
+  local label=$1 msg=$2
   review 0
-  if [ "$rc" -eq 1 ] && [ "$last" = "REVIEW: failed, findings: the result holds 2 fenced json blocks" ] &&
+  if [ "$rc" -eq 1 ] && [ "$last" = "REVIEW: failed, findings: $msg" ] &&
     [ ! -e "$state/code-review-0.md" ]; then echo "PASS: $label"; else
     echo "FAIL: $label exited $rc: $last"; fails=$((fails + 1)); fi
 }
+# The refusals of a line that starts with a code fence marker before, inside
+# and after the block, and of a result with no block.
+marker="starts with a code fence marker after any indent, quote or list markers"
+before() { echo "line $1 of the result $marker, and is not a ${fence}json line at the margin"; }
+inside() { echo "line $1 of the result $marker, and is not a $fence line at the margin to close the ${fence}json block that opens at line $2"; }
+after() { echo "line $1 of the result $marker, and follows the ${fence}json block at lines $2 to $3"; }
+none="no line of the result is ${fence}json at the margin"
+# The findings array fenced at the margin, six lines, and an empty one, three.
+blk="${fence}json"$'\n'"$two"$'\n'"$fence"
+empty="${fence}json"$'\n''[]'$'\n'"$fence"
+# The findings array with $1 before each of its lines.
+pre() { printf '%s' "$1${two//$'\n'/$'\n'$1}"; }
 
 refused() {
   local label=$1 out; shift
@@ -120,8 +133,8 @@ canned --arg r "$(fenced '[]' 'No findings.')" '.result = $r'
 passes "an empty array, a clean review" 0 "models claude-opus-5-5, findings 0"
 canned --arg r "Read the range."$'\n\n'"$r_two" '.result = $r | .modelUsage["claude-haiku-4-5"] = {}'
 passes "a Haiku key beside Opus, and prose before the block" 0 "models claude-haiku-4-5 claude-opus-5-5, findings 2"
-canned --arg r "$(fenced "$two" "Check with:"$'\n'"${fence}bash"$'\n'"bash scripts/a.sh"$'\n'"$fence")" '.result = $r'
-passes "trailing prose with a fenced block of its own" 0 "models claude-opus-5-5, findings 2"
+canned --arg r "$r_two"$'\n\n'"- Line 3 runs \`rm -rf\`, and a lone $fence ends the block." '.result = $r'
+passes "fence text inside a line after the block" 0 "models claude-opus-5-5, findings 2"
 canned --arg r "${r_two//$'\n'/$'\r\n'}" '.result = $r'
 passes "a result whose lines end in CR LF" 0 "models claude-opus-5-5, findings 2"
 # Read by bash, since Git Bash's grep without -U does not match a CR.
@@ -164,9 +177,9 @@ failed "a claude-fable key beside Opus" 0 model
 canned '.modelUsage = {"claude-haiku-4-5": {}}'
 failed "no Opus key" 0 model
 canned '.result = "The branch looks fine to me."'
-failed "prose with no fenced array" 0 findings
+refuses "prose with no fenced array" "$none"
 canned '.result = 5'
-failed "a result that is not a string" 0 findings
+refuses "a result that is not a string" "$none"
 canned --arg r "$(fenced '[{"line": 3, "summary": "s"}]' 'One finding.')" '.result = $r'
 failed "an element with no file" 0 findings
 canned --arg r "$(fenced '{"file": "scripts/a.sh"}' 'One finding.')" '.result = $r'
@@ -174,48 +187,88 @@ failed "a fenced object, not an array" 0 findings
 canned --arg r "$(fenced '{}'$'\n'"$two" 'One block, two values.')" '.result = $r'
 failed "a block that holds two JSON values" 0 findings
 canned --arg r "${fence}json"$'\n'"$two" '.result = $r'
-failed "a block with no closing fence" 0 findings
-# Two json blocks leave the count ambiguous, whichever one comes first.
+refuses "a block with no closing fence" "no $fence line at the margin closes the ${fence}json block that opens at line 1"
+# The block is the result's only fenced block, so every other line that starts
+# with a code fence marker fails the review by its number, inside the block too
+# (docs/superpowers/specs/2026-11-10-pipeline-model-per-step-design.md, What it
+# checks).
+canned --arg r "${fence}json"$'\n'"$two"$'\n'"\`$fence" '.result = $r'
+refuses "a block closed by four backticks" "$(inside 6 1)"
+canned --arg r "${fence}json"$'\n'"$two"$'\n'"   $fence" '.result = $r'
+refuses "a block closed by an indented closer" "$(inside 6 1)"
+canned --arg r "${fence}json"$'\n'"$two"$'\n'"${fence}bash"$'\n'"$fence" '.result = $r'
+refuses "a bash fence line inside the block" "$(inside 6 1)"
 canned --arg r "Read the range."$'\n\n'"$(fenced '[]' "$r_two")" '.result = $r'
-failed "an empty array before the findings array" 0 findings
+refuses "an empty array before the findings array" "$(after 7 3 5)"
 canned --arg r "Read the range."$'\n\n'"$(fenced '{"advisorModel": "fable"}' "$r_two")" '.result = $r'
-failed "a fenced object before the findings array" 0 findings
+refuses "a fenced object before the findings array" "$(after 7 3 5)"
 canned --arg r "${fence}JSON"$'\n'"$two"$'\n'"$fence"$'\n\n'"$(fenced '[]' 'No findings.')" '.result = $r'
-failed "a JSON block in capitals beside an empty array" 0 findings
+refuses "a JSON block in capitals beside an empty array" "$(before 1)"
 canned --arg r "  ${fence}json"$'\n'"$two"$'\n'"  $fence"$'\n\n'"$(fenced '[]' 'No findings.')" '.result = $r'
-failed "an indented json block beside an empty array" 0 findings
+refuses "an indented json block beside an empty array" "$(before 1)"
 canned --arg r "~~~json"$'\n'"$two"$'\n'"~~~"$'\n\n'"$(fenced '[]' 'No findings.')" '.result = $r'
-failed "a tilde json block beside an empty array" 0 findings
+refuses "a tilde json block beside an empty array" "$(before 1)"
 canned --arg r "\`${fence}json"$'\n'"$two"$'\n'"\`$fence"$'\n\n'"$(fenced '[]' 'No findings.')" '.result = $r'
-failed "a four-backtick json block beside an empty array" 0 findings
-# A json fence line inside another fence, or indented as code, opens no block
-# (CommonMark 0.31.2, sections 4.4 and 4.5).
+refuses "a four-backtick json block beside an empty array" "$(before 1)"
+canned --arg r "~~~json"$'\n'"$two"$'\n''~~~' '.result = $r'
+refuses "a lone tilde json block" "$(before 1)"
+canned --arg r "${fence}JSON"$'\n'"$two"$'\n'"$fence" '.result = $r'
+refuses "a lone JSON block in capitals" "$(before 1)"
+# CommonMark 0.31.2 reads one json block in each of these, and the review
+# fails all the same, since the script reads lines, not Markdown.
+canned --arg r "$(fenced "$two" "Check with:"$'\n'"${fence}bash"$'\n'"bash scripts/a.sh"$'\n'"$fence")" '.result = $r'
+refuses "trailing prose with a fenced block of its own" "$(after 9 1 6)"
 hunk=$'\n'"${fence}json"$'\n''{"k": 1}'$'\n'"$fence"$'\n'
 canned --arg r "$(fenced "$two" "The spec hunk:"$'\n\n'"\`${fence}markdown$hunk\`$fence")" '.result = $r'
-passes "a four-backtick fence quoting a json fence, after the block" 0 "models claude-opus-5-5, findings 2"
+refuses "a four-backtick fence quoting a json fence, after the block" "$(after 10 1 6)"
 canned --arg r "$(fenced "$two" "The spec hunk:"$'\n\n'"~~~markdown$hunk~~~")" '.result = $r'
-passes "a tilde fence quoting a json fence, after the block" 0 "models claude-opus-5-5, findings 2"
+refuses "a tilde fence quoting a json fence, after the block" "$(after 10 1 6)"
 canned --arg r "$(fenced "$two" "For example:"$'\n\n'"    ${fence}json"$'\n    {}\n    '"$fence")" '.result = $r'
-passes "a json fence indented four spaces, after the block" 0 "models claude-opus-5-5, findings 2"
+refuses "a json fence indented four spaces, after the block" "$(after 10 1 6)"
 canned --arg r "$(fenced "$two" "For example:"$'\n\n\t'"${fence}json"$'\n\t{}\n\t'"$fence")" '.result = $r'
-passes "a json fence indented by a tab, after the block" 0 "models claude-opus-5-5, findings 2"
-# A fence in a list item is a block, on the marker's line or under it at the
-# item's content column (CommonMark 0.31.2, section 5.2).
+refuses "a json fence indented by a tab, after the block" "$(after 10 1 6)"
+canned --arg r "- ${fence}bash"$'\n''  bash scripts/a.sh'$'\n'"$r_two" '.result = $r'
+refuses "a block after a list item whose fence it ends" "$(before 1)"
+canned --arg r "The spec hunk:"$'\n\n'"\`${fence}markdown"$'\n'"$(fenced '[]' '')"$'\n'"\`$fence"$'\n\n'"$r_two" '.result = $r'
+refuses "a fence quoting an empty json array, before the block" "$(before 3)"
+canned --arg r 'Text'$'\n''2. Note'$'\n''    '"${fence}json"$'\n''    {}'$'\n''    '"$fence"$'\n\n'"$blk" '.result = $r'
+refuses "a json fence four spaces under paragraph text, before the block" "$(before 3)"
+canned --arg r '<pre>'$'\n'"${fence}json"$'\n''{}'$'\n'"$fence"$'\n''</pre>'$'\n\n'"$blk" '.result = $r'
+refuses "a json fence inside an HTML block, before the block" "$(after 7 2 4)"
+# A fence marker after list and quote markers counts wherever the line sits.
 in_item() { printf '%s%sjson\n%s\n%s%s\n\n%s' "$1" "$fence" "$(sed "s/^/$2/" <<<"$two")" "$2" "$fence" "$(fenced '[]' '')"; }
 canned --arg r "$(in_item '1. ' '   ')" '.result = $r'
-twoblocks "a json block on an ordered item's line beside an empty array"
+refuses "a json block on an ordered item's line beside an empty array" "$(before 1)"
 canned --arg r "$(in_item '- ' '   ')" '.result = $r'
-twoblocks "a json block on a bullet item's line beside an empty array"
+refuses "a json block on a bullet item's line beside an empty array" "$(before 1)"
 canned --arg r "$(in_item '10. Findings:'$'\n\n''    ' '    ')" '.result = $r'
-twoblocks "a json block four spaces under an ordered item beside an empty array"
+refuses "a json block four spaces under an ordered item beside an empty array" "$(before 3)"
 canned --arg r "$(in_item '- Findings:'$'\n''  - In scripts:'$'\n\n''    ' '    ')" '.result = $r'
-twoblocks "a json block in a nested item beside an empty array"
-# A line left of an item's content column ends the item and its fence.
-canned --arg r "- ${fence}bash"$'\n''  bash scripts/a.sh'$'\n'"$r_two" '.result = $r'
-passes "a block after a list item whose fence it ends" 0 "models claude-opus-5-5, findings 2"
-# The block read is the fence the count saw, so a quoted one before it is not.
-canned --arg r "The spec hunk:"$'\n\n'"\`${fence}markdown"$'\n'"$(fenced '[]' '')"$'\n'"\`$fence"$'\n\n'"$r_two" '.result = $r'
-passes "a fence quoting an empty json array, before the block" 0 "models claude-opus-5-5, findings 2"
+refuses "a json block in a nested item beside an empty array" "$(before 4)"
+canned --arg r '* '"${fence}json"$'\n'"$two"$'\n'"$fence"$'\n\n'"$empty" '.result = $r'
+refuses "a json fence on a bullet's line with unindented content, an empty array after" "$(before 1)"
+canned --arg r "$blk"$'\n\n''10. Findings:'$'\n''continued'$'\n''    '"${fence}json"$'\n''    []'$'\n''    '"$fence" '.result = $r'
+refuses "a json fence under an ordered item after a lazy line, after the block" "$(after 10 1 6)"
+canned --arg r "$blk"$'\n\n''-   Findings:'$'\n''more'$'\n''    '"${fence}json"$'\n''    []'$'\n''    '"$fence" '.result = $r'
+refuses "a json fence under a bullet item after a lazy line, after the block" "$(after 10 1 6)"
+canned --arg r '10. Findings:'$'\n''continued'$'\n''    '"${fence}json"$'\n'"$(pre '    ')"$'\n''    '"$fence"$'\n\n'"$empty" '.result = $r'
+refuses "findings under an ordered item after a lazy line, an empty array after" "$(before 3)"
+canned --arg r "$blk"$'\n\n''- > '"${fence}json"$'\n''  > []'$'\n''  > '"$fence" '.result = $r'
+refuses "a json fence in a quote on a bullet's line, after the block" "$(after 8 1 6)"
+canned --arg r "$blk"$'\n\n''10. x'$'\n\n''    > '"${fence}json"$'\n''    > []'$'\n''    > '"$fence" '.result = $r'
+refuses "a json fence in a quote four spaces into an item, after the block" "$(after 10 1 6)"
+canned --arg r '- > '"${fence}json"$'\n'"$(pre '  > ')"$'\n''  > '"$fence"$'\n\n'"$empty" '.result = $r'
+refuses "findings in a quote on a bullet's line, an empty array after" "$(before 1)"
+canned --arg r '10. x'$'\n\n''    > '"${fence}json"$'\n'"$(pre '    > ')"$'\n''    > '"$fence"$'\n\n'"$empty" '.result = $r'
+refuses "findings in a quote four spaces into an item, an empty array after" "$(before 3)"
+canned --arg r "$blk"$'\n\n''- '"${fence}bash"$'\n''  x'$'\n''> '"${fence}json"$'\n''> []'$'\n''> '"$fence" '.result = $r'
+refuses "a quoted json fence that ends an item's bash fence, after the block" "$(after 8 1 6)"
+canned --arg r '- '"${fence}bash"$'\n''  x'$'\n''> '"${fence}json"$'\n'"$(pre '> ')"$'\n''> '"$fence"$'\n\n'"$empty" '.result = $r'
+refuses "findings in a quote that ends an item's bash fence, an empty array after" "$(before 1)"
+canned --arg r "$blk"$'\n\n''>'$'\t'"${fence}json"$'\n''>'$'\t''[]'$'\n''>'$'\t'"$fence" '.result = $r'
+refuses "a json fence after a quote marker and a tab, after the block" "$(after 8 1 6)"
+canned --arg r '>'$'\t'"${fence}json"$'\n'"$(pre '>'$'\t')"$'\n''>'$'\t'"$fence"$'\n\n'"$empty" '.result = $r'
+refuses "findings after a quote marker and a tab, an empty array after" "$(before 1)"
 
 canned .
 passes "a first run" 1 "models claude-opus-5-5, findings 2"

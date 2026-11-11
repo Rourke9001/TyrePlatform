@@ -211,7 +211,12 @@ state directory, one file each, named by `<k>`.
   key starts with `claude-haiku`, which U205 allows for file searches;
 - `result` holds a fenced `json` block that parses as an array, and every
   element has a `file`. An empty array is a clean review. A `result` with
-  no such block is a failed review, whatever its prose says.
+  no such block is a failed review, whatever its prose says. The block is
+  the reply's only fenced block, and any other line that starts with a
+  fence marker fails the review. The block opens with a line that is
+  `` ```json `` at the margin and closes at the next line that is `` ``` ``
+  at the margin. A fence marker is three or more backticks or tildes after
+  any spaces, tabs, `>` and list markers, and the failure names its line.
 
 The last check rests on an output shape that Claude Code does not document.
 If a release changes the shape, the check fails and the run stops for the
