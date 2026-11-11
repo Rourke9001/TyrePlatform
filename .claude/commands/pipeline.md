@@ -292,7 +292,10 @@ a round outside the two), `fixer-<id>-report.md`, a gate fixer's
 `fixer-<id>-retry-report.md` or `fixer-<id>-gate-retry-report.md`,
 `findings-<id>.md`, `review-<id>.md`, `code-review-<id>.json` (the review
 script's stdout), `code-review-<id>.err` (its stderr), `code-review-<id>.md`
-(the review's result, written only when it passed its checks) and
+(the review's result, written only when it passed its checks), their
+copies `code-review-<id>-first.json`, `-first.err` and `-first.md` (the
+first attempt that returned nothing, kept before step 3 runs the script
+again) and
 `auditor-<id>-<agent>.md` (one auditor's raw output, `<agent>` being
 `rls-auditor`, `append-only-auditor` or `valuation-verifier`). Its state
 line is `Fix <id>:`.
@@ -336,12 +339,23 @@ a file the branch did not touch is re-run once before it counts as red.
    list. The auditors return long before the script, so save each one's raw
    output on arrival to `<state dir>/auditor-<k>-<agent>.md`. Wait to be
    woken when the script exits. Gate on its exit code and its last line,
-   never on a file existing. A review is exit 0 with a last line
-   `REVIEW: ok`. Anything else is a finder that returned nothing, so run the
-   script once more. A second failure stops for the owner (The run cannot
-   go on) with both `REVIEW: failed` lines, since the rerun replaces the
-   first attempt's `code-review-<k>.json` and `.err`. Once the script prints
-   `REVIEW: ok`, build `<state dir>/findings-<k>.md`: copy the result with
+   never on a file existing. A review is exit 0, a last line `REVIEW: ok`
+   and, when that line ends `findings 0`, a reply that reviewed. At
+   `findings 0`, and only once the line passes, read
+   `<state dir>/code-review-<k>.md` yourself before anything else below,
+   because the script passes an empty array whatever the prose around it
+   says (TYRE-477). An empty array is a clean review unless that prose asks
+   a question, says the review could not or did not run, or stops short (it
+   ends mid-sentence or names files it did not read). Anything that is not
+   a review is a finder that returned nothing, so run the script once more.
+   A review id gets one such rerun, whichever way it returned nothing, and
+   a wrong-diff rerun (step 4) does not spend it. Before the rerun, copy
+   each of `code-review-<k>.json`, `.err` and `.md` that exists to
+   `code-review-<k>-first.json`, `-first.err` and `-first.md`, since the
+   rerun deletes or overwrites all three. A second finder that returned
+   nothing for the same id stops for the owner (The run cannot go on) with
+   both `REVIEW:` lines and the `-first` files. Once the reply is a review,
+   build `<state dir>/findings-<k>.md`: copy the result with
    `cp "<state dir>/code-review-<k>.md" "<state dir>/findings-<k>.md"`, so
    the verifier reads the review's findings byte for byte, then append each
    `auditor-<k>-<agent>.md`, and for review 0 each bug the implementer sent
@@ -353,7 +367,10 @@ a file the branch did not touch is re-run once before it counts as red.
    > form. Spec: `<spec path>`; plan: `<plan path>` (a bundle has only
    > `<state dir>/small-fix-plan.md`). `Review base: <base sha>`. Range:
    > `<from>...<HEAD sha>`; its files: <file list>. Raw findings:
-   > `<state dir>/findings-<k>.md`. Previous report: `<path>`, or none.
+   > `<state dir>/findings-<k>.md`. The code review's own count is <n,
+   > from its `REVIEW: ok` line>; at 0 the lead has read its whole reply
+   > as a clean review (Review loop step 3), so say that after the report's
+   > first line. Previous report: `<path>`, or none.
    > Owner answers so far: <from the state file>. Account for every raw
    > item, whatever its severity: kept with its severity and class, dropped
    > with why, or set aside with why; step 5's limit of five Minors does not
@@ -375,7 +392,7 @@ a file the branch did not touch is re-run once before it counts as red.
    report as kept with its severity and class, as dropped with a reason,
    or as set aside with a reason: `/code-review` gives no severity, so the
    verifier assigns it. Count the raw items against the report's entries;
-   if one is missing, dispatch the verifier again once. Compare the files the report cites with the range's file list yourself. If a review cites nothing inside the range while the list is not empty and the raw findings are not empty, it read the wrong diff: set the range again and run step 3 again from the script: the script, the copy, the auditors' saved files and a fresh verifier. A verified finding that arrives from outside the range is classified like any other and does not widen the next review.
+   if one is missing, dispatch the verifier again once. Compare the files the report cites with the range's file list yourself. If a review cites nothing inside the range while the list is not empty and the raw findings are not empty, it read the wrong diff: set the range again and run step 3 again from the script: the script, the read at `findings 0`, the copy, the auditors' saved files and a fresh verifier. A code review at `findings 0` cites nothing, so this check cannot judge it, and your read of its reply in step 3 stands in. A verified finding that arrives from outside the range is classified like any other and does not widen the next review.
    Record the `Review <k>:` line, with the code review's model keys and
    finding count from the `REVIEW: ok` line, or, if that line has left your
    context, from `<state dir>/code-review-<k>.json` (its `modelUsage` keys)
@@ -557,8 +574,9 @@ Give each fixer this brief verbatim, its placeholders filled:
 - A finder, verifier or fixer that returns nothing, or whose hand-back
   does not end with its terminal line (`VERDICT:` for the verifier,
   `STATUS:` for a fixer, and exit 0 with a last line `REVIEW: ok` for the
-  review script), is dispatched again once, on the same model, then the
-  owner. Gate
+  review script, whose reply at `findings 0` must also have reviewed, by
+  Review loop step 3), is dispatched again once, on the same model, then
+  the owner. Gate
   on that line, never on a file existing (docs/lessons.md, 2026-09-03 and
   2026-11-09). A verifier whose line is there but whose `review-<k>.md` is
   missing: write its hand-back to that path yourself before going on.
