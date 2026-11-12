@@ -130,8 +130,9 @@ function parseArgs(args) {
     ["--figures", "one build directory (--figures <dist>)"],
     ["--report", "two figures files (--report <base.json> <pr.json>)"],
   ]);
-  // A flag the script does not know is named before any operand count, so a
-  // --record typed after a known flag still gets the U200 sentence.
+  // A -- argument the script does not know is named before any operand count,
+  // so a flag typed from habit after a known flag still gets the U200
+  // sentence (TYRE-474).
   const unknownFlag = args.some((a) => a.startsWith("--") && !takes.has(a));
   if (!unknownFlag && takes.has(args[0]))
     return {
@@ -726,7 +727,7 @@ if (parsed.mode === "self-test") {
     ["--ceiling"],
     ["--write"],
     ["--self-test", "--write"],
-    ["--figures", "--record"],
+    ["--figures", "--ceiling"],
     ["--report", "--write", "a", "b"],
     ["extra"],
   ]) {
