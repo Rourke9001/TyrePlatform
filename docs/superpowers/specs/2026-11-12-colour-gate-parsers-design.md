@@ -166,7 +166,7 @@ does (read the token's custom property, `web/CLAUDE.md`, TYRE-27):
 | --- | --- | --- |
 | `color-no-hex` | `true` | a hex colour in a value |
 | `color-named` | `"never"` | a named colour in a value, in any case |
-| `function-disallowed-list` | case-insensitive patterns for `rgb`, `rgba`, `hsl`, `hsla`, `oklch`, `oklab`, `lab`, `lch`, `hwb` and `color`, and for `image-set`, `-webkit-image-set` and `image` | the colour functions, today's list (`:26`), with `color-mix()` still allowed; and the three functions that take a URL as a bare string |
+| `function-disallowed-list` | case-insensitive patterns for `rgb`, `rgba`, `hsl`, `hsla`, `oklch`, `oklab`, `lab`, `lch`, `hwb` and `color`, and for `image-set`, `-webkit-image-set`, `image` and `src` | the colour functions, today's list (`:26`), with `color-mix()` still allowed; and the four functions that take a URL as a bare string (`src()` from red team round 2, M2) |
 | `function-url-scheme-disallowed-list` | `["data"]` | `url(data:...)` in a declaration, quoted or not, in any case |
 | `at-rule-disallowed-list` | one case-insensitive pattern for `import` | the one at-rule that loads a URL from its parameters, which no rule above reads; a string entry would let `@IMPORT` through (red team round 1, C1) |
 
@@ -234,7 +234,8 @@ matches today's key list (`:70-71`: `color`, `fill`, `stroke`,
   `el.style.color = ...`, `color = ...`;
 - a variable or a parameter default with that name, `const fill = ...`,
   `function f(color = ...)`;
-- a class field with that name, `fill = ...`.
+- a class field with that name, `fill = ...`, an auto-accessor field
+  included, `accessor fill = ...`.
 
 A key written in quotes is still that key, bracketed or not: `{ "color":
 "red" }`, `{ ["fill"]: "red" }` and `el.style["color"] = "red"` are
@@ -242,7 +243,7 @@ style contexts, because each paints as its unquoted twin does and bracket
 access is a route a ban has to cover (`docs/lessons.md`, 2026-09-01,
 TYRE-95; red team round 1, I3). A bracketed expression is not a name:
 `{ [color]: "red" }` and `el.style[color]` are not style contexts, and
-pass today. An enum member with that name is one, as today.
+pass today. An enum member with that name is one, quoted or not.
 
 Today's 40-character window matches `key:` or `key=` before a string.
 These are the shapes of that text that hold a value. Two shapes of it
@@ -416,8 +417,8 @@ this branch, unless Non-goals or the table names it.
    dependencies`: `postcss ^8.5.26`; the dry run in `web/`). Vite builds
    with it, so `make check` and CI's build, bundle and browser jobs are
    the proof that nothing moved.
-4. **`at-rule-disallowed-list: ["import"]` replaces the ticket's
-   `import-notation`.** The scheme rule does not read at-rule parameters
+4. **`at-rule-disallowed-list`, with a pattern for `import`, replaces
+   the ticket's `import-notation`.** The scheme rule does not read at-rule parameters
    (`probes/stylelint-ticket-rules.out`: `probes.css:3` is not refused),
    so the ticket's rule would let `@import url("data:...")` through and
    keep the owner's data: ruling only by accident of notation.
@@ -464,15 +465,6 @@ this branch, unless Non-goals or the table names it.
     colour bans on `e2e/`, the config files and the vitest file that
     plants the cases (`web/eslint.config.js:220, 246`).
 14. **No ADR** (Non-goals).
-16. **From red team round 1.** `at-rule-disallowed-list` takes a
-    case-insensitive pattern, since a string entry matches by case and
-    `@IMPORT url("data:...")` passed (C1). A bracketed string literal is
-    a style key and a bracketed expression is not (I3;
-    `docs/lessons.md`, 2026-09-01, TYRE-95). The planner's three calls
-    stand: `[computed=false]` on the name forms, quoted keys as keys,
-    and the destructured default and the method refused. An enum member
-    keeps today's result. An entity under a style key stays quiet, as
-    today's gate blanks entities (`:72, 111`).
 15. **From the builder check** (three questions, all settled here). The
     style context gained the bare assignment and the class field and
     names the type member as given up (call 10). The bare-string data:
@@ -484,6 +476,23 @@ this branch, unless Non-goals or the table names it.
     the reviewer's examples or narrowed). One row reads the owner's
     data: ruling by its reason, a URL the browser would load, and not by
     its letter, so it is put to the owner with this spec.
+16. **From red team round 1.** `at-rule-disallowed-list` takes a
+    case-insensitive pattern, since a string entry matches by case and
+    `@IMPORT url("data:...")` passed (C1). A bracketed string literal is
+    a style key and a bracketed expression is not (I3;
+    `docs/lessons.md`, 2026-09-01, TYRE-95). The planner's three calls
+    stand: `[computed=false]` on the name forms, quoted keys as keys,
+    and the destructured default and the method refused. An enum member
+    keeps today's result. An entity under a style key stays quiet, as
+    today's gate blanks entities (`:72, 111`).
+17. **From red team round 2.** A quoted enum member is that member and
+    is refused, so the result does not turn on whether prettier has run
+    (R1). An auto-accessor field is a class field (M1). `src()` joins
+    the bare-string URL functions and is refused whole, wherever this
+    spec names the other three
+    (https://www.w3.org/TR/css-values-4/#urls; M2). A bracketed template
+    literal key stays quiet, as today, and the PR's Decisions name it
+    (M6).
 
 ## Rejected
 
