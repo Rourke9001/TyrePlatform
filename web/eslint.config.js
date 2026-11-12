@@ -155,9 +155,11 @@ const svgColourAttribute = String.raw`/^(?:stop-color|flood-color|lighting-color
 const colourString = (pattern) =>
   `:matches(Literal[value=${pattern}], TemplateElement[value.raw=${pattern}])`;
 
-// Every shape that hands a style key a value. A type paints nothing, so no
-// type node is one (docs/superpowers/specs/2026-11-12-colour-gate-parsers-design.md,
-// The TSX half).
+// The shapes the gate reads as handing a style key a value. A type paints
+// nothing, so no type node is one. Some shapes are not read, setProperty()
+// and a template literal key among them
+// (docs/superpowers/specs/2026-11-12-colour-gate-parsers-design.md, The TSX
+// half, Non-goals and Lead's calls 17).
 const styleValue = `:matches(${[
   // A quoted key is that key, bracketed or not, and a bracketed expression
   // names nothing (TYRE-95).
