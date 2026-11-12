@@ -3,9 +3,10 @@
 //
 // Why: a job with no timeout-minutes runs to GitHub's six-hour default when a
 // step hangs, and the pipeline lead waits on CI.
-// Each value is at least twice the job's slowest passing run, rounded up to 5
-// minutes; the measurement behind each is in the design its trailing comment
-// cites.
+// Each value's reason is beside it. A trailing comment cites the design that
+// set the value, at least twice the job's slowest passing run or its estimate,
+// rounded up to 5 minutes. A value no design set, as deploy.yml's two, has its
+// budget in the comment above the key.
 // A job that calls a reusable workflow cannot carry the key, so it passes.
 //
 // There is no YAML library at the repo root, so this reads lines and relies on
