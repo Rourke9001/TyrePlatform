@@ -73,7 +73,12 @@ import, never the budget") stays in force.
 ## Non-goals
 
 - The U175 check (the sign-in library in the entry) and the lazy-driver
-  check (ADR-0009, rule 7). Both stay as they are, with their self-tests.
+  check (ADR-0009, rule 7). Both keep their behaviour, and the U175 check
+  keeps its self-test. The lazy-driver check has no self-test today: it
+  is inline in the main flow (`scripts/check-capture-bundle.mjs:507-521`),
+  which this branch rewrites. It becomes a function with self-test cases,
+  so a rewrite that drops it fails (red team round 1, I2; the script's own
+  rule at `:199`, TYRE-49).
 - What is measured: the entry's static closure, JS and CSS in gzip bytes,
   fonts in raw bytes. Unchanged.
 - `deploy.yml`. Its `npm run bundle:check` stays and now checks the
@@ -157,7 +162,9 @@ the dates and the conflict marker (the ticket's Deletes list; its line
 numbers are from 9 Nov and the builder works from the code). The script
 no longer imports `writeFileSync`.
 
-The self-test keeps the U175 cases and the CSS and font sums, and its
+The self-test keeps the U175 cases and the CSS and font sums, gains two
+lazy-driver cases (a `src/capture/` module reached only through a dynamic
+import is a finding; one imported statically is not), and its
 budget cases become: every figure at its ceiling passes; one byte past a
 ceiling is one finding that names that figure and no flag; two figures
 past are two findings; a key with no `ceiling`, a key with no `reason`
@@ -183,7 +190,8 @@ is signed bytes and a percentage of the base; a figure that did not move
 reads "no change". Under the table, one line: a rise is a decision, so the
 PR says which import grew the entry, and the fix for an unplanned rise is
 the import (U84). The report exits 0 whatever the change; it exits
-non-zero only when it cannot read its inputs.
+non-zero only when it cannot read its inputs or cannot write the summary
+(Anti-goals: a report that fails must be seen).
 
 The report's formatting has a self-test: a rise, a fall, no change, and a
 figure past its ceiling (room left is negative and the row says so).
