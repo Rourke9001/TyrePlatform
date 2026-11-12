@@ -127,7 +127,7 @@ make db-test        # the verification suite, as a non-superuser
 make db-test-privileged  # negative controls that need a superuser to stage
 make test           # everything: db, api, web
 make fmt            # gofmt + prettier, in place
-make lint           # gofmt/prettier check, vet, staticcheck, Bicep lint, actionlint, eslint, tsc, comments, colour literals, Go pins, money paths, bundle
+make lint           # gofmt/prettier check, vet, staticcheck, Bicep lint, actionlint, eslint, tsc, comments, stylelint, Go pins, money paths, bundle
 make check          # fmt + lint + test. Run before every commit.
 make pipeline T=TYRE-123  # one job (a ticket, or T="TYRE-1 TYRE-2" for a small-fix bundle) to a reviewed PR
 ```
