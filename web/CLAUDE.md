@@ -211,8 +211,8 @@ looked at before it is reviewed. Rules that are not visible in the code:
   bundle:check` (`scripts/check-capture-bundle.mjs`, also in `make lint` and
   CI) reads the build manifest and fails on any of three findings, all
   printed before it exits:
-  - The entry's static closure exceeds `bundle-budget.json` in any of three
-    figures: JS and CSS in gzip bytes, fonts in raw bytes, since woff and
+  - The entry's static closure is past its ceiling in `bundle-budget.json`
+    in any of three figures: JS and CSS in gzip bytes, fonts in raw bytes, since woff and
     woff2 are already compressed. A lazy chunk loads with its route, so it
     is not counted.
   - A module under `src/capture/` or `src/driver/` is reachable from the
@@ -221,10 +221,15 @@ looked at before it is reviewed. Rules that are not visible in the code:
   - The entry's static closure does not carry oidc-client-ts, or a lazy
     chunk does (U175, ADR-0016's amendment).
 
-  The budget only ratchets down. A rise needs a reason in the PR and a
-  re-record on a known-good tree: `npm run bundle:check -- --record` writes
-  every figure, and `-- --record-css` writes only the CSS and font figures
-  and their date, `cssRecordedAt`, leaving the JS one (TYRE-445).
+  Each figure's ceiling has 10% headroom over the figure it was set from
+  (U200), with a one-line reason beside it. A rise under a ceiling passes,
+  and shows in the PR's "Capture bundle size" job summary, which sets the
+  base branch's figures beside the PR's. The PR names the import that grew
+  the entry, since the fix for an unplanned rise is the import (U84). A JS
+  rise of a byte or two with no import change can be a lazy chunk's new
+  filename hash in the entry's preload map (#146), not growth. A ceiling is
+  raised by a hand edit of the file, with its reason there and in the PR. No
+  flag writes it (TYRE-474).
 - The word "roadworthy" appears in no label, legend or aria text; the
   platform reports the tenant's configured thresholds (CLAUDE.md).
 - A money figure is `Money` (`src/api/money.ts`) and rendered only by

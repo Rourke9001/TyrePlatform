@@ -257,6 +257,12 @@ Each moves to tier 1 when there is time, in the order listed.
 
 ## The capture route
 
+*Amended by owner ruling U200 (9 Nov 2026, TYRE-474) on 12 Nov 2026. The
+entry budget below is three ceilings with 10% headroom, raised by hand with
+a reason, and a rise under them shows in each PR's size report rather than
+being re-recorded
+(`docs/superpowers/specs/2026-11-12-capture-bundle-ceilings-design.md`).*
+
 - Capture imports each component it renders by its own file path. No file
   under `src/capture/` or `src/driver/` imports a barrel of `src/ui/`.
 - The entry budget in `web/bundle-budget.json` (140,835 gzip bytes,
