@@ -1,6 +1,6 @@
 // The capture route must not pay for the manager app (TYRE-238, ADR-0015).
 // web/CLAUDE.md, The design system, lists what this checks.
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -115,10 +115,20 @@ function parseArgs(args) {
   if (args.length === 0) return { mode: "check" };
   if (args.length === 1 && args[0] === "--self-test")
     return { mode: "self-test" };
+  const operand = (a) => !a.startsWith("--");
+  if (args.length === 2 && args[0] === "--figures" && operand(args[1]))
+    return { mode: "figures", dist: args[1] };
+  if (
+    args.length === 3 &&
+    args[0] === "--report" &&
+    operand(args[1]) &&
+    operand(args[2])
+  )
+    return { mode: "report", base: args[1], pr: args[2] };
   return {
     mode: "refused",
     problem:
-      `unknown arguments: ${args.join(" ")}. Run with no argument to check, or with --self-test. ` +
+      `unknown arguments: ${args.join(" ")}. Run with no argument to check, or with --self-test, --figures <dist> or --report <base.json> <pr.json>. ` +
       "No flag writes web/bundle-budget.json; a ceiling is raised by hand (U200).",
   };
 }
@@ -259,6 +269,68 @@ function verdict(findings, loaded, figures) {
     ...budgetFindings(figures, loaded.budget).map((f) => `FAIL: ${f}`),
   ];
   return { errors, code: errors.length > 0 ? 1 : 0 };
+}
+
+// The figures file a job wrote from a build. A failed run leaves it empty or
+// partial, and the report refuses that rather than print a row of undefined.
+function readFigures(text) {
+  let figures;
+  try {
+    figures = JSON.parse(text);
+  } catch (err) {
+    return {
+      figures: null,
+      problem: `the figures file does not parse (${err.message})`,
+    };
+  }
+  if (figures === null || typeof figures !== "object" || Array.isArray(figures))
+    return {
+      figures: null,
+      problem:
+        "the figures file is not a JSON object holding the three figures",
+    };
+  const bad = FIGURES.filter(({ key }) => !isByteCount(figures[key]));
+  if (bad.length > 0)
+    return {
+      figures: null,
+      problem: `the figures file needs a whole-byte count for ${bad.map((f) => f.key).join(", ")}`,
+    };
+  return {
+    figures: Object.fromEntries(FIGURES.map(({ key }) => [key, figures[key]])),
+    problem: null,
+  };
+}
+
+function formatChange(base, pr) {
+  if (pr === base) return "no change";
+  const sign = pr > base ? "+" : "-";
+  const abs = Math.abs(pr - base);
+  // A base of 0 has no percentage to give.
+  if (base === 0) return `${sign}${abs}`;
+  return `${sign}${abs} (${sign}${((abs / base) * 100).toFixed(2)}%)`;
+}
+
+function formatRoom(ceiling, pr) {
+  const room = ceiling - pr;
+  return room < 0 ? `${room}, past the ceiling` : String(room);
+}
+
+function reportTable(base, pr, budget) {
+  const rows = FIGURES.map(
+    ({ key, row }) =>
+      `| ${row} | ${base[key]} | ${pr[key]} | ${formatChange(base[key], pr[key])} | ${budget[key].ceiling} | ${formatRoom(budget[key].ceiling, pr[key])} |`,
+  );
+  return [
+    "### Capture bundle size",
+    "",
+    "Base is the base branch's tip, the merge commit's first parent; this PR is the merge commit CI builds. JS and CSS are gzip bytes, fonts raw bytes.",
+    "",
+    "| Figure | Base | This PR | Change | Ceiling | Room left |",
+    "| --- | --- | --- | --- | --- | --- |",
+    ...rows,
+    "",
+    "A rise is a decision, so the PR names the import that grew the entry. The fix for an unplanned rise is the import (U84).",
+  ].join("\n");
 }
 
 const parsed = parseArgs(process.argv.slice(2));
@@ -653,7 +725,167 @@ if (parsed.mode === "self-test") {
     );
   }
 
+  same("figures mode", parseArgs(["--figures", "dist"]), {
+    mode: "figures",
+    dist: "dist",
+  });
+  same("report mode", parseArgs(["--report", "a.json", "b.json"]), {
+    mode: "report",
+    base: "a.json",
+    pr: "b.json",
+  });
+  for (const args of [
+    ["--figures"],
+    ["--figures", "a", "b"],
+    ["--figures", "--self-test"],
+    ["--report", "a.json"],
+    ["--report", "a", "b", "c"],
+  ])
+    same(`bad operands ${args.join(" ")}`, parseArgs(args).mode, "refused");
+
+  // A figures file the job wrote from a failed run is empty or partial; the
+  // report refuses it rather than print a row of undefined (TYRE-474).
+  same("figures read", readFigures(JSON.stringify(figs(1, 2, 3))), {
+    figures: figs(1, 2, 3),
+    problem: null,
+  });
+  const withFigure = (key, value) =>
+    JSON.stringify({ ...figs(1, 2, 3), [key]: value });
+  const figureRefusals = [
+    ["empty", "", ["does not parse"]],
+    ["open brace", "{", ["does not parse"]],
+    ["null", "null", ["not a JSON object"]],
+    ["number", "5", ["not a JSON object"]],
+    ["key left out", JSON.stringify({ [JS]: 1, [CSS]: 2 }), [FONT]],
+    ["a string", withFigure(CSS, "6607"), [CSS]],
+    ["negative", withFigure(JS, -1), [JS]],
+    ["fractional", withFigure(JS, 1.5), [JS]],
+  ];
+  for (const [name, input, want] of figureRefusals) {
+    const got = readFigures(input);
+    if (got.figures !== null || typeof got.problem !== "string")
+      fail(`figures ${name}: expected a refusal, got ${JSON.stringify(got)}`);
+    includes(`figures ${name}`, got.problem, ...want);
+  }
+
+  same(
+    "change",
+    [
+      formatChange(1000, 1010),
+      formatChange(200, 190),
+      formatChange(300, 300),
+      formatChange(0, 50),
+      formatChange(0, 0),
+    ],
+    ["+10 (+1.00%)", "-10 (-5.00%)", "no change", "+50", "no change"],
+  );
+  same(
+    "room",
+    [formatRoom(1100, 1010), formatRoom(300, 300), formatRoom(1005, 1010)],
+    ["90", "0", "-5, past the ceiling"],
+  );
+  const tableFixtures = [
+    [
+      "fixture A",
+      reportTable(
+        figs(1000, 200, 300),
+        figs(1010, 190, 300),
+        ceilings(1100, 220, 330),
+      ),
+      [
+        "| Entry JS (gzip) | 1000 | 1010 | +10 (+1.00%) | 1100 | 90 |",
+        "| Entry CSS (gzip) | 200 | 190 | -10 (-5.00%) | 220 | 30 |",
+        "| Entry fonts | 300 | 300 | no change | 330 | 30 |",
+      ],
+    ],
+    [
+      "fixture B",
+      reportTable(
+        figs(1000, 0, 300),
+        figs(1010, 50, 300),
+        ceilings(1005, 40, 300),
+      ),
+      [
+        "| Entry JS (gzip) | 1000 | 1010 | +10 (+1.00%) | 1005 | -5, past the ceiling |",
+        "| Entry CSS (gzip) | 0 | 50 | +50 | 40 | -10, past the ceiling |",
+        "| Entry fonts | 300 | 300 | no change | 300 | 0 |",
+      ],
+    ],
+  ];
+  for (const [name, table, rows] of tableFixtures) {
+    const lines = table.split("\n");
+    for (const row of [
+      "| Figure | Base | This PR | Change | Ceiling | Room left |",
+      ...rows,
+    ])
+      if (!lines.includes(row))
+        fail(`${name}: no line ${JSON.stringify(row)} in\n${table}`);
+    includes(name, table, "(U84)");
+    for (const bad of ["NaN", "Infinity", "undefined"])
+      if (table.includes(bad)) fail(`${name}: the table holds ${bad}`);
+  }
+
   console.log("self-test: OK");
+  process.exit(0);
+}
+
+// The figures mode reads no budget and runs no check, so it can measure a base
+// whose imports or budget differ (TYRE-474 spec, The size report). Stdout holds
+// the JSON and nothing else, since the job redirects it to a file.
+if (parsed.mode === "figures") {
+  const distDir = resolve(process.cwd(), parsed.dist);
+  console.error(`figures from ${distDir}`);
+  const built = readDist(distDir);
+  if (built.problem !== null) {
+    console.error(built.problem);
+    process.exit(2);
+  }
+  const measured = entryFigures(built.manifest, built.entryKey, (file) =>
+    readFileSync(resolve(distDir, file)),
+  );
+  console.log(JSON.stringify(measured.figures));
+  process.exit(0);
+}
+
+if (parsed.mode === "report") {
+  const inputs = {};
+  for (const [label, path] of [
+    ["base", parsed.base],
+    ["pr", parsed.pr],
+  ]) {
+    let text;
+    try {
+      text = readFileSync(path, "utf8");
+    } catch (err) {
+      console.error(`cannot read ${path} (${err.message})`);
+      process.exit(2);
+    }
+    const got = readFigures(text);
+    if (got.problem !== null) {
+      console.error(`${path}: ${got.problem}`);
+      process.exit(2);
+    }
+    inputs[label] = got.figures;
+  }
+  const loadedBudget = loadBudget(() => readFileSync(budgetPath, "utf8"));
+  if (loadedBudget.problem !== null) {
+    console.error(loadedBudget.problem);
+    process.exit(2);
+  }
+  const table = reportTable(inputs.base, inputs.pr, loadedBudget.budget);
+  console.log(table);
+  const summary = process.env.GITHUB_STEP_SUMMARY;
+  if (summary) {
+    // A report that fails must be seen, so a failed write is red.
+    try {
+      appendFileSync(summary, `${table}\n`);
+    } catch (err) {
+      console.error(
+        `cannot write the job summary to ${summary} (${err.message})`,
+      );
+      process.exit(2);
+    }
+  }
   process.exit(0);
 }
 
