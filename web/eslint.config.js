@@ -20,8 +20,8 @@ import { moneyStaysString } from "./lint/moneyStaysString.js";
 const house = { rules: { "money-stays-string": moneyStaysString } };
 
 // Rule 6's display half, enforced not remembered (TYRE-89, TYRE-95). Each
-// ban is its own constant, gathered below into appBans; each override
-// block drops exactly one of them.
+// ban is its own constant, gathered below into appBans; the time and route
+// error boundary blocks each drop exactly one of them.
 //
 // toLocale* is banned by property name alone: syntax cannot tell a Date
 // receiver from a Number, so toLocaleString deliberately also catches
@@ -85,8 +85,9 @@ const classComponentBan = {
     "Function components only (CLAUDE.md). The one exception is src/shell/RouteErrorBoundary.tsx (U54).",
 };
 
-// Every no-restricted-syntax block derives from this one list, because a
-// block's array replaces the main block's rather than adding to it.
+// Every no-restricted-syntax block writes this list, less at most one
+// exemption, because a block's array replaces an earlier block's rather
+// than adding to it.
 const appBans = [
   ...toLocaleBans,
   intlDateTimeFormatBan,
@@ -94,6 +95,10 @@ const appBans = [
   intlNumberFormatBan,
   classComponentBan,
 ];
+
+// TYRE-27, TYRE-445: a colour reaches a component only through a custom
+// property that src/theme/tokens.ts defines.
+const colourBans = [];
 
 // ADR-0022's import rules, one pattern group each. A later block's list
 // replaces an earlier one's for the same file, so every block below writes
@@ -214,6 +219,12 @@ const entryForbidden = {
 
 const testFiles = ["**/*.test.*", "src/test/**"];
 
+// tokens.ts is a colour's one home, and a test pins literal values on
+// purpose (TYRE-27).
+const colourExempt = ["src/theme/tokens.ts", ...testFiles];
+
+const timeBans = appBans.filter((ban) => ban !== intlDateTimeFormatBan);
+
 export default tseslint.config(
   { ignores: ["dist", "node_modules", "coverage"] },
   {
@@ -251,21 +262,37 @@ export default tseslint.config(
       "no-restricted-imports": "off",
     },
   },
+  // A later block's list replaces this one for the files it matches, so the
+  // last block that sets no-restricted-syntax for a file in scope includes
+  // colourBans.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: colourExempt,
+    rules: { "no-restricted-syntax": ["error", ...appBans, ...colourBans] },
+  },
   // web/src/time/tenantTime.ts is the one legitimate home the bans above
   // point to (rule 6, TYRE-89). Only the Intl.DateTimeFormat construction it
   // needs is exempted; toLocale*, the Intl-alias ban and the number-format
   // ban still hold here (TYRE-95, U55).
   {
     files: ["src/time/**/*.{ts,tsx}"],
-    rules: {
-      "no-restricted-syntax": ["error", ...appBans.filter((ban) => ban !== intlDateTimeFormatBan)],
-    },
+    rules: { "no-restricted-syntax": ["error", ...timeBans] },
+  },
+  // Its source keeps the colour bans; its test pins literals as every test does.
+  {
+    files: ["src/time/**/*.{ts,tsx}"],
+    ignores: colourExempt,
+    rules: { "no-restricted-syntax": ["error", ...timeBans, ...colourBans] },
   },
   // The one class component (U54); every other ban still holds here.
   {
     files: ["src/shell/RouteErrorBoundary.tsx"],
     rules: {
-      "no-restricted-syntax": ["error", ...appBans.filter((ban) => ban !== classComponentBan)],
+      "no-restricted-syntax": [
+        "error",
+        ...appBans.filter((ban) => ban !== classComponentBan),
+        ...colourBans,
+      ],
     },
   },
   // ADR-0022's layers. Each later block replaces the list for the files it

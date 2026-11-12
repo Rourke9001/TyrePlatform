@@ -410,7 +410,7 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bi
 	$(GO_RUN) $(GO_IMAGE) go tool staticcheck -tags devheader ./...
 	$(MAKE) api-release-check
 	$(MAKE) infra-lint
-	cd web && npm run format:check && npm run lint && npm run typecheck
+	cd web && npm run format:check && npm run lint && npm run lint:css && npm run typecheck
 	$(RUFF) format --check db/seeds
 	$(RUFF) check db/seeds
 	node scripts/check-comment-style.test.mjs
