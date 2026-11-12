@@ -27,9 +27,15 @@ import, never the budget") stays in force.
 
 ## What the spec-stage reading showed
 
-- **Today's figures equal the recorded ones.** Built on this branch at
-  `0555d046` on 12 Nov 2026: entry closure 168821 gzip bytes, entry CSS
-  6607 gzip bytes, entry fonts 70188 bytes.
+- **Today's figures are the ones CI builds from the lockfile.** CI's run
+  on `0555d046` (run 43167955505, 12 Nov 2026) printed entry closure
+  168594 gzip bytes, entry CSS 6607 gzip bytes and entry fonts 70188
+  bytes. The recorded JS figure, 168821, is 227 bytes higher: it was
+  written by `--record` in a checkout whose `web/node_modules` differs
+  from `web/package-lock.json`, and this checkout still builds 168821.
+  The spec first took 168821 for today's figure; the implementer's fresh
+  install found the difference and CI's log confirms it. What ships is
+  CI's build, so the ceilings are worked from 168594.
 - **A pull request run builds the merge commit, and its first parent is
   the base branch's tip.** `GITHUB_SHA` for `pull_request` is the "Last
   merge commit on the `GITHUB_REF` branch", and the ref is
@@ -117,18 +123,20 @@ import, never the budget") stays in force.
 
 ```json
 {
-  "entryClosureGzipBytes": { "ceiling": 185703, "reason": "..." },
+  "entryClosureGzipBytes": { "ceiling": 185453, "reason": "..." },
   "entryCssGzipBytes": { "ceiling": 7267, "reason": "..." },
   "entryFontBytes": { "ceiling": 77206, "reason": "..." }
 }
 ```
 
 Each ceiling is today's figure plus 10%, rounded down, so no ceiling is
-more than 10% above its figure: 168821 gives 185703, 6607 gives 7267 and
+more than 10% above its figure: 168594 gives 185453, 6607 gives 7267 and
 70188 gives 77206. Each reason is one line that names the figure, the date
-and U200, for example "168821 on 12 Nov 2026 plus 10% (U200)". If the
-implementer's build on the branch gives other figures, the ceilings are
-worked out again by the same rule and the PR says so.
+and U200, for example "168594 on 12 Nov 2026 plus 10% (U200)". A figure
+is taken from a build after a fresh `npm ci`, as CI builds it, never from
+a checkout's standing `node_modules`. If such a build on the branch gives
+other figures, the ceilings are worked out again by the same rule and the
+PR says so.
 
 `recordedAt`, `cssRecordedAt` and `chunks` are deleted. The three key
 names stay, so a search for them still finds the history.
@@ -261,8 +269,9 @@ that needs its ceiling raised again and again is that trigger.
    the ticket's Design settle the headroom, where the report goes and how
    a ceiling is raised (ticket TYRE-474, Design and Owner ruling U200).
 2. **Ceilings are rounded down**, so "plus 10%" is never exceeded. The
-   figures are this branch's own build, which equals the recorded file
-   (What the spec-stage reading showed).
+   figures are CI's build of the branch's base, not this checkout's and
+   not the recorded file's (What the spec-stage reading showed; CI run
+   43167955505, Frontend job log).
 3. **The report compares the merge commit with its first parent, the base
    tip, not the literal merge base.** It is the tree CI builds
    (https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request;
@@ -362,7 +371,7 @@ that needs its ceiling raised again and again is that trigger.
 
 ## Acceptance
 
-- `web/bundle-budget.json` holds the three ceilings 185703, 7267 and
+- `web/bundle-budget.json` holds the three ceilings 185453, 7267 and
   77206, each with a reason, and no other key.
 - `npm run bundle:check` passes on the branch and prints the room left.
   With a ceiling edited to one byte under its figure it exits 1 and names
