@@ -285,6 +285,7 @@ const TSX_SHAPES_REFUSED = lines(
   'const p30 = <feFlood flood-color="black" />;',
   'const p31 = <feDiffuseLighting lighting-color="white" />;',
   'const p32 = <stop stop-color="0 #abcdef" />;',
+  'class C10 { accessor "fill" = "red"; }',
 );
 const TSX_SHAPES_REFUSED_WANT = [
   "1: hex",
@@ -325,6 +326,7 @@ const TSX_SHAPES_REFUSED_WANT = [
   "30: namedInStyle",
   "31: namedInStyle",
   "32: hexInStyle",
+  "33: namedInStyle",
 ];
 
 const TSX_SHAPES_QUIET = lines(
@@ -487,7 +489,7 @@ describe("the colour gate in a component", { timeout: 120_000 }, () => {
     );
   });
 
-  it("refuses a colour in every shape that gives a style key a value", async () => {
+  it("refuses a colour in each shape the gate reads as a style value", async () => {
     expect(await tsx(UI, TSX_SHAPES_REFUSED)).toEqual(want(TSX_SHAPES_REFUSED_WANT));
   });
 
