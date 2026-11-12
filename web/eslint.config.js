@@ -96,9 +96,104 @@ const appBans = [
   classComponentBan,
 ];
 
+// CSS's named colours. transparent and currentColor name no colour of their
+// own, so they stay allowed.
+const namedColours = `
+  aliceblue antiquewhite aqua aquamarine azure beige bisque black
+  blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse
+  chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan
+  darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta
+  darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen
+  darkslateblue darkslategray darkslategrey darkturquoise darkviolet
+  deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite
+  forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green
+  greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender
+  lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan
+  lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon
+  lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue
+  lightyellow lime limegreen linen magenta maroon mediumaquamarine
+  mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue
+  mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream
+  mistyrose moccasin navajowhite navy oldlace olive olivedrab orange
+  orangered orchid palegoldenrod palegreen paleturquoise palevioletred
+  papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red
+  rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna
+  silver skyblue slateblue slategray slategrey snow springgreen steelblue
+  tan teal thistle tomato turquoise violet wheat white whitesmoke yellow
+  yellowgreen
+`
+  .trim()
+  .split(/\s+/)
+  .join("|");
+
+// CSS Color 4's hex notation has 3, 4, 6 or 8 digits.
+const hexDigits = "(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})";
+
+const wholeHex = String.raw`/^\s*#${hexDigits}\s*$/`;
+
+// Not a colour: url(#fade), which names an SVG element, an entity such as
+// &#8230;, or the start of an id such as #add-driver.
+const hexToken = String.raw`/(?<!&|url\(\s*["']?)#${hexDigits}(?![\w-])/`;
+
+const colourFunction = String.raw`/\b(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb|color)\(/`;
+
+// An esquery regex ends at its first slash, so one inside it is written \x2f.
+const slash = String.raw`\x2f`;
+
+// A colour word in a path such as "./red.svg" names a file.
+const namedColour = String.raw`/(?<![-\w.#${slash}])(?:${namedColours})(?![-\w.])/i`;
+
+const styleKey = String.raw`/^(?:color|fill|stroke|stopColor|floodColor|lightingColor|background\w*|border\w*|outline\w*|boxShadow|textShadow|caretColor|accentColor|textDecorationColor|columnRuleColor)$/`;
+
+// A string is a Literal's value or a TemplateElement's raw text, so a
+// comment never reaches these.
+const colourString = (pattern) =>
+  `:matches(Literal[value=${pattern}], TemplateElement[value.raw=${pattern}])`;
+
+// Every shape that hands a style key a value. A type paints nothing, so no
+// type node is one (docs/superpowers/specs/2026-11-12-colour-gate-parsers-design.md,
+// The TSX half).
+const styleValue = `:matches(${[
+  // A quoted key is that key, bracketed or not, and a bracketed expression
+  // names nothing (TYRE-95).
+  `Property[computed=false][key.name=${styleKey}]`,
+  `Property[key.value=${styleKey}]`,
+  `JSXAttribute[name.name=${styleKey}]`,
+  `AssignmentExpression[left.computed=false][left.property.name=${styleKey}]`,
+  `AssignmentExpression[left.property.value=${styleKey}]`,
+  `AssignmentExpression[left.name=${styleKey}]`,
+  `VariableDeclarator[id.name=${styleKey}]`,
+  `AssignmentPattern[left.name=${styleKey}]`,
+  `PropertyDefinition[computed=false][key.name=${styleKey}]`,
+  `PropertyDefinition[key.value=${styleKey}]`,
+  `AccessorProperty[computed=false][key.name=${styleKey}]`,
+  `AccessorProperty[key.value=${styleKey}]`,
+  `TSEnumMember[id.name=${styleKey}]`,
+  `TSEnumMember[id.value=${styleKey}]`,
+].join(", ")})`;
+
+const colourRemedy = "Read the token's custom property instead (web/CLAUDE.md, TYRE-27).";
+
 // TYRE-27, TYRE-445: a colour reaches a component only through a custom
 // property that src/theme/tokens.ts defines.
-const colourBans = [];
+const colourBans = [
+  {
+    selector: colourString(wholeHex),
+    message: `A hex colour outside src/theme/tokens.ts. ${colourRemedy}`,
+  },
+  {
+    selector: colourString(colourFunction),
+    message: `A colour function outside src/theme/tokens.ts. ${colourRemedy}`,
+  },
+  {
+    selector: `${styleValue} ${colourString(hexToken)}`,
+    message: `A hex colour in a style value. ${colourRemedy}`,
+  },
+  {
+    selector: `${styleValue} ${colourString(namedColour)}`,
+    message: `A named colour in a style value. ${colourRemedy}`,
+  },
+];
 
 // ADR-0022's import rules, one pattern group each. A later block's list
 // replaces an earlier one's for the same file, so every block below writes
