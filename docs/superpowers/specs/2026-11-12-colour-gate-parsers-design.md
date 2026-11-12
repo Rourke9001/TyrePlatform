@@ -168,7 +168,7 @@ does (read the token's custom property, `web/CLAUDE.md`, TYRE-27):
 | `color-named` | `"never"` | a named colour in a value, in any case |
 | `function-disallowed-list` | case-insensitive patterns for `rgb`, `rgba`, `hsl`, `hsla`, `oklch`, `oklab`, `lab`, `lch`, `hwb` and `color`, and for `image-set`, `-webkit-image-set` and `image` | the colour functions, today's list (`:26`), with `color-mix()` still allowed; and the three functions that take a URL as a bare string |
 | `function-url-scheme-disallowed-list` | `["data"]` | `url(data:...)` in a declaration, quoted or not, in any case |
-| `at-rule-disallowed-list` | `["import"]` | the one at-rule that loads a URL from its parameters, which no rule above reads |
+| `at-rule-disallowed-list` | one case-insensitive pattern for `import` | the one at-rule that loads a URL from its parameters, which no rule above reads; a string entry would let `@IMPORT` through (red team round 1, C1) |
 
 That is five rules, and each reads stylelint's parsed tree. The ticket's
 `declaration-property-value-disallowed-list` is not used: the only way it
@@ -236,8 +236,13 @@ matches today's key list (`:70-71`: `color`, `fill`, `stroke`,
   `function f(color = ...)`;
 - a class field with that name, `fill = ...`.
 
-A computed key is not a name: `{ [color]: "red" }` is not a style
-context, and passes today.
+A key written in quotes is still that key, bracketed or not: `{ "color":
+"red" }`, `{ ["fill"]: "red" }` and `el.style["color"] = "red"` are
+style contexts, because each paints as its unquoted twin does and bracket
+access is a route a ban has to cover (`docs/lessons.md`, 2026-09-01,
+TYRE-95; red team round 1, I3). A bracketed expression is not a name:
+`{ [color]: "red" }` and `el.style[color]` are not style contexts, and
+pass today. An enum member with that name is one, as today.
 
 Today's 40-character window matches `key:` or `key=` before a string.
 These are the shapes of that text that hold a value. Two shapes of it
@@ -391,6 +396,8 @@ this branch, unless Non-goals or the table names it.
 | A named colour under a style key but past 40 characters or behind an expression, `color: on ? "red" : "blue"` | passes | refused | ticket; the tree has no window |
 | A hex inside a longer string outside a style context, `const s = "0 0 0 1px #abcdef"` | refused | **passes** | the price of the row above it; it is the ticket's "colour held in a constant and applied later" |
 | A TS string of `#` and 5 or 7 hex digits | refused | passes | not a colour in CSS |
+| A quoted style key, bracketed or not, `{ "color": "red" }`, `el.style["color"] = "red"` | passes | **refused** | it paints as its unquoted twin does (red team round 1, I3) |
+| A destructured default or a method under a style key, `const { color: c = "red" } = props`, `{ color() { return "red"; } }` | passes | **refused** | every string below a style context counts; a class method or getter is not a context |
 | A plain `@import` in a stylesheet | passes | **refused** | no core rule reads an at-rule's parameters; the tree has none |
 | An inline `eslint-disable` over a colour ban | no such thing | possible | true of every eslint ban today; it shows in the diff |
 | `href="#add"`, a whole string that reads as a hex | refused | refused | unchanged; the id is renamed, as today |
@@ -457,6 +464,15 @@ this branch, unless Non-goals or the table names it.
     colour bans on `e2e/`, the config files and the vitest file that
     plants the cases (`web/eslint.config.js:220, 246`).
 14. **No ADR** (Non-goals).
+16. **From red team round 1.** `at-rule-disallowed-list` takes a
+    case-insensitive pattern, since a string entry matches by case and
+    `@IMPORT url("data:...")` passed (C1). A bracketed string literal is
+    a style key and a bracketed expression is not (I3;
+    `docs/lessons.md`, 2026-09-01, TYRE-95). The planner's three calls
+    stand: `[computed=false]` on the name forms, quoted keys as keys,
+    and the destructured default and the method refused. An enum member
+    keeps today's result. An entity under a style key stays quiet, as
+    today's gate blanks entities (`:72, 111`).
 15. **From the builder check** (three questions, all settled here). The
     style context gained the bare assignment and the class field and
     names the type member as given up (call 10). The bare-string data:
