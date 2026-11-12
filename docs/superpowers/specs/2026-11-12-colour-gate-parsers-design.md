@@ -1,12 +1,13 @@
 # The colour gate, read by parsers: stylelint for CSS, eslint selectors for TSX
 
-Date: 2026-11-12. Ticket: TYRE-475 (epic TYRE-443). Status: awaiting the
-owner's approval. From the 9 Nov 2026 design audit, section 5 (verdict
+Date: 2026-11-12. Ticket: TYRE-475 (epic TYRE-443). Status: approved by
+the owner on 12 Nov 2026 (U206). From the 9 Nov 2026 design audit, section 5 (verdict
 Replace); the owner approved replacing the gate on 9 Nov (ticket). The
 ticket cites no SRS requirement; this is build tooling, no product code.
 It reverses no ruling. It reads one by its reason and not its letter,
 the refusal of a data: URL in a stylesheet (#151 round 7), and puts that
-reading to the owner with this spec (The CSS half).
+reading to the owner with this spec (The CSS half). The owner approved
+that reading with the spec (U206, 12 Nov 2026).
 
 ## Intent
 
@@ -188,8 +189,8 @@ owner approved "refusing a data: URL in a stylesheet", and the reason on
 record is that the CSP blocks an image, a font or an imported stylesheet
 from one (`.superpowers/sdd/2026-10-29-review-pr151/report-7.md:45-51`,
 gitignored; `scripts/check-colour-literals.mjs:73-75`; ADR-0019). This
-design holds the ruling to that reason. Whether it may is the owner's to
-say, and the approval message asks. The
+design holds the ruling to that reason, and the owner approved that
+(U206). The
 browser loads a URL from `url()` in a declaration, from the bare string
 `image-set()`, `-webkit-image-set()` and `image()` take, and from
 `@import`. So `@import` and the three functions are refused whole, with
