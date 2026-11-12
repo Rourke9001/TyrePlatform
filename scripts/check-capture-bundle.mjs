@@ -126,10 +126,14 @@ function parseArgs(args) {
   )
     return { mode: "report", base: args[1], pr: args[2] };
   const takes = new Map([
+    ["--self-test", "no operand (--self-test)"],
     ["--figures", "one build directory (--figures <dist>)"],
     ["--report", "two figures files (--report <base.json> <pr.json>)"],
   ]);
-  if (takes.has(args[0]))
+  // A flag the script does not know is named before any operand count, so a
+  // --record typed after a known flag still gets the U200 sentence.
+  const unknownFlag = args.some((a) => a.startsWith("--") && !takes.has(a));
+  if (!unknownFlag && takes.has(args[0]))
     return {
       mode: "refused",
       problem: `${args[0]} takes ${takes.get(args[0])}, not "${args.join(" ")}".`,
@@ -722,6 +726,8 @@ if (parsed.mode === "self-test") {
     ["--ceiling"],
     ["--write"],
     ["--self-test", "--write"],
+    ["--figures", "--record"],
+    ["--report", "--write", "a", "b"],
     ["extra"],
   ]) {
     const got = parseArgs(args);
@@ -731,6 +737,7 @@ if (parsed.mode === "self-test") {
       got.problem,
       "unknown arguments",
       ...args,
+      "(U200)",
     );
   }
 
@@ -743,13 +750,24 @@ if (parsed.mode === "self-test") {
     base: "a.json",
     pr: "b.json",
   });
-  // A known flag with the wrong operands is told what the flag takes, never
-  // that it is unknown.
+  // When every flag is known and the first argument is one, that flag is told
+  // what it takes, never that it is unknown (TYRE-474).
   const usage = {
+    "--self-test": "--self-test",
     "--figures": "--figures <dist>",
     "--report": "--report <base.json> <pr.json>",
   };
+  same(
+    "self-test with an operand",
+    parseArgs(["--self-test", "--figures", "dist"]).problem,
+    '--self-test takes no operand (--self-test), not "--self-test --figures dist".',
+  );
   for (const args of [
+    ["--self-test", "--figures", "dist"],
+    ["--self-test", "--self-test"],
+    ["--self-test", "--report", "a.json", "b.json"],
+    ["--self-test", "--figures"],
+    ["--self-test", "extra"],
     ["--figures"],
     ["--figures", "a", "b"],
     ["--figures", "--self-test"],
