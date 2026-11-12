@@ -1,6 +1,6 @@
 // The capture route must not pay for the manager app (TYRE-238, ADR-0015).
 // web/CLAUDE.md, The design system, lists what this checks.
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,8 +8,6 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = resolve(root, "web/dist");
 const budgetPath = resolve(root, "web/bundle-budget.json");
-const record = process.argv.includes("--record");
-const recordCss = process.argv.includes("--record-css");
 
 // U175, ADR-0016's amendment: the driver's renewal, sign-in and sign-out wait
 // on the sign-in library, so it ships in the entry, never in a chunk fetched
@@ -89,54 +87,98 @@ function closureAssets(manifest, order, readBytes) {
   };
 }
 
-function budgetFindings(got, budget) {
-  const out = [];
-  // A budget recorded before cssRecordedAt existed dates every figure by
-  // recordedAt.
-  const cssDate = budget.cssRecordedAt ?? budget.recordedAt;
-  const figures = [
-    [
-      "entry closure",
-      "gzip bytes",
-      got.jsGzipBytes,
-      "entryClosureGzipBytes",
-      budget.recordedAt,
-      "--record",
-    ],
-    [
-      "entry CSS",
-      "gzip bytes",
-      got.cssGzipBytes,
-      "entryCssGzipBytes",
-      cssDate,
-      "--record-css",
-    ],
-    [
-      "entry fonts",
-      "bytes",
-      got.fontBytes,
-      "entryFontBytes",
-      cssDate,
-      "--record-css",
-    ],
-  ];
-  for (const [label, unit, value, field, date, flag] of figures) {
-    if (typeof budget[field] !== "number") {
-      out.push(
-        `web/bundle-budget.json has no ${field}; run --record (or --record-css for the CSS and font figures) on a known-good tree`,
-      );
-    } else if (value > budget[field]) {
-      out.push(
-        `${label} ${value} ${unit} exceeds the budget ${budget[field]} (${field}, recorded ${date}). ` +
-          `Put the new import behind React.lazy (never oidc-client-ts, U175), or if the growth is the capture route's own, record it with ${flag} and say why in the PR.`,
-      );
-    }
-  }
-  return out;
+// The three figures, in the order they print.
+const FIGURES = [
+  {
+    key: "entryClosureGzipBytes",
+    name: "entry JS",
+    unit: "gzip bytes",
+    row: "Entry JS (gzip)",
+  },
+  {
+    key: "entryCssGzipBytes",
+    name: "entry CSS",
+    unit: "gzip bytes",
+    row: "Entry CSS (gzip)",
+  },
+  {
+    key: "entryFontBytes",
+    name: "entry fonts",
+    unit: "bytes",
+    row: "Entry fonts",
+  },
+];
+
+// An unknown argument is refused, so a flag typed from habit is not taken
+// for a passing check (TYRE-474).
+function parseArgs(args) {
+  if (args.length === 0) return { mode: "check" };
+  if (args.length === 1 && args[0] === "--self-test")
+    return { mode: "self-test" };
+  return {
+    mode: "refused",
+    problem:
+      `unknown arguments: ${args.join(" ")}. Run with no argument to check, or with --self-test. ` +
+      "No flag writes web/bundle-budget.json; a ceiling is raised by hand (U200).",
+  };
 }
 
-// A missing budget and one that does not parse are refused apart: a merge
-// conflict in a file re-recorded by PR after PR is not a missing file.
+function readDist(distDir) {
+  const path = resolve(distDir, ".vite/manifest.json");
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(path, "utf8"));
+  } catch (err) {
+    return {
+      problem: `no manifest at ${path}; run "npm run build" in web/ first (${err.message})`,
+    };
+  }
+  const entryKey = Object.keys(manifest).find((k) => manifest[k].isEntry);
+  if (!entryKey) return { problem: `manifest at ${path} has no entry chunk` };
+  return { manifest, entryKey, problem: null };
+}
+
+// The one implementation of the entry's closure: its chunks in gzip bytes, and
+// the CSS and fonts they pull in.
+function entryFigures(manifest, entryKey, readBytes) {
+  const { order } = closures(manifest, entryKey);
+  const chunks = order.map((key) => {
+    const file = manifest[key].file;
+    return { key, file, gzipBytes: gzipSync(readBytes(file)).length };
+  });
+  const assets = closureAssets(manifest, order, readBytes);
+  return {
+    chunks,
+    cssFiles: assets.cssFiles,
+    fontFiles: assets.fontFiles,
+    figures: {
+      entryClosureGzipBytes: chunks.reduce((sum, c) => sum + c.gzipBytes, 0),
+      entryCssGzipBytes: assets.cssGzipBytes,
+      entryFontBytes: assets.fontBytes,
+    },
+  };
+}
+
+// A ceiling alone would let a lazy driver module pass by shrinking the entry;
+// a chunk fetched in front of capture is the round trip ADR-0009 (rule 7)
+// rules out. The manifest keys a dynamic entry by its source path, which is
+// what this reads.
+function lazyDriverFindings(manifest, entryKey) {
+  const { seen, reachable } = closures(manifest, entryKey);
+  return [...reachable]
+    .filter((key) => !seen.has(key) && /^src\/(capture|driver)\//.test(key))
+    .map(
+      (key) =>
+        `${key} is reachable from the entry only through a dynamic import. ` +
+        "The capture and driver modules load with the entry (ADR-0009, CLAUDE.md rule 7); import it statically.",
+    );
+}
+
+// Infinity (from 1e999), a fraction and a negative are not byte counts.
+function isByteCount(v) {
+  return Number.isSafeInteger(v) && v >= 0;
+}
+
 function loadBudget(readText) {
   let text;
   try {
@@ -146,58 +188,106 @@ function loadBudget(readText) {
       budget: null,
       problem:
         err.code === "ENOENT"
-          ? "no web/bundle-budget.json; run with --record on a known-good tree first"
+          ? "no web/bundle-budget.json. It holds the capture entry's three ceilings and their reasons (U200); restore it from develop."
           : `web/bundle-budget.json cannot be read (${err.message})`,
     };
   }
+  let budget;
   try {
-    const budget = JSON.parse(text);
-    if (budget !== null && typeof budget === "object") {
-      return { budget, problem: null };
-    }
+    budget = JSON.parse(text);
   } catch (err) {
     return {
       budget: null,
-      problem: `web/bundle-budget.json does not parse (${err.message}); resolve it, or re-record with --record on a known-good tree`,
+      problem: `web/bundle-budget.json does not parse (${err.message}). Fix the hand edit, or restore the file from develop.`,
     };
   }
-  return {
-    budget: null,
-    problem:
-      "web/bundle-budget.json is not a JSON object; re-record with --record on a known-good tree",
-  };
+  if (budget === null || typeof budget !== "object" || Array.isArray(budget)) {
+    return {
+      budget: null,
+      problem:
+        "web/bundle-budget.json is not a JSON object holding the three ceilings (U200).",
+    };
+  }
+  const bad = FIGURES.filter(({ key }) => {
+    const entry = budget[key];
+    return !(
+      entry !== null &&
+      typeof entry === "object" &&
+      isByteCount(entry.ceiling) &&
+      typeof entry.reason === "string" &&
+      entry.reason.trim() !== ""
+    );
+  });
+  if (bad.length > 0) {
+    return {
+      budget: null,
+      problem: bad
+        .map(
+          ({ key }) =>
+            `web/bundle-budget.json: ${key} needs a "ceiling" in whole bytes and a non-empty "reason" (U200).`,
+        )
+        .join("\n"),
+    };
+  }
+  return { budget, problem: null };
 }
 
-// Every finding prints before the run's verdict, so a tolerated rise in one
-// figure, or a budget that cannot be read, cannot hide another.
-function verdict(findings, loaded, got) {
+function budgetFindings(figures, budget) {
+  const out = [];
+  for (const { key, name, unit } of FIGURES) {
+    const value = figures[key];
+    const { ceiling } = budget[key];
+    if (value > ceiling) {
+      out.push(
+        `${name} is ${value} ${unit}, ${value - ceiling} past its ceiling of ${ceiling} (${key} in web/bundle-budget.json). ` +
+          "Put the new import behind React.lazy (never oidc-client-ts, U175). " +
+          "If the growth is the capture route's own, raise the ceiling by hand in web/bundle-budget.json with its reason, and say why in the PR (U84, U200).",
+      );
+    }
+  }
+  return out;
+}
+
+// A figure past its ceiling, or a budget that cannot be read, cannot hide
+// another finding: all of them print before the exit (U200).
+function verdict(findings, loaded, figures) {
   if (loaded.problem !== null) {
     return { errors: [...findings, loaded.problem], code: 2 };
   }
   const errors = [
     ...findings,
-    ...budgetFindings(got, loaded.budget).map((f) => `FAIL: ${f}`),
+    ...budgetFindings(figures, loaded.budget).map((f) => `FAIL: ${f}`),
   ];
   return { errors, code: errors.length > 0 ? 1 : 0 };
 }
 
-// --record-css keeps the JS figure, its date and its chunk list, since the JS
-// figure is the one --record alone may move.
-function nextBudget(budget, got, chunkFiles, cssOnly, today) {
-  return {
-    entryClosureGzipBytes: cssOnly
-      ? budget.entryClosureGzipBytes
-      : got.jsGzipBytes,
-    entryCssGzipBytes: got.cssGzipBytes,
-    entryFontBytes: got.fontBytes,
-    recordedAt: cssOnly ? budget.recordedAt : today,
-    cssRecordedAt: today,
-    chunks: cssOnly ? budget.chunks : chunkFiles,
-  };
+const parsed = parseArgs(process.argv.slice(2));
+if (parsed.mode === "refused") {
+  console.error(parsed.problem);
+  process.exit(2);
 }
 
 // A guard that finds nothing has to be shown able to find something (TYRE-49).
-if (process.argv.includes("--self-test")) {
+if (parsed.mode === "self-test") {
+  const fail = (message) => {
+    console.error(`self-test: ${message}`);
+    process.exit(1);
+  };
+  const same = (name, got, want) => {
+    if (JSON.stringify(got) !== JSON.stringify(want))
+      fail(
+        `${name}: expected ${JSON.stringify(want)}, got ${JSON.stringify(got)}`,
+      );
+  };
+  const includes = (name, text, ...parts) => {
+    for (const part of parts)
+      if (!String(text).includes(part))
+        fail(
+          `${name}: expected ${JSON.stringify(text)} to include ${JSON.stringify(part)}`,
+        );
+  };
+  const noFlag = /(^|\s)--[a-z]/;
+
   // U175: the library ships in the entry. Each fixture below fires the rules
   // named in its expected texts, and no others.
   const inClosure = `the entry's static closure does not carry oidc-client-ts ("${LIBRARY_MARKER}"), so a renewal, sign-in or sign-out would wait on a chunk fetch (U175)`;
@@ -320,264 +410,294 @@ if (process.argv.includes("--self-test")) {
     );
     process.exit(1);
   }
-  const budgetCases = [
-    [
-      "every figure within budget",
-      budgetFindings(
-        { jsGzipBytes: 5, cssGzipBytes: 6, fontBytes: 7 },
-        { entryClosureGzipBytes: 5, entryCssGzipBytes: 6, entryFontBytes: 7 },
-      ),
-      0,
-    ],
-    [
-      "CSS alone over budget",
-      budgetFindings(
-        { jsGzipBytes: 5, cssGzipBytes: 7, fontBytes: 7 },
-        { entryClosureGzipBytes: 5, entryCssGzipBytes: 6, entryFontBytes: 7 },
-      ),
-      1,
-    ],
-    [
-      "JS and CSS both over budget",
-      budgetFindings(
-        { jsGzipBytes: 6, cssGzipBytes: 7, fontBytes: 7 },
-        { entryClosureGzipBytes: 5, entryCssGzipBytes: 6, entryFontBytes: 7 },
-      ),
-      2,
-    ],
-    [
-      "budget without the CSS and font figures",
-      budgetFindings(
-        { jsGzipBytes: 5, cssGzipBytes: 6, fontBytes: 7 },
-        { entryClosureGzipBytes: 5 },
-      ),
-      2,
-    ],
-  ];
-  const both = budgetCases[2][1];
-  if (!both[0].includes("entry closure") || !both[1].includes("entry CSS")) {
-    console.error(
-      `self-test: two findings must name both figures, got ${JSON.stringify(both)}`,
-    );
-    process.exit(1);
-  }
-  // A CSS or font rise must not be told to run --record, which would also
-  // re-record the JS figure, and each figure cites its own date.
-  const dated = {
-    entryClosureGzipBytes: 5,
-    entryCssGzipBytes: 6,
-    entryFontBytes: 7,
-    recordedAt: "2026-01-01",
-    cssRecordedAt: "2026-02-02",
-    chunks: ["old.js"],
+
+  // One implementation of the entry's closure, shared by the check and the
+  // figures mode: b.js is imported twice and counts once, and lazy.js and its
+  // CSS stay out.
+  const closureManifest = {
+    "index.html": {
+      file: "entry.js",
+      isEntry: true,
+      imports: ["_a", "_b"],
+      dynamicImports: ["lazy"],
+      css: ["e.css"],
+    },
+    _a: { file: "a.js", imports: ["_b"] },
+    _b: { file: "b.js" },
+    lazy: { file: "lazy.js", css: ["l.css"] },
   };
-  const oneDate = { ...dated, cssRecordedAt: undefined };
-  const flagCases = [
-    [
-      "JS",
-      { jsGzipBytes: 6, cssGzipBytes: 6, fontBytes: 7 },
-      dated,
-      "2026-01-01",
-      "--record",
-    ],
-    [
-      "CSS",
-      { jsGzipBytes: 5, cssGzipBytes: 7, fontBytes: 7 },
-      dated,
-      "2026-02-02",
-      "--record-css",
-    ],
-    [
-      "fonts",
-      { jsGzipBytes: 5, cssGzipBytes: 6, fontBytes: 8 },
-      dated,
-      "2026-02-02",
-      "--record-css",
-    ],
-    [
-      "CSS, one date",
-      { jsGzipBytes: 5, cssGzipBytes: 7, fontBytes: 7 },
-      oneDate,
-      "2026-01-01",
-      "--record-css",
-    ],
-  ];
-  for (const [name, got, budget, date, flag] of flagCases) {
-    const found = budgetFindings(got, budget);
-    const flags = found[0]?.match(/--record(?:-css)?/g) ?? [];
-    if (
-      found.length !== 1 ||
-      !found[0].includes(`recorded ${date}`) ||
-      flags.join() !== flag
-    ) {
-      console.error(
-        `self-test: ${name} over budget must cite ${date} and name only ${flag}, got ${JSON.stringify(found)}`,
-      );
-      process.exit(1);
-    }
-  }
-  const got = { jsGzipBytes: 9, cssGzipBytes: 8, fontBytes: 4 };
-  const cssOnly = nextBudget(dated, got, ["new.js"], true, "2026-03-03");
-  const full = nextBudget(dated, got, ["new.js"], false, "2026-03-03");
-  const wantCssOnly = {
-    ...dated,
-    entryCssGzipBytes: 8,
-    entryFontBytes: 4,
-    cssRecordedAt: "2026-03-03",
+  const closureFiles = {
+    "entry.js": "entry".repeat(40),
+    "a.js": "alpha".repeat(30),
+    "b.js": "bravo".repeat(20),
+    "lazy.js": "lazy".repeat(50),
+    "e.css": "e{margin:0}".repeat(30),
+    "l.css": "l{margin:1px}".repeat(30),
   };
-  const wantFull = {
-    entryClosureGzipBytes: 9,
-    entryCssGzipBytes: 8,
-    entryFontBytes: 4,
-    recordedAt: "2026-03-03",
-    cssRecordedAt: "2026-03-03",
-    chunks: ["new.js"],
-  };
-  for (const [name, gotBudget, want] of [
-    ["--record-css", cssOnly, wantCssOnly],
-    ["--record", full, wantFull],
-  ]) {
-    if (JSON.stringify(gotBudget) !== JSON.stringify(want)) {
-      console.error(
-        `self-test: ${name} wrote ${JSON.stringify(gotBudget)}, expected ${JSON.stringify(want)}`,
-      );
-      process.exit(1);
-    }
-  }
-  // A budget file re-recorded by PR after PR can hold a merge conflict. It
-  // is refused as unreadable, not as missing, and the findings already
-  // collected still print (TYRE-443).
-  const conflicted = loadBudget(
-    () => '<<<<<<< HEAD\n{"entryClosureGzipBytes": 1}\n=======\n',
+  const gz = (name) => gzipSync(Buffer.from(closureFiles[name])).length;
+  const measured = entryFigures(
+    closureManifest,
+    "index.html",
+    bytes(closureFiles),
   );
-  const missing = loadBudget(() => {
+  same(
+    "closure chunks",
+    measured.chunks.map((c) => c.file),
+    ["entry.js", "a.js", "b.js"],
+  );
+  same("closure figures", measured.figures, {
+    entryClosureGzipBytes: gz("entry.js") + gz("a.js") + gz("b.js"),
+    entryCssGzipBytes: gz("e.css"),
+    entryFontBytes: 0,
+  });
+
+  // The lazy-driver check (ADR-0009, rule 7) has to be shown able to fire.
+  const lazyCapture = {
+    "index.html": {
+      file: "entry.js",
+      isEntry: true,
+      dynamicImports: ["src/capture/Sheet.tsx"],
+    },
+    "src/capture/Sheet.tsx": { file: "sheet.js" },
+  };
+  const eagerCapture = {
+    "index.html": {
+      file: "entry.js",
+      isEntry: true,
+      imports: ["src/capture/Sheet.tsx"],
+    },
+    "src/capture/Sheet.tsx": { file: "sheet.js" },
+  };
+  const lazyFound = lazyDriverFindings(lazyCapture, "index.html");
+  same("a capture module only lazily reachable: count", lazyFound.length, 1);
+  if (
+    !lazyFound[0].startsWith(
+      "src/capture/Sheet.tsx is reachable from the entry only through a dynamic import",
+    )
+  )
+    fail(`lazy capture module: got ${JSON.stringify(lazyFound)}`);
+  same(
+    "a capture module imported statically",
+    lazyDriverFindings(eagerCapture, "index.html"),
+    [],
+  );
+
+  // The ceilings (U200). A figure passes at its ceiling and fails one byte
+  // past it.
+  const [JS, CSS, FONT] = FIGURES.map((f) => f.key);
+  const figs = (js, css, fonts) => ({
+    [JS]: js,
+    [CSS]: css,
+    [FONT]: fonts,
+  });
+  const ceilings = (js, css, fonts) => {
+    const values = [js, css, fonts];
+    return Object.fromEntries(
+      FIGURES.map(({ key }, i) => [key, { ceiling: values[i], reason: "r" }]),
+    );
+  };
+  same(
+    "at every ceiling",
+    budgetFindings(figs(5, 6, 7), ceilings(5, 6, 7)),
+    [],
+  );
+  const limits = [5, 6, 7];
+  for (const [i, f] of FIGURES.entries()) {
+    const values = limits.map((v, j) => (j === i ? v + 1 : v));
+    const found = budgetFindings(figs(...values), ceilings(...limits));
+    same(`${f.name} one byte past: count`, found.length, 1);
+    includes(
+      `${f.name} one byte past`,
+      found[0],
+      f.name,
+      f.key,
+      "1 past its ceiling",
+      "React.lazy",
+      "by hand",
+      "U84",
+      "U200",
+    );
+    if (noFlag.test(found[0])) fail(`${f.name} one byte past names a flag`);
+    console.log(`self-test (${f.name}): ${found[0]}`);
+  }
+  const two = budgetFindings(figs(6, 7, 7), ceilings(5, 6, 7));
+  same("two past: count", two.length, 2);
+  includes("two past, first", two[0], "entry JS");
+  includes("two past, second", two[1], "entry CSS");
+
+  const load = (value) =>
+    loadBudget(() =>
+      typeof value === "string" ? value : JSON.stringify(value),
+    );
+  const withKey = (key, entry) => ({ ...ceilings(5, 6, 7), [key]: entry });
+  same("valid budget", load(ceilings(5, 6, 7)), {
+    budget: ceilings(5, 6, 7),
+    problem: null,
+  });
+  const noFile = loadBudget(() => {
     throw Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" });
   });
-  const refused = verdict(["FAIL: earlier"], conflicted, got);
-  if (
-    conflicted.budget !== null ||
-    !/does not parse/.test(conflicted.problem ?? "") ||
-    !/^no web\/bundle-budget\.json/.test(missing.problem ?? "") ||
-    refused.code !== 2 ||
-    refused.errors[0] !== "FAIL: earlier" ||
-    refused.errors[1] !== conflicted.problem
-  ) {
-    console.error(
-      `self-test: an unreadable budget: got ${JSON.stringify({ conflicted, missing, refused })}`,
+  if (!/^no web\/bundle-budget\.json/.test(noFile.problem ?? ""))
+    fail(`no file: got ${JSON.stringify(noFile)}`);
+  const refusals = [
+    ["no file", noFile, [], []],
+    ["does not parse", load("{"), ["does not parse"], []],
+    ["array", load("[]"), ["not a JSON object"], []],
+    ["null", load("null"), ["not a JSON object"], []],
+    ["number", load("5"), ["not a JSON object"], []],
+    ["no ceiling", load(withKey(JS, { reason: "r" })), [JS], []],
+    [
+      "ceiling a string",
+      load(withKey(JS, { ceiling: "5", reason: "r" })),
+      [JS],
+      [],
+    ],
+    ["no reason", load(withKey(CSS, { ceiling: 6 })), [CSS], []],
+    [
+      "reason of spaces",
+      load(withKey(FONT, { ceiling: 7, reason: "  " })),
+      [FONT],
+      [],
+    ],
+    [
+      "ceiling that parses to Infinity",
+      load(
+        `{"${JS}":{"ceiling":1e999,"reason":"r"},"${CSS}":{"ceiling":6,"reason":"r"},"${FONT}":{"ceiling":7,"reason":"r"}}`,
+      ),
+      [JS],
+      [CSS, FONT],
+    ],
+    [
+      "ceiling negative",
+      load(withKey(JS, { ceiling: -1, reason: "r" })),
+      [JS],
+      [],
+    ],
+    [
+      "ceiling fractional",
+      load(withKey(JS, { ceiling: 1.5, reason: "r" })),
+      [JS],
+      [],
+    ],
+    [
+      "key left out",
+      load(
+        Object.fromEntries(
+          Object.entries(ceilings(5, 6, 7)).filter(([k]) => k !== FONT),
+        ),
+      ),
+      [FONT],
+      [],
+    ],
+    [
+      "old bare-number shape",
+      load({ [JS]: 168821, [CSS]: 6607, [FONT]: 70188 }),
+      [JS, CSS, FONT],
+      [],
+    ],
+  ];
+  for (const [name, loaded, want, unwanted] of refusals) {
+    if (loaded.budget !== null || typeof loaded.problem !== "string")
+      fail(`${name}: expected a refusal, got ${JSON.stringify(loaded)}`);
+    includes(name, loaded.problem, ...want);
+    for (const part of unwanted)
+      if (loaded.problem.includes(part))
+        fail(`${name}: ${JSON.stringify(loaded.problem)} names ${part}`);
+    if (noFlag.test(loaded.problem)) fail(`${name}: the refusal names a flag`);
+  }
+
+  // Every finding prints before the verdict, so neither a figure past its
+  // ceiling nor an unreadable budget hides an earlier finding.
+  const refused = verdict(["FAIL: earlier"], load("{"), figs(5, 6, 7));
+  same("a refused budget keeps earlier findings: code", refused.code, 2);
+  same("a refused budget keeps earlier findings", refused.errors, [
+    "FAIL: earlier",
+    load("{").problem,
+  ]);
+  const past = verdict(
+    ["FAIL: earlier"],
+    { budget: ceilings(5, 6, 7), problem: null },
+    figs(6, 6, 7),
+  );
+  same("a figure past keeps earlier findings: code", past.code, 1);
+  same(
+    "a figure past keeps earlier findings: first",
+    past.errors[0],
+    "FAIL: earlier",
+  );
+  if (!(past.errors[1] ?? "").startsWith("FAIL: entry JS"))
+    fail(`a figure past: got ${JSON.stringify(past)}`);
+  same(
+    "pass",
+    verdict([], { budget: ceilings(5, 6, 7), problem: null }, figs(5, 6, 7)),
+    { errors: [], code: 0 },
+  );
+
+  same("no arguments", parseArgs([]), { mode: "check" });
+  same("self-test argument", parseArgs(["--self-test"]), {
+    mode: "self-test",
+  });
+  for (const args of [
+    ["--ceiling"],
+    ["--write"],
+    ["--self-test", "--write"],
+    ["extra"],
+  ]) {
+    const got = parseArgs(args);
+    same(`unknown ${args.join(" ")}`, got.mode, "refused");
+    includes(
+      `unknown ${args.join(" ")}`,
+      got.problem,
+      "unknown arguments",
+      ...args,
     );
-    process.exit(1);
   }
-  for (const [name, found] of budgetCases) {
-    for (const f of found) console.log(`self-test (${name}): ${f}`);
-  }
-  for (const [name, found, want] of budgetCases) {
-    if (found.length !== want) {
-      console.error(
-        `self-test: ${name}: expected ${want} finding(s), got ${JSON.stringify(found)}`,
-      );
-      process.exit(1);
-    }
-  }
+
   console.log("self-test: OK");
   process.exit(0);
 }
 
-let manifest;
-try {
-  manifest = JSON.parse(
-    readFileSync(resolve(dist, ".vite/manifest.json"), "utf8"),
-  );
-} catch (err) {
-  console.error(
-    `no manifest at web/dist/.vite/manifest.json; run "npm run build" in web/ first (${err.message})`,
-  );
+const read = readDist(dist);
+if (read.problem !== null) {
+  console.error(read.problem);
   process.exit(2);
 }
+const { manifest, entryKey } = read;
 
-const entryKey = Object.keys(manifest).find((k) => manifest[k].isEntry);
-if (!entryKey) {
-  console.error("manifest has no entry chunk");
-  process.exit(2);
-}
+const findings = [
+  ...authLibraryFindings(manifest, entryKey, (file) =>
+    readFileSync(resolve(dist, file), "utf8"),
+  ),
+  ...lazyDriverFindings(manifest, entryKey),
+].map((f) => `FAIL: ${f}`);
 
-// The budget is a ceiling, so a lazy driver module would pass it by
-// shrinking the entry; a chunk fetched in front of capture is the round trip
-// ADR-0009 (rule 7) rules out. The manifest keys a dynamic entry by its
-// source path, which is what this reads, and it refuses --record too.
-const { seen, order, reachable } = closures(manifest, entryKey);
-
-const findings = authLibraryFindings(manifest, entryKey, (file) =>
-  readFileSync(resolve(dist, file), "utf8"),
-).map((f) => `FAIL: ${f}`);
-
-const lazyDriver = [...reachable].filter(
-  (key) => !seen.has(key) && /^src\/(capture|driver)\//.test(key),
-);
-for (const key of lazyDriver) {
-  findings.push(
-    `FAIL: ${key} is reachable from the entry only through a dynamic import. ` +
-      "The capture and driver modules load with the entry (ADR-0009, CLAUDE.md rule 7); import it statically.",
-  );
-}
-
-const chunks = order.map((key) => {
-  const file = manifest[key].file;
-  const bytes = gzipSync(readFileSync(resolve(dist, file))).length;
-  return { key, file, gzipBytes: bytes };
-});
-const total = chunks.reduce((sum, c) => sum + c.gzipBytes, 0);
-const assets = closureAssets(manifest, order, (file) =>
-  readFileSync(resolve(dist, file)),
+const { chunks, cssFiles, fontFiles, figures } = entryFigures(
+  manifest,
+  entryKey,
+  (file) => readFileSync(resolve(dist, file)),
 );
 
-console.log(`entry closure: ${chunks.length} chunks, ${total} gzip bytes`);
+console.log(
+  `entry closure: ${chunks.length} chunks, ${figures.entryClosureGzipBytes} gzip bytes`,
+);
 for (const c of chunks)
   console.log(`  ${c.gzipBytes.toString().padStart(8)}  ${c.file}`);
 console.log(
-  `entry CSS: ${assets.cssFiles.length} files, ${assets.cssGzipBytes} gzip bytes`,
+  `entry CSS: ${cssFiles.length} files, ${figures.entryCssGzipBytes} gzip bytes`,
 );
 console.log(
-  `entry fonts: ${assets.fontFiles.length} files, ${assets.fontBytes} bytes`,
+  `entry fonts: ${fontFiles.length} files, ${figures.entryFontBytes} bytes`,
 );
 
 const loaded = loadBudget(() => readFileSync(budgetPath, "utf8"));
-const { budget } = loaded;
-const got = {
-  jsGzipBytes: total,
-  cssGzipBytes: assets.cssGzipBytes,
-  fontBytes: assets.fontBytes,
-};
-
-if (record || recordCss) {
-  if (findings.length > 0) {
-    for (const f of findings) console.error(f);
-    process.exit(1);
-  }
-  if (recordCss && !budget) {
-    console.error(
-      `${loaded.problem}. --record-css keeps the JS figure, so run --record instead`,
-    );
-    process.exit(2);
-  }
-  const next = nextBudget(
-    budget,
-    got,
-    chunks.map((c) => c.file),
-    !record,
-    new Date().toISOString().slice(0, 10),
-  );
-  writeFileSync(budgetPath, JSON.stringify(next, null, 2) + "\n");
-  console.log(
-    `recorded ${record ? `${total} JS, ` : ""}${assets.cssGzipBytes} CSS and ${assets.fontBytes} font bytes to web/bundle-budget.json`,
-  );
-  process.exit(0);
-}
-
-const { errors, code } = verdict(findings, loaded, got);
+const { errors, code } = verdict(findings, loaded, figures);
 if (code !== 0) {
   for (const e of errors) console.error(e);
   process.exit(code);
 }
 console.log(
-  `OK: within budget ${budget.entryClosureGzipBytes} JS (recorded ${budget.recordedAt}), ${budget.entryCssGzipBytes} CSS and ${budget.entryFontBytes} fonts (recorded ${budget.cssRecordedAt ?? budget.recordedAt})`,
+  `OK: ${FIGURES.map((f) => {
+    const ceiling = loaded.budget[f.key].ceiling;
+    return `${f.name} ${figures[f.key]} of ${ceiling} ${f.unit} (${ceiling - figures[f.key]} left)`;
+  }).join(", ")}`,
 );

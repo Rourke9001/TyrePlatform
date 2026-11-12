@@ -1,10 +1,5 @@
 {
-  "entryClosureGzipBytes": 168821,
-  "entryCssGzipBytes": 6607,
-  "entryFontBytes": 70188,
-  "recordedAt": "2026-11-10",
-  "cssRecordedAt": "2026-11-10",
-  "chunks": [
-    "assets/index-Ct3RfmqD.js"
-  ]
+  "entryClosureGzipBytes": { "ceiling": 185703, "reason": "168821 on 12 Nov 2026 plus 10% (U200)" },
+  "entryCssGzipBytes": { "ceiling": 7267, "reason": "6607 on 12 Nov 2026 plus 10% (U200)" },
+  "entryFontBytes": { "ceiling": 77206, "reason": "70188 on 12 Nov 2026 plus 10% (U200)" }
 }
