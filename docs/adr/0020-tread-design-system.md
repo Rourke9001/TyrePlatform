@@ -12,6 +12,10 @@
   and capture writes its own compact "4mm" and "4.5mm". Amended 3 Nov 2026
   by owner ruling U147 (21 Oct 2026, TYRE-207): under Capture follows the
   SRS, the Outer, Centre and Inner ban binds the tread field labels only.
+  Amended 12 Nov 2026 by owner ruling U200 (TYRE-474): under Consequences,
+  the capture budget is three ceilings with 10% headroom, raised by hand,
+  and no flag writes it
+  (`docs/superpowers/specs/2026-11-12-capture-bundle-ceilings-design.md`).
 - **Date:** 2026-10-20
 - **Deciders:** Rourke (owner decision of 20 Oct 2026)
 - **Related:** ADR-0015 (UI substrate; this keeps its substrate and
@@ -277,6 +281,8 @@ erode them:
   be re-cut.
 - The font swap may move the capture bundle either way. The budget only
   ratchets down, so a rise needs `--record` and a reason in the PR.
+  *(Amended 2026-11-12 by TYRE-474. The budget is three ceilings with 10%
+  headroom, raised by hand; see the Status line.)*
 - Capture and the vehicle screen number positions differently: rig-wide
   on capture, per unit on the vehicle screen. The place words carry a
   driver from one to the other.
