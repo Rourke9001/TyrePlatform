@@ -145,6 +145,11 @@ const namedColour = String.raw`/(?<![-\w.#${slash}])(?:${namedColours})(?![-\w.]
 
 const styleKey = String.raw`/^(?:color|fill|stroke|stopColor|floodColor|lightingColor|background\w*|border\w*|outline\w*|boxShadow|textShadow|caretColor|accentColor|textDecorationColor|columnRuleColor)$/`;
 
+// SVG's hyphenated colour attributes. React DOM sets a JSX attribute it does
+// not know under the name as written, so stop-color paints as stopColor does
+// (TYRE-475).
+const svgColourAttribute = String.raw`/^(?:stop-color|flood-color|lighting-color)$/`;
+
 // A string is a Literal's value or a TemplateElement's raw text, so a
 // comment never reaches these.
 const colourString = (pattern) =>
@@ -159,6 +164,7 @@ const styleValue = `:matches(${[
   `Property[computed=false][key.name=${styleKey}]`,
   `Property[key.value=${styleKey}]`,
   `JSXAttribute[name.name=${styleKey}]`,
+  `JSXAttribute[name.name=${svgColourAttribute}]`,
   `AssignmentExpression[left.computed=false][left.property.name=${styleKey}]`,
   `AssignmentExpression[left.property.value=${styleKey}]`,
   `AssignmentExpression[left.name=${styleKey}]`,
