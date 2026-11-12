@@ -281,6 +281,10 @@ const TSX_SHAPES_REFUSED = lines(
   'class C6 { accessor fill = "red"; }',
   'const p27 = { background: "red", outline: "red" };',
   'const p28 = " #fff ";',
+  'const p29 = <stop stop-color="red" />;',
+  'const p30 = <feFlood flood-color="black" />;',
+  'const p31 = <feDiffuseLighting lighting-color="white" />;',
+  'const p32 = <stop stop-color="0 #abcdef" />;',
 );
 const TSX_SHAPES_REFUSED_WANT = [
   "1: hex",
@@ -317,6 +321,10 @@ const TSX_SHAPES_REFUSED_WANT = [
   "27: namedInStyle",
   "27: namedInStyle",
   "28: hex",
+  "29: namedInStyle",
+  "30: namedInStyle",
+  "31: namedInStyle",
+  "32: hexInStyle",
 ];
 
 const TSX_SHAPES_QUIET = lines(
@@ -342,6 +350,7 @@ const TSX_SHAPES_QUIET = lines(
   'const q20 = { color: "&#8230;", border: "&#160;" };',
   'class C9 { accessor [fill] = "red"; }',
   'const q22 = { stroke: "infrared", Color: "red" };',
+  'const q23 = <div data-color="red" />;',
 );
 
 const EXEMPT_TSX = lines(
