@@ -1,7 +1,7 @@
 # Capture bundle ceilings: a limit with headroom, and each PR's size change in CI
 
-Date: 2026-11-12. Ticket: TYRE-474 (epic TYRE-443). Status: awaiting the
-owner's approval. Owner ruling U200 (9 Nov 2026, in the ticket). Reverses
+Date: 2026-11-12. Ticket: TYRE-474 (epic TYRE-443). Status: approved by
+the owner on 12 Nov 2026. Owner ruling U200 (9 Nov 2026, in the ticket). Reverses
 U45, a planner's default
 (`docs/superpowers/specs/2026-09-10-b7-analytics-dashboard-design.md:129`).
 The ticket cites no SRS requirement; this is build tooling, no product
