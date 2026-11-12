@@ -272,6 +272,45 @@ jobs:
           node ../scripts/check-dist-sign-in.mjs
           node ../scripts/write-web-config.mjs --self-test
 
+  # Puts each PR's change in the three entry figures in front of the reviewer
+  # (U84, U200). Its own job, so the Frontend job's web/dist is never rebuilt
+  # from another commit (TYRE-474).
+  bundle-size:
+    name: Capture bundle size
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # TYRE-474; docs/superpowers/specs/2026-11-12-capture-bundle-ceilings-design.md, CI
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version-file: web/.nvmrc, cache: npm, cache-dependency-path: web/package-lock.json }
+      - name: Pin npm
+        run: npm i -g npm@12.0.2
+      - name: This PR's figures
+        run: |
+          cd web
+          npm ci
+          npm run build
+          node ../scripts/check-capture-bundle.mjs --figures dist > "$RUNNER_TEMP/pr.json"
+      # A pull_request run checks out the merge commit, whose first parent is
+      # the base branch's tip; the guard refuses any other checkout (TYRE-474
+      # spec, CI). The PR's script measures the base, so the last line runs
+      # $GITHUB_WORKSPACE's copy.
+      - name: The base's figures
+        run: |
+          git rev-parse --verify --quiet HEAD^2 > /dev/null \
+            || { echo "::error::HEAD is not a merge commit, so HEAD^ is not the base branch's tip"; exit 1; }
+          echo "base $(git rev-parse --short HEAD^), this PR's merge commit $(git rev-parse --short HEAD)"
+          git worktree add --detach "$RUNNER_TEMP/base" HEAD^
+          cd "$RUNNER_TEMP/base/web"
+          npm ci
+          npm run build
+          node "$GITHUB_WORKSPACE/scripts/check-capture-bundle.mjs" --figures dist > "$RUNNER_TEMP/base.json"
+      - name: Size report
+        run: node scripts/check-capture-bundle.mjs --report "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/pr.json"
+
   e2e:
     name: Browser smoke
     runs-on: ubuntu-latest

@@ -4,8 +4,8 @@
 // Why: a job with no timeout-minutes runs to GitHub's six-hour default when a
 // step hangs, and the pipeline lead waits on CI.
 // Each value is at least twice the job's slowest passing run, rounded up to 5
-// minutes; the measurements are in
-// docs/superpowers/specs/2026-11-11-bounded-lead-waits-design.md (CI).
+// minutes; the measurement behind each is in the design its trailing comment
+// cites.
 // A job that calls a reusable workflow cannot carry the key, so it passes.
 //
 // There is no YAML library at the repo root, so this reads lines and relies on
