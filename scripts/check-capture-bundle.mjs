@@ -125,6 +125,15 @@ function parseArgs(args) {
     operand(args[2])
   )
     return { mode: "report", base: args[1], pr: args[2] };
+  const takes = new Map([
+    ["--figures", "one build directory (--figures <dist>)"],
+    ["--report", "two figures files (--report <base.json> <pr.json>)"],
+  ]);
+  if (takes.has(args[0]))
+    return {
+      mode: "refused",
+      problem: `${args[0]} takes ${takes.get(args[0])}, not "${args.join(" ")}".`,
+    };
   return {
     mode: "refused",
     problem:
@@ -734,14 +743,34 @@ if (parsed.mode === "self-test") {
     base: "a.json",
     pr: "b.json",
   });
+  // A known flag with the wrong operands is told what the flag takes, never
+  // that it is unknown.
+  const usage = {
+    "--figures": "--figures <dist>",
+    "--report": "--report <base.json> <pr.json>",
+  };
   for (const args of [
     ["--figures"],
     ["--figures", "a", "b"],
     ["--figures", "--self-test"],
+    ["--report"],
     ["--report", "a.json"],
     ["--report", "a", "b", "c"],
-  ])
-    same(`bad operands ${args.join(" ")}`, parseArgs(args).mode, "refused");
+    ["--report", "--figures", "dist"],
+  ]) {
+    const name = `bad operands ${args.join(" ")}`;
+    const got = parseArgs(args);
+    same(name, got.mode, "refused");
+    if (!got.problem.startsWith(`${args[0]} takes `))
+      fail(
+        `${name}: expected the problem to start with "${args[0]} takes ", got ${JSON.stringify(got.problem)}`,
+      );
+    includes(name, got.problem, usage[args[0]], ...args.slice(1));
+    if (got.problem.includes("unknown"))
+      fail(
+        `${name}: ${JSON.stringify(got.problem)} calls a known flag unknown`,
+      );
+  }
 
   // A figures file the job wrote from a failed run is empty or partial; the
   // report refuses it rather than print a row of undefined (TYRE-474).
