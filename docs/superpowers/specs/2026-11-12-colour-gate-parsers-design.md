@@ -129,6 +129,8 @@ the results that shape the design are below.
   `el.style.setProperty("color", "red")`, a computed custom-property key,
   a colour held in a constant and applied later, and the contents of a
   base64 data: URL.
+- A colour set by `el.setAttribute("fill", "red")`. It passes today and
+  stays uncovered, as `setProperty()` does (re-review 1, finding 7).
 - `web/index.html`, `web/e2e/`, `web/lint/` and the config files. The
   gate scans `web/src` today (`scripts/check-colour-literals.mjs:332`)
   and keeps that scope.
@@ -222,8 +224,8 @@ A hex colour has 3, 4, 6 or 8 hex digits
 (https://www.w3.org/TR/css-color-4/#hex-notation). Today's pattern takes
 3 to 8.
 
-A style context is any node below one of these, at any depth, whose name
-matches today's key list (`:70-71`: `color`, `fill`, `stroke`,
+A style context is any node below one of these, at any depth, whose whole
+name matches today's key list (`:70-71`: `color`, `fill`, `stroke`,
 `stopColor`, `floodColor`, `lightingColor`, `background*`, `border*`,
 `outline*`, `boxShadow`, `textShadow`, `caretColor`, `accentColor`,
 `textDecorationColor`, `columnRuleColor`):
@@ -236,6 +238,19 @@ matches today's key list (`:70-71`: `color`, `fill`, `stroke`,
   `function f(color = ...)`;
 - a class field with that name, `fill = ...`, an auto-accessor field
   included, `accessor fill = ...`.
+
+The JSX attribute shape also takes `stop-color`, `flood-color` and
+`lighting-color`, by exact name. Today's pattern matched `color=` after
+the hyphen (`:70-71`), and React DOM sets a hyphenated attribute as
+written, so `<stop stop-color="red" />` paints as `stopColor` does and
+stays refused (review 0, finding 1). The three names are style contexts
+in no other shape. As a quoted key, in a spread or as createElement
+props they are kebab-case keys, which the key list does not name, so a
+string under one is judged as a string outside a style context, as
+under `{ "background-color": ... }`: `{ "stop-color": "red" }` passes,
+as today. An attribute that only ends in a listed word,
+`<div data-color="red" />`, is not a style context. It paints nothing,
+and today's pattern refused it by coincidence of text.
 
 A key written in quotes is still that key, bracketed or not: `{ "color":
 "red" }`, `{ ["fill"]: "red" }` and `el.style["color"] = "red"` are
@@ -298,25 +313,26 @@ and ban (TSX):
 3. The ticket's cases. Refused: a hex after a regex literal that holds
    `//`, and both arms of `color: on ? "red" : "blue"`. Quiet: `"Order
    #1234"`, `href="/vehicles#cafe"`, `content: "Red"`, `grid-area: tan`.
-4. The cases the spec-stage reading and the builder check added. Refused
-   in CSS: `RGB(0 0 0)`, `@import url("data:...")`, `@import
-   "./plain.css"`, `image-set()` holding only `url(./a.png)`, `image()`
-   with a bare string, a hex and a named colour in a custom property's
-   value, a named colour inside `color-mix()`, and a data: URL in
-   `URL("...")`, in `url( "..." )` with spaces, in `Url(DATA:...)` and
+4. The cases the spec-stage reading, the builder check and the stage 5
+   review added. Refused in CSS: `RGB(0 0 0)`, `@import url("data:...")`,
+   `@import "./plain.css"`, `image-set()` holding only `url(./a.png)`,
+   `image()` with a bare string, a hex and a named colour in a custom
+   property's value, a named colour inside `color-mix()`, and a data: URL
+   in `URL("...")`, in `url( "..." )` with spaces, in `Url(DATA:...)` and
    in a `url(` that breaks the line before its string. Quiet in CSS:
    `content: "#fff"`, `content: "rgb("`, `content: "data:"`,
    `url(./a.svg#fff)`, `url( #fade )`, `a[href^="data:"]`, an
    `@supports` condition that holds a data: URL, and an `@namespace`
    with one. Refused in TSX: `"#fff"` alone, a hex inside a longer
    string under a style key, `<stop stopColor="red" />`,
-   `el.style.color = "red"`, `color = "red"`, `const fill = "white"`,
-   `const fill: "white" = x`, a parameter default, a class field. Quiet
-   in TSX: `fill="none"`, `stroke="currentColor"`, `color:
-   "transparent"`, a `var(--ink)` value, a hex inside a longer string
-   outside a style context, a type member `color: "red" | "blue"`, a
-   parameter's type `color: "red"`, `on ? color : "red"`, a computed key
-   `{ [color]: "red" }`, and a class field `label = "Red"`.
+   `<stop stop-color="red" />`, `el.style.color = "red"`, `color = "red"`,
+   `const fill = "white"`, `const fill: "white" = x`, a parameter
+   default, a class field. Quiet in TSX: `fill="none"`,
+   `stroke="currentColor"`, `color: "transparent"`, a `var(--ink)` value,
+   a hex inside a longer string outside a style context, a type member
+   `color: "red" | "blue"`, a parameter's type `color: "red"`,
+   `on ? color : "red"`, a computed key `{ [color]: "red" }`, a class
+   field `label = "Red"`, and `<div data-color="red" />`.
 5. The block invariant, at real paths: `src/time/tenantTime.ts` refuses a
    planted colour, still allows `Intl.DateTimeFormat` and still refuses
    `toLocaleString`; `src/time/tenantTime.test.tsx` refuses no colour and
@@ -399,6 +415,9 @@ this branch, unless Non-goals or the table names it.
 | A TS string of `#` and 5 or 7 hex digits | refused | passes | not a colour in CSS |
 | A quoted style key, bracketed or not, `{ "color": "red" }`, `el.style["color"] = "red"` | passes | **refused** | it paints as its unquoted twin does (red team round 1, I3) |
 | A destructured default or a method under a style key, `const { color: c = "red" } = props`, `{ color() { return "red"; } }` | passes | **refused** | every string below a style context counts; a class method or getter is not a context |
+| The JSX attributes `stop-color`, `flood-color` and `lighting-color`, `<stop stop-color="red" />` | refused | refused | unchanged; named exactly, for the JSX attribute only (review 0, finding 1) |
+| A named colour under the same three names as a quoted key, in a spread or as createElement props, `{ "stop-color": "red" }` | passes | passes | a kebab-case key is not in the key list, as `{ "background-color": "red" }` is not |
+| An attribute that only ends in a listed word, `<div data-color="red" />` | refused | passes | it is no style key and paints nothing; today's pattern matched `color=` after the hyphen by coincidence of text |
 | A plain `@import` in a stylesheet | passes | **refused** | no core rule reads an at-rule's parameters; the tree has none |
 | An inline `eslint-disable` over a colour ban | no such thing | possible | true of every eslint ban today; it shows in the diff |
 | `href="#add"`, a whole string that reads as a hex | refused | refused | unchanged; the id is renamed, as today |
@@ -493,6 +512,16 @@ this branch, unless Non-goals or the table names it.
     (https://www.w3.org/TR/css-values-4/#urls; M2). A bracketed template
     literal key stays quiet, as today, and the PR's Decisions name it
     (M6).
+18. **From the stage 5 review.** `stop-color`, `flood-color` and
+    `lighting-color` are style contexts as JSX attributes only: today's
+    pattern took them by matching `color=` after the hyphen, so
+    `<stop stop-color="red" />` was refused and still is (`:70-71`;
+    review 0, finding 1). In every other shape they are not style
+    contexts, so `{ "stop-color": "red" }` passes, as today, since
+    refusing it beside a quiet `{ "background-color": "red" }` would split
+    two keys React writes the same way (re-review 1, findings 1 and 2).
+    `setAttribute()` joins `setProperty()` in Non-goals (re-review 1,
+    finding 7).
 
 ## Rejected
 
