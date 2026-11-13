@@ -192,8 +192,8 @@ each under a permission the token holds.
    write a branch, however the command is written: GitHub refuses the
    credential. A session that does not carry the token, local or cloud,
    a linked worktree included, has its `gh` commands refused with the fix
-   named. `gh` run through another command, and a command that drops the
-   token on purpose, are named under Not covered.
+   named. `gh` run through `timeout` or `env`, and a command that drops
+   the token on purpose, are named under Not covered.
 4. A session where any of the controls is missing is told so before it
    works unattended: `make pipeline` refuses to start, and the cloud
    close-out stops with a report.
@@ -546,7 +546,7 @@ ending with no diff. The result goes in the PR body.
 
 | Where | Change |
 | --- | --- |
-| `CLAUDE.md:179-189`, the hooks paragraph | Still three hooks; the guard's sentences go and `gh-token-required.sh` takes its place, in one sentence. A new short paragraph says what holds the merge and the push now: the `develop` ruleset, the restricted `gh` token and `.githooks/pre-push`, that `make guard-check` proves them, that `--no-verify`, `-c core.hooksPath=`, a hand-set `TYRE_PROMOTE` and a `gh` call that drops the token are among the limits, and cites the runbook's list of them. |
+| `CLAUDE.md:179-189`, the hooks paragraph | Still three hooks; the guard's sentences go and `gh-token-required.sh` takes its place, in one sentence, with a second for the wrapped `gh` calls it does not judge. A new short paragraph says what holds the merge and the push now: the `develop` ruleset, the restricted `gh` token and `.githooks/pre-push`, that `make guard-check` proves them, that `--no-verify`, `-c core.hooksPath=`, a hand-set `TYRE_PROMOTE` and a `gh` call that drops the token are among the limits, and cites the runbook's list of them. |
 | `.claude/settings.json` | The guard's registration goes; `gh-token-required.sh` is registered with `"if": "Bash(gh *)"`. Nothing under `permissions` changes. |
 | `CLAUDE.md`, Commands | Add `make hooks-install` and `make guard-check`. |
 | `CLAUDE.md`, Repo etiquette | `develop` takes a change only through a pull request (ruleset, U201). |
@@ -682,9 +682,10 @@ missed step stops that run with the row that failed.
   `develop` the ruleset still refuses the push. On `main` what is left
   is ruleset 21133437 (fast-forward only), the deploy's own refusals and
   the owner's production approval.
-- **`gh` run through another command.** Section 7's hook judges a
+- **`gh` run through `timeout` or `env`.** Section 7's hook judges a
   command whose program is `gh`, a variable set before it included, and
-  not one that runs `gh` through another program. With the working
+  not one that runs `gh` through either of those two; other wrappers
+  were not tried. With the working
   copy's hook set to refuse every token, `gh --version` and
   `GH_TOKEN=x gh --version` were refused, and `timeout 5 gh --version`
   and `env -u GH_TOKEN gh --version` ran (the fixer's probe in the
