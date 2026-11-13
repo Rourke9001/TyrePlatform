@@ -248,9 +248,14 @@ in no other shape. As a quoted key, in a spread or as createElement
 props they are kebab-case keys, which the key list does not name, so a
 string under one is judged as a string outside a style context, as
 under `{ "background-color": ... }`: `{ "stop-color": "red" }` passes,
-as today. An attribute that only ends in a listed word,
-`<div data-color="red" />`, is not a style context. It paints nothing,
-and today's pattern refused it by coincidence of text.
+as today. `<div data-color="red" />` is not a style context:
+`data-color` is not in the key list and is not one of the three names.
+Today's pattern refused it by matching `color=` after the hyphen. The
+key list is today's (`:70-71`), not a model of what paints:
+`<table bgcolor="red" />` paints and passes, since `bgcolor` is not in
+it or among the three names, and `const borderline = { label: "Red" }`
+is refused, since `borderline` matches `border*`, though its string is
+a label.
 
 A key written in quotes is still that key, bracketed or not: `{ "color":
 "red" }`, `{ ["fill"]: "red" }` and `el.style["color"] = "red"` are
@@ -417,7 +422,7 @@ this branch, unless Non-goals or the table names it.
 | A destructured default or a method under a style key, `const { color: c = "red" } = props`, `{ color() { return "red"; } }` | passes | **refused** | every string below a style context counts; a class method or getter is not a context |
 | The JSX attributes `stop-color`, `flood-color` and `lighting-color`, `<stop stop-color="red" />` | refused | refused | unchanged; named exactly, for the JSX attribute only (review 0, finding 1) |
 | A named colour under the same three names as a quoted key, in a spread or as createElement props, `{ "stop-color": "red" }` | passes | passes | a kebab-case key is not in the key list, as `{ "background-color": "red" }` is not |
-| An attribute that only ends in a listed word, `<div data-color="red" />` | refused | passes | it is no style key and paints nothing; today's pattern matched `color=` after the hyphen by coincidence of text |
+| `<div data-color="red" />` | refused | passes | `data-color` is not in the key list or among the three names; today's pattern matched `color=` after the hyphen |
 | A plain `@import` in a stylesheet | passes | **refused** | no core rule reads an at-rule's parameters; the tree has none |
 | An inline `eslint-disable` over a colour ban | no such thing | possible | true of every eslint ban today; it shows in the diff |
 | `href="#add"`, a whole string that reads as a hex | refused | refused | unchanged; the id is renamed, as today |
