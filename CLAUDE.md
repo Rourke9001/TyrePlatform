@@ -184,9 +184,11 @@ after it, because each rule had already been written down and did not hold
 status you read back is the pipe's; `set -o pipefail` is the way through.
 `migration-immutable.sh` blocks an edit to a migration already on
 `origin/develop` — a migration on a feature branch stays editable, an applied
-one is replaced by a new pair. `gh-token-required.sh` refuses a `gh` call in
+one is replaced by a new pair. `gh-token-required.sh` refuses a `gh` command in
 a session without the restricted token, which would run on `gh`'s full stored
-login.
+login. It does not judge `gh` run through another command, such as the
+playbooks' `timeout 540 gh run watch`, a read that both playbooks reach only
+after the token is checked.
 
 The merge and the push are held by the thing that knows the answer, not by
 reading a command's text: the `develop` ruleset (a pull request is required,

@@ -191,9 +191,9 @@ each under a permission the token holds.
 3. `gh` running on the restricted token cannot merge a pull request or
    write a branch, however the command is written: GitHub refuses the
    credential. A session that does not carry the token, local or cloud,
-   a linked worktree included, has its `gh` calls refused with the fix
-   named. A command that drops the token on purpose is named under Not
-   covered.
+   a linked worktree included, has its `gh` commands refused with the fix
+   named. `gh` run through another command, and a command that drops the
+   token on purpose, are named under Not covered.
 4. A session where any of the controls is missing is told so before it
    works unattended: `make pipeline` refuses to start, and the cloud
    close-out stops with a report.
@@ -682,11 +682,20 @@ missed step stops that run with the row that failed.
   `develop` the ruleset still refuses the push. On `main` what is left
   is ruleset 21133437 (fast-forward only), the deploy's own refusals and
   the owner's production approval.
-- **`env -u GH_TOKEN gh ...` in a local session.** `gh` then uses the
-  stored full login, and section 7's hook has already passed. It is a
-  form only a deliberate evasion produces; the same is true of a `gh`
-  call Claude Code's reader does not see as one, and of reading git's
-  credential out of Windows Credential Manager.
+- **`gh` run through another command.** Section 7's hook judges a
+  command whose program is `gh`, a variable set before it included, and
+  not one that runs `gh` through another program. With the working
+  copy's hook set to refuse every token, `gh --version` and
+  `GH_TOKEN=x gh --version` were refused, and `timeout 5 gh --version`
+  and `env -u GH_TOKEN gh --version` ran (the fixer's probe in the
+  review's fix round 1, 13 Nov 2026). `env -u GH_TOKEN gh ...` then
+  uses the stored full login, a form only a deliberate evasion
+  produces, as is reading git's credential out of Windows Credential
+  Manager. The playbooks' own
+  `timeout 540 gh run watch` is such a call. It is a read, and the
+  pipeline reaches it after `make guard-check` and close-out after its
+  guards' `gh api` read, each of which stops a session without the
+  token.
 - **The token is readable inside a session** (`printenv GH_TOKEN`). On
   this repository it can comment, label, and open and edit pull
   requests.
