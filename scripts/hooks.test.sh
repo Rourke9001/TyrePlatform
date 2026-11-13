@@ -260,6 +260,34 @@ allowed "session: push HEAD to a named feature ref" "git push -q origin HEAD:ref
 allowed "session: node -e naming the merge" "node -e 'const s = \"deny \`gh pr merge\` (owner)\"; console.log(s)' \"\$MD\""
 allowed "session: a gh pr checks loop" "for n in 160 161; do gh pr checks \$n 2>&1 | head -3; done"
 
+# The gh hook: a gh call without the restricted token is refused with the
+# runbook named, and the token's value is never echoed (TYRE-473).
+token_case() {
+  local label=$1 want=$2 rc
+  shift 2
+  local json='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh pr view 1"}}'
+  env -u GH_TOKEN "$@" bash "$root/.claude/hooks/gh-token-required.sh" <<<"$json" >"$work/tok.out" 2>"$work/tok.err"
+  rc=$?
+  if [ "$rc" -ne "$want" ]; then
+    echo "FAIL: $label exited $rc, not $want"; fails=$((fails + 1)); return
+  fi
+  if [ "$want" -eq 2 ]; then
+    if ! grep -q 'docs/runbooks/github-access.md' "$work/tok.err" || [ -s "$work/tok.out" ]; then
+      echo "FAIL: $label did not name the runbook on stderr, or wrote stdout"; fails=$((fails + 1)); return
+    fi
+  elif [ -s "$work/tok.out" ] || [ -s "$work/tok.err" ]; then
+    echo "FAIL: $label printed output on a pass"; fails=$((fails + 1)); return
+  fi
+  echo "PASS: $label"
+}
+token_case "T1 gh hook refuses an unset token" 2
+token_case "T2 gh hook refuses an empty token" 2 GH_TOKEN=
+token_case "T3 gh hook refuses a classic token" 2 GH_TOKEN=ghp_tyre473classic
+if grep -q 'ghp_tyre473classic' "$work/tok.err"; then
+  echo "FAIL: T3 echoed the token's value"; fails=$((fails + 1))
+else echo "PASS: T3 never echoes the token's value"; fi
+token_case "T4 gh hook passes a github_pat_ token" 0 GH_TOKEN=github_pat_tyre473test
+
 # Real pushes to a bare remote through .githooks/pre-push, installed the way
 # make hooks-install installs it (TYRE-473). The hook judges the remote ref git
 # resolves, so no spelling of the command matters.
