@@ -50,8 +50,9 @@ Git Credential Manager opens the browser.
 
 Check: `git config --get-all credential.https://github.com.helper` ends in
 `manager`, and then the dry-run push exits 0. The dry run alone proves
-nothing, since it passes on the `gh` helper too. `make guard-check` row 6 makes
-both reads.
+nothing, since it passes on the `gh` helper too. `make guard-check` row 6 fails
+when the list ends in the `gh` helper and then makes the dry run. It does not
+look for `manager`, so read the list yourself.
 
 ## 3. The local token
 
