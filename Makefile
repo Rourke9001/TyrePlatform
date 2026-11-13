@@ -331,7 +331,7 @@ deps-age: ## Assert nothing in the web lockfile is younger than the .npmrc windo
 ## ---------------------------------------------------------------- workflow
 
 .PHONY: pipeline
-pipeline: ## One job from triage to a reviewed PR with an agent team: make pipeline T=TYRE-123, or T="TYRE-1 TYRE-2" for a small-fix bundle (TYRE-412, TYRE-470)
+pipeline: hooks-install ## One job from triage to a reviewed PR with an agent team: make pipeline T=TYRE-123, or T="TYRE-1 TYRE-2" for a small-fix bundle (TYRE-412, TYRE-470)
 	@bash scripts/pipeline.sh "$$T"
 
 .PHONY: pipeline-launch-test
@@ -349,6 +349,10 @@ pipeline-wait: ## Wait S whole seconds, 1 to 600: the pipeline lead's bounded wa
 .PHONY: pipeline-wait-test
 pipeline-wait-test: ## The wait's refusals and a 1 s wait, direct and through make (TYRE-478)
 	bash scripts/pipeline-wait.test.sh
+
+.PHONY: hooks-install
+hooks-install: ## Point git at .githooks, so pre-push refuses a push to develop or main (TYRE-473)
+	@git config core.hooksPath .githooks
 
 .PHONY: hooks-test
 hooks-test: ## The hooks: each one settings.json names is executable, and the merge and push guard's cases (TYRE-413)
@@ -425,4 +429,4 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bi
 test: db-reset db-test db-test-privileged db-provision-test api-test web-test web-production deploy-gate-test deploy-guard-test deploy-smoke-test pipeline-launch-test pipeline-review-test pipeline-wait-test hooks-test ## Every test in the repo
 
 .PHONY: check
-check: fmt lint test ## What CI runs. Run this before you commit.
+check: hooks-install fmt lint test ## What CI runs. Run this before you commit.

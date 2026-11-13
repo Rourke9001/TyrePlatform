@@ -59,7 +59,18 @@ while IFS= read -r path; do
   mode=$(git -C "$root" ls-files -s -- "$path" | cut -d" " -f1)
   if [ "$mode" = 100755 ]; then echo "PASS: $path is executable in git"; else
     echo "FAIL: $path is mode ${mode:-untracked} in git, not 100755"; fails=$((fails + 1)); fi
-done < <(jq -r ".hooks[][].hooks[].command" "$root/.claude/settings.json" | tr -d "\r" | sed -E "s#^\"[$]CLAUDE_PROJECT_DIR\"/##")
+done < <(jq -r ".hooks[][].hooks[].command" "$root/.claude/settings.json" | tr -d "\r" | sed -E "s#^\"[$]CLAUDE_PROJECT_DIR\"/##"; echo .githooks/pre-push)
+
+# make hooks-install points git at .githooks, and pipeline runs it first
+# (TYRE-473). Make prints CRs on Windows, so strip them.
+mk_lines() { make -s -n -C "$root" "$@" | tr -d '\r' | sed -E 's/[[:space:]]+$//'; }
+want="git config core.hooksPath .githooks"
+got=$(mk_lines hooks-install)
+if [ "$got" = "$want" ]; then echo "PASS: make hooks-install runs one git config line"; else
+  echo "FAIL: make hooks-install printed '$got'"; fails=$((fails + 1)); fi
+got=$(mk_lines pipeline T=TYRE-1 | head -n 1)
+if [ "$got" = "$want" ]; then echo "PASS: make pipeline installs the hook first"; else
+  echo "FAIL: make pipeline printed '$got' first"; fails=$((fails + 1)); fi
 
 R=repos/Rourke9001/TyrePlatform
 
@@ -248,6 +259,151 @@ allowed "session: develop's runs" "gh run list --branch develop --limit 2 --json
 allowed "session: push HEAD to a named feature ref" "git push -q origin HEAD:refs/heads/TYRE-443-tread-comment-audit"
 allowed "session: node -e naming the merge" "node -e 'const s = \"deny \`gh pr merge\` (owner)\"; console.log(s)' \"\$MD\""
 allowed "session: a gh pr checks loop" "for n in 160 161; do gh pr checks \$n 2>&1 | head -3; done"
+
+# Real pushes to a bare remote through .githooks/pre-push, installed the way
+# make hooks-install installs it (TYRE-473). The hook judges the remote ref git
+# resolves, so no spelling of the command matters.
+unset TYRE_PROMOTE
+mkdir -p "$work/home"
+export HOME="$work/home" XDG_CONFIG_HOME="$work/home" GIT_CONFIG_NOSYSTEM=1
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
+push_cases=0
+remote="$work/push/remote.git"
+prepo="$work/push/repo"
+mkdir -p "$work/push"
+git init -q --bare -b develop "$remote"
+git init -q -b develop "$prepo"
+mkdir -p "$prepo/.githooks"
+cp "$root/.githooks/pre-push" "$prepo/.githooks/pre-push" 2>/dev/null
+(
+  cd "$prepo" || exit 1
+  git add --chmod=+x .githooks/pre-push
+  git commit -q -m A
+  git remote add origin "$remote"
+  git push -q origin develop develop:main
+  git config core.hooksPath .githooks
+  git commit -q --allow-empty -m B
+  git switch -q -c TYRE-1-feature
+  git commit -q --allow-empty -m F
+) >/dev/null 2>&1
+cd "$prepo" || exit 1
+
+remote_ref() { git -C "$remote" rev-parse -q --verify "$1" 2>/dev/null; }
+snapshot() { git -C "$remote" for-each-ref --format='%(refname) %(objectname)'; }
+push_fail() { echo "FAIL: $1 ($2)"; fails=$((fails + 1)); }
+push_out=""
+push_rc=0
+run_push() { push_out=$("$@" 2>&1); push_rc=$?; }
+
+# refused <label> <dest branch> <local rev | delete> <cmd...>
+refused() {
+  local label=$1 dest=$2 rev=$3 before after
+  shift 3
+  push_cases=$((push_cases + 1))
+  if [ "$rev" = delete ]; then
+    [ -n "$(remote_ref "refs/heads/$dest")" ] || { push_fail "$label" "vacuous: refs/heads/$dest is not on the remote"; return; }
+  else
+    [ "$(git rev-parse "$rev")" != "$(remote_ref "refs/heads/$dest")" ] || { push_fail "$label" "vacuous: remote $dest already at $rev"; return; }
+  fi
+  before=$(snapshot)
+  run_push "$@"
+  after=$(snapshot)
+  if [ "$push_rc" -eq 0 ]; then push_fail "$label" "exit 0"; return; fi
+  case "$push_out" in *"pre-push: refused"*) ;; *) push_fail "$label" "no 'pre-push: refused' in output: $push_out"; return ;; esac
+  if [ "$before" != "$after" ]; then push_fail "$label" "the remote moved"; return; fi
+  echo "PASS: refused $label"
+}
+# refused_delete <label> <dest branch> <cmd...>
+refused_delete() {
+  local label=$1 dest=$2
+  shift 2
+  refused "$label" "$dest" delete "$@"
+  case "$push_out" in *"delete refs/heads/$dest"*) ;; *) push_fail "$label" "refusal lacks 'delete refs/heads/$dest'" ;; esac
+}
+# pushed <label> <full remote ref> <want object | absent> <cmd...>
+pushed() {
+  local label=$1 ref=$2 want=$3 dm dn
+  shift 3
+  push_cases=$((push_cases + 1))
+  [ "$want" = absent ] && want=""
+  [ "$(remote_ref "$ref")" != "$want" ] || { push_fail "$label" "vacuous: $ref already at the wanted value"; return; }
+  dm=$(remote_ref refs/heads/develop)
+  dn=$(remote_ref refs/heads/main)
+  run_push "$@"
+  if [ "$push_rc" -ne 0 ]; then push_fail "$label" "exit $push_rc: $push_out"; return; fi
+  case "$push_out" in *"pre-push: refused"*) push_fail "$label" "refused"; return ;; esac
+  if [ "$(remote_ref "$ref")" != "$want" ]; then push_fail "$label" "$ref is not at the wanted value"; return; fi
+  if [ "$ref" != refs/heads/develop ] && [ "$(remote_ref refs/heads/develop)" != "$dm" ]; then push_fail "$label" "develop moved"; return; fi
+  if [ "$ref" != refs/heads/main ] && [ "$(remote_ref refs/heads/main)" != "$dn" ]; then push_fail "$label" "main moved"; return; fi
+  echo "PASS: pushed $label"
+}
+# noop <label> <cmd...>
+noop() {
+  local label=$1 before after
+  shift
+  push_cases=$((push_cases + 1))
+  before=$(snapshot)
+  run_push "$@"
+  after=$(snapshot)
+  if [ "$push_rc" -eq 0 ] && [ "$before" = "$after" ]; then echo "PASS: noop $label"; else
+    push_fail "$label" "exit $push_rc: $push_out"; fi
+}
+commit() { git commit -q --allow-empty -m "$1"; }
+
+F=$(git rev-parse TYRE-1-feature)
+B=$(git rev-parse develop)
+pushed P1 refs/heads/TYRE-1-feature "$F" git push -q -u origin TYRE-1-feature
+commit p2
+F=$(git rev-parse HEAD)
+pushed P2 refs/heads/TYRE-1-feature "$F" git push -q
+commit p3
+F=$(git rev-parse HEAD)
+pushed P3 refs/heads/TYRE-1-feature "$F" git push -q origin HEAD
+refused R4 develop develop git push -q origin develop
+refused R5 main HEAD git push -q origin HEAD:main
+refused R6 main "$B" git push -q origin "$B:refs/heads/main"
+refused R7 develop TYRE-1-feature git push -q origin +TYRE-1-feature:develop
+refused R8 develop delete git push -q origin :develop
+refused R9 develop develop git push -q --all origin
+refused R10 develop develop git push -q --mirror origin
+refused R11 develop develop git push -q origin 'refs/heads/*:refs/heads/*'
+refused R12 develop develop git push -q origin :
+commit r13
+refused R13 develop develop git push -q origin TYRE-1-feature develop
+F=$(git rev-parse TYRE-1-feature)
+pushed P14 refs/heads/develop-notes "$F" git push -q origin TYRE-1-feature:develop-notes
+pushed P15 refs/heads/TYRE-9-main "$F" git push -q origin TYRE-1-feature:TYRE-9-main
+pushed P16 refs/heads/TYRE-9-main absent git push -q origin :TYRE-9-main
+git switch -q develop
+refused R18 develop develop git push -q -u origin "$(git branch --show-current)"
+refused R19 develop HEAD git push -q -u origin HEAD
+refused R20 develop HEAD bash -c 'cd "$1" && git -C "$2" push -q origin HEAD' _ "$work" "$prepo"
+refused R21 develop develop bash -c 'b=develop; git push -q origin "$b"'
+refused R22 develop develop sh -c 'git push -q origin develop'
+refused R23 develop develop bash -c 'eval "git push -q origin develop"'
+refused R24 develop develop git push -q "$remote" develop
+pushed P25 refs/heads/TYRE-9-from-develop "$B" git push -q origin HEAD:refs/heads/TYRE-9-from-develop
+git switch -q -c TYRE-2-tracks
+commit r26
+git config branch.TYRE-2-tracks.remote origin
+git config branch.TYRE-2-tracks.merge refs/heads/develop
+git config push.default upstream
+refused R26 develop TYRE-2-tracks git push -q
+git config --unset push.default
+git worktree add -q "$work/push/wt" -b TYRE-3-wt develop
+git -C "$work/push/wt" commit -q --allow-empty -m wt
+W=$(git -C "$work/push/wt" rev-parse HEAD)
+pushed P27 refs/heads/TYRE-3-wt "$W" git -C "$work/push/wt" push -q -u origin TYRE-3-wt
+refused R28 main "$W" git -C "$work/push/wt" push -q origin HEAD:main
+refused R29 develop develop env TYRE_PROMOTE=0 git push -q origin develop
+refused R30 develop develop env TYRE_PROMOTE=true git push -q origin develop
+refused R31 develop develop env TYRE_PROMOTE= git push -q origin develop
+pushed P32 refs/heads/main "$B" env TYRE_PROMOTE=1 git push -q origin develop:main
+refused_delete D34 main env TYRE_PROMOTE=1 git push -q origin :main
+refused_delete D35 develop env TYRE_PROMOTE=1 git push -q origin :develop
+pushed P17 refs/tags/main "$F" git push -q origin TYRE-1-feature:refs/tags/main
+noop N33 git push -q origin "$(remote_ref refs/heads/main):refs/heads/main"
+if [ "$push_cases" -ne 35 ]; then push_fail "push cases" "ran $push_cases push cases, not 35"; fi
 
 if [ "$fails" -ne 0 ]; then
   echo "$fails CASE(S) FAILED"
