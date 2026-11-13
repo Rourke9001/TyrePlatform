@@ -186,7 +186,7 @@ status you read back is the pipe's; `set -o pipefail` is the way through.
 `origin/develop` — a migration on a feature branch stays editable, an applied
 one is replaced by a new pair. `gh-token-required.sh` refuses a `gh` command in
 a session without the restricted token, which would run on `gh`'s full stored
-login. It does not judge `gh` run through another command, such as the
+login. It does not judge `gh` run through `timeout` or `env`, such as the
 playbooks' `timeout 540 gh run watch`, a read that both playbooks reach only
 after the token is checked. `gate-not-piped.sh` and `migration-immutable.sh`
 read the call with `jq` and let it through when `jq` is missing (TYRE-265), so
