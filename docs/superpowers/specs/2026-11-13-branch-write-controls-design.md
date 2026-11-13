@@ -620,8 +620,9 @@ cites it. In this order, each with its read-only check:
    environment must serve only this repository, because every `gh` in it
    then runs on a token that can write nowhere else: if the routine's
    environment is shared, the owner first creates one for it and points
-   the routine at it. Check: the next close-out's report carries the
-   check's five `OK` lines.
+   the routine at it. Check: the cloud close-out of this PR gets past
+   `make guard-check CLOUD=1` and posts its usual report on the merged
+   PR, not the check's output (section 6).
 5. Remove the `github.com` lines from `~/.git-credentials` and revoke
    those tokens on GitHub.
 6. When a token expires or leaks: revoke it, create its replacement
@@ -787,9 +788,11 @@ missed step stops that run with the row that failed.
    restricted token. Its output goes in the PR body.
 6. Owner, before the merge: steps 4 and 5 of the runbook.
 7. After the merge: the first `make pipeline` launch passes its
-   `make guard-check` step, and the first cloud close-out's report
-   carries the five `OK` lines. Items 6 and 7 are the owner's and the
-   close-out's to record on the ticket; the run that builds this cannot.
+   `make guard-check` step, and the first cloud close-out, this PR's
+   own, gets past its `make guard-check CLOUD=1` step: it posts its
+   usual report on the merged PR, not the check's output. Items 6 and 7
+   are the owner's and the close-out's to record on the ticket; the run
+   that builds this cannot.
 
 ## Lead's calls
 

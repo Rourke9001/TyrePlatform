@@ -88,8 +88,11 @@ That environment must serve only this repository, because every `gh` in it then
 runs on a token that can write nowhere else. If the routine's environment is
 shared, create one for it first and point the routine at it.
 
-Check: the next close-out's report carries the check's five `OK` lines
-(`make guard-check CLOUD=1`).
+Check: the first cloud close-out after TYRE-473 merged (after a rotation, the
+next one) posts its usual report on the merged PR. If `make guard-check CLOUD=1`
+exits non-zero, that report is the check's output instead, or, when `gh` is
+refused, you get a push notification and no report
+(`.claude/commands/close-out.md`, cloud mode).
 
 ## 5. Remove the plaintext credentials
 
