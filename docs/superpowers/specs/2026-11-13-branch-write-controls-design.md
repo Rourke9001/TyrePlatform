@@ -447,9 +447,10 @@ section, 13 Nov 2026). Rows:
    program even with terminal prompts off (the red team's probe, round
    1; the owner's first sign-in attempt on 13 Nov 2026 was answered by
    something other than the browser). A failed dry run fails the row,
-   naming step 2, only when row 3's rules read got an answer in the
-   same run; without one nothing tells a missing sign-in from the
-   network, and the row is `UNCHECKED`.
+   naming step 2, only when row 3's rules read succeeded in the same
+   run. The check sees only that read's exit code, so otherwise it
+   cannot tell a missing sign-in from the network, and the row is
+   `UNCHECKED`.
 
 `make guard-check CLOUD=1` runs rows 1 to 5 only: a cloud session's git
 goes through the proxy.
@@ -680,7 +681,7 @@ exit 0 and one `OK` per row. Each of these alone gives exit 1 and a
   `github_pat_`.
 - The ref update answers 422; 409; 200; 401.
 - The helper's last value is the `gh` helper; the dry-run push exits
-  non-zero after the rules read got an answer.
+  non-zero after the rules read succeeded.
 - With `CLOUD=1`: row 6 is not run, and its stubs failing changes
   nothing.
 
@@ -693,9 +694,9 @@ says what was seen, then the re-run, then the row's own step:
   500; 502; 503.
 - The dry-run push exits non-zero and the rules read failed too.
 
-The cases for rows 3 and 5 run with and without `CLOUD=1`, since row 5
-names the token's step for the mode. The output never contains the
-token's value, which a case asserts.
+Each ref update answer above, and each failed `gh` read, is a case with
+and without `CLOUD=1`, since row 5 names the token's step for the mode.
+The output never contains the token's value, which a case asserts.
 
 ## Order of the owner's steps, and the PR's gate
 
