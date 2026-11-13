@@ -76,3 +76,5 @@ The gap is still open, and nothing refuses a pull request into `main`. The
 repository allows squash and rebase merges, neither ruleset has a rule that
 either kind of merge breaks, and the terminal promotion holds by discipline
 alone.
+
+**Amended 2026-11-13 (TYRE-473, U201):** `develop` takes changes only by pull request: ruleset 21929055 now requires one, so the owner's own docs changes go through a pull request too. A workflow closes a pull request opened into `main` (TYRE-313), so "nothing refuses a pull request into `main`" no longer holds. The terminal promotion of `main` needs `TYRE_PROMOTE=1`, which `.githooks/pre-push` checks, and a session cannot push `main`; `docs/runbooks/github-access.md` has the steps.

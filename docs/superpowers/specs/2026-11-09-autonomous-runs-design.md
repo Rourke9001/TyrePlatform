@@ -254,7 +254,9 @@ CLAUDE.md and `/review-pr`, not only in the pipeline.
 - `make pipeline` passes `T` to the launcher as data. Today's recipe lets
   the shell run a backtick or `$(...)` inside `T` before the launcher's
   check sees it, which the red team reproduced.
-- `.claude/settings.json` already allows `git push`, and
+- *TYRE-473 replaced `merge-push-guard.sh` with the `pre-push` hook, the
+  `develop` ruleset and the restricted `gh` token.* `.claude/settings.json`
+  already allows `git push`, and
   `merge-push-guard.sh` asks only for `develop` and `main`. The loop also
   runs `git branch`, `git checkout`, `git rev-parse` and `timeout`. The
   owner added allow rules for the forms the loop runs (f3aa3298, narrowed

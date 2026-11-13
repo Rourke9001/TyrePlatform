@@ -25,8 +25,8 @@ lost, and `origin/develop` has been recreated from `main`'s tip.
 Two consequences for a session reading this page. Most hashes cited below are
 the pre-promotion ones and **no longer resolve**, so match by **subject** — the
 commit subjects survived the rewrite, which is how to find them. And
-ADR-0004's promotion path is `git push origin origin/develop:main` from a
-terminal, never a pull request — CONTRIBUTING.md says so, and the repository
+ADR-0004's promotion path is `TYRE_PROMOTE=1 git push origin origin/develop:main`
+from the owner's terminal (TYRE-473), never a pull request — CONTRIBUTING.md says so, and the repository
 setting that allowed the pull request is unchanged.
 
 ## What the verification found
