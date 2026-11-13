@@ -3,7 +3,8 @@
 # check's three reads and nothing else, so a wrong call fails the case; git is
 # a pass-through that records the dry run's argv and environment, so the real
 # git decides whether the push would sign in. A case passes on its exit code
-# and on exactly the rows it expects to fail.
+# and on exactly the rows it expects not to be OK, in order, each FAIL or
+# UNCHECKED.
 set -uo pipefail
 # No stub or case ever sees the session's own token.
 export GH_TOKEN=github_pat_TYRE473SENTINEL
@@ -109,6 +110,8 @@ patch_403() {
   echo 'Resource not accessible by personal access token (HTTP 403)' >"$work/patch.err"
   echo 1 >"$work/patch.rc"
 }
+set_patch() { printf '%s\n' "$1" >"$work/patch.out"; echo "$2" >"$work/patch.err"; echo "$3" >"$work/patch.rc"; }
+no_answer() { set_patch 'error connecting to api.github.com' 'dial tcp: lookup api.github.com' 1; }
 
 good() {
   git -C "$repo" config core.hooksPath .githooks
@@ -130,61 +133,59 @@ good() {
 out=""
 fail_case() { echo "FAIL: $1 ($2)"; if [ -n "$out" ]; then printf '%s\n' "$out" | sed 's/^/    /'; fi; fails=$((fails + 1)); }
 
-# check_case <label> <want exit> <want fail row | -> [args...]
+# check_case <label> <want exit> <want rows | -> [args...]
+# The rows are every line that is not OK, in order: F<n> for FAIL, U<n> for
+# UNCHECKED. A FAIL line names its fix. An UNCHECKED line names none: it ends
+# with the re-run, then the row's own step (scripts/guard-check.sh, the
+# comment above unchecked).
 check_case() {
-  local label=$1 want=$2 row=$3 rc problems="" nf n i line
+  local label=$1 want=$2 rows=$3 rc problems="" got n i line r step token_step=3
   shift 3
+  [ "${1:-}" = --cloud ] && token_step=4
   cases=$((cases + 1))
   out=$(cd "$repo" && bash "$here/guard-check.sh" "$@" 2>&1)
   rc=$?
   [ -e "$work/bad-call" ] && problems="$problems unexpected call: $(cat "$work/bad-call");"
   [ "$rc" -eq "$want" ] || problems="$problems exit $rc, not $want;"
   case "$out" in *TYRE473SENTINEL*) problems="$problems the output leaks the token;" ;; esac
-  if [ "$row" != - ]; then
-    nf=$(printf '%s\n' "$out" | grep -c '^FAIL ')
-    [ "$nf" -eq 1 ] || problems="$problems $nf FAIL lines, not 1;"
-    printf '%s\n' "$out" | grep -q "^FAIL row $row:" || problems="$problems no line starting 'FAIL row $row:';"
+  got=$(printf '%s\n' "$out" | sed -n 's/^FAIL row \([0-9]\):.*/F\1/p; s/^UNCHECKED row \([0-9]\):.*/U\1/p' | tr '\n' ' ')
+  if [ "$rows" != - ]; then
+    [ "$got" = "$rows " ] || problems="$problems rows '$got', not '$rows';"
   elif [ "$rc" -eq 0 ]; then
     n=6
     [ "${1:-}" = --cloud ] && n=5
-    nf=$(printf '%s\n' "$out" | grep -c '^FAIL ')
-    [ "$nf" -eq 0 ] || problems="$problems a FAIL line on an exit 0;"
+    [ -z "$got" ] || problems="$problems rows '$got' on an exit 0;"
     [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq "$n" ] || problems="$problems not $n lines;"
     for i in $(seq 1 "$n"); do
       line=$(printf '%s\n' "$out" | sed -n "${i}p")
       case "$line" in "OK row $i:"*) ;; *) problems="$problems line $i is not 'OK row $i:';" ;; esac
     done
   fi
+  while IFS= read -r line; do
+    case "$line" in
+      "FAIL row "[1-6]": "?*". Fix: "?*) ;;
+      "FAIL "*) problems="$problems a FAIL line names no fix;" ;;
+      "UNCHECKED row "*)
+        r=${line#UNCHECKED row }
+        r=${r%%:*}
+        case "$r" in
+          3) step=1 ;;
+          5) step=$token_step ;;
+          6) step=2 ;;
+          *) problems="$problems row $r cannot be UNCHECKED;"; continue ;;
+        esac
+        case "$line" in
+          *"Fix:"*) problems="$problems UNCHECKED row $r names a fix;" ;;
+          "UNCHECKED row $r: "?*". Run make guard-check again once any FAIL row is fixed; if row $r stays UNCHECKED, docs/runbooks/github-access.md step $step") ;;
+          *) problems="$problems UNCHECKED row $r does not end with the re-run, then step $step;" ;;
+        esac ;;
+    esac
+  done <<<"$out"
   if [ -n "$problems" ]; then fail_case "$label" "$problems"; return 1; fi
   echo "PASS: $label"
 }
 line_has() { printf '%s\n' "$out" | grep -q -- "$1"; }
 extra() { fail_case "$1" "$2"; }
-# Row 3's fix for a failed read: scripts/guard-check.sh, the comment above
-# read_fix (TYRE-473).
-row3_names_token_rows() {
-  local l3
-  l3=$(printf '%s\n' "$out" | grep '^FAIL row 3:')
-  case "$l3" in
-    *"Fix: docs/runbooks/github-access.md step 1") extra "$1" "row 3 sends a failed read to step 1 alone" ;;
-    *"row 4 or 5"*) ;;
-    *) extra "$1" "row 3 does not name rows 4 and 5" ;;
-  esac
-}
-# Rows 3 and 5 when GitHub gives no answer: scripts/guard-check.sh, the
-# comment in row 5's no-status-line branch (TYRE-473).
-names_no_token_step() {
-  local label=$1 l row
-  shift
-  for row in "$@"; do
-    l=$(printf '%s\n' "$out" | grep "^FAIL row $row:")
-    case "$l" in
-      '') extra "$label" "no FAIL row $row line" ;;
-      *"step 3"* | *"step 4"*) extra "$label" "row $row sends a missing answer to the token's step" ;;
-    esac
-  done
-}
-fail_rows() { printf '%s\n' "$out" | sed -n 's/^FAIL row \([0-9]\):.*/\1/p' | tr '\n' ' '; }
 
 good
 check_case "G1 every row passes on the owner's credential layout" 0 - &&
@@ -195,95 +196,112 @@ check_case "G2 --cloud runs five rows and no dry run" 0 - --cloud &&
   { [ ! -e "$work/push-argv" ] || extra G2 "the dry run ran in cloud mode"; }
 
 good; git -C "$repo" config --unset core.hooksPath
-check_case "H1 no hooksPath" 1 1
+check_case "H1 no hooksPath" 1 F1
 good; git -C "$repo" config core.hooksPath .git/hooks
-check_case "H2 hooksPath elsewhere" 1 1
+check_case "H2 hooksPath elsewhere" 1 F1
 good; rm "$repo/.githooks/pre-push"
-check_case "H3 hook file missing" 1 1
+check_case "H3 hook file missing" 1 F1
 good; git -C "$repo" update-index --chmod=-x .githooks/pre-push
-check_case "H4 hook committed without the executable bit" 1 1
+check_case "H4 hook committed without the executable bit" 1 F1
 
 good; export TYRE_PROMOTE=1
-check_case "P1 TYRE_PROMOTE set to 1" 1 2
+check_case "P1 TYRE_PROMOTE set to 1" 1 F2
 good; export TYRE_PROMOTE=
-check_case "P2 TYRE_PROMOTE set but empty" 1 2
+check_case "P2 TYRE_PROMOTE set but empty" 1 F2
 
 good; echo '[{"type":"deletion","ruleset_id":21929055}]' >"$work/rules.json"
-check_case "R1 no pull_request rule" 1 3
+check_case "R1 no pull_request rule" 1 F3 && { line_has '^FAIL row 3:.*step 1$' || extra R1 "the fix does not name step 1"; }
 good; echo '{"id":21929055,"current_user_can_bypass":"pull_requests_only"}' >"$work/ruleset-21929055.json"
-check_case "R2 the token's user can bypass" 1 3
+check_case "R2 the token's user can bypass" 1 F3 && { line_has '^FAIL row 3:.*step 1$' || extra R2 "the fix does not name step 1"; }
 good; echo '{"id":21929055}' >"$work/ruleset-21929055.json"
-check_case "R3 the ruleset lacks the field" 1 3
-good; touch "$work/rules.fail"
-check_case "R4 the rules read fails" 1 3 && row3_names_token_rows R4
+check_case "R3 the ruleset lacks the field" 1 F3
 good
 echo '[{"type":"pull_request","ruleset_id":21929055},{"type":"pull_request","ruleset_id":21929056}]' >"$work/rules.json"
 echo '{"id":21929055,"current_user_can_bypass":"always"}' >"$work/ruleset-21929055.json"
 echo '{"id":21929056,"current_user_can_bypass":"never"}' >"$work/ruleset-21929056.json"
 check_case "R5 a second pull_request ruleset that cannot be bypassed" 0 -
-good; touch "$work/ruleset-21929055.fail"
-check_case "R6 the ruleset read fails" 1 3 && row3_names_token_rows R6
 good; touch "$work/jq-crlf"
 check_case "R7 gh output ending in a CR" 0 -
 
 good; unset GH_TOKEN
-check_case "K1 no token" 1 4 && { line_has 'github-access.md step 3' || extra K1 "the fix does not name step 3"; }
+check_case "K1 no token" 1 F4 && { line_has '^FAIL row 4:.*step 3$' || extra K1 "the fix does not name step 3"; }
 good; export GH_TOKEN=
-check_case "K2 empty token" 1 4
+check_case "K2 empty token" 1 F4
 good; export GH_TOKEN=ghp_TYRE473SENTINEL
-check_case "K3 classic token" 1 4
+check_case "K3 classic token" 1 F4
 good; unset GH_TOKEN
-check_case "K4 no token in the cloud" 1 4 --cloud && { line_has 'github-access.md step 4' || extra K4 "the fix does not name step 4"; }
+check_case "K4 no token in the cloud" 1 F4 --cloud && { line_has '^FAIL row 4:.*step 4$' || extra K4 "the fix does not name step 4"; }
 
-set_patch() { printf '%s\n' "$1" >"$work/patch.out"; echo "$2" >"$work/patch.err"; echo "$3" >"$work/patch.rc"; }
-good; set_patch 'HTTP/2.0 422 Unprocessable Entity' 'Validation Failed (HTTP 422)' 1
-check_case "W1 a 422" 1 5
-good; set_patch 'HTTP/2.0 401 Unauthorized' 'Bad credentials (HTTP 401)' 1
-check_case "W2 a 401" 1 5 && { line_has 'step 6' || extra W2 "the fix does not name step 6"; }
-good; set_patch 'HTTP/2.0 200 OK' '' 0
-check_case "W3 a 200" 1 5
-no_answer() { set_patch 'error connecting to api.github.com' 'dial tcp: lookup api.github.com' 1; }
-good; no_answer
-check_case "W4 no status line" 1 5 &&
-  { names_no_token_step W4 5; line_has '^FAIL row 5:.*network' || extra W4 "row 5 does not name the network"; }
 good; printf 'HTTP/1.1 403 Forbidden%s\n\n{"message":"Resource not accessible by personal access token"}\n' "$cr" >"$work/patch.out"
 check_case "W5 a status line ending in a CR" 0 -
-good
-printf 'HTTP/2.0 403 Forbidden\n\n{"message":"Blocked by egress policy"}\n' >"$work/patch.out"
-echo 'Blocked by egress policy (HTTP 403)' >"$work/patch.err"
-check_case "W6 a proxy's 403" 1 5
 
-good; touch "$work/rules.401"; set_patch 'HTTP/2.0 401 Unauthorized' 'Bad credentials (HTTP 401)' 1
-check_case "R8 an expired token fails the rules read and the probe write" 1 - &&
-  { { [ "$(printf '%s\n' "$out" | grep -c '^FAIL ')" -eq 2 ] && line_has '^FAIL row 3:' && line_has '^FAIL row 5:.*step 6'; } ||
-      extra R8 "the FAIL lines are not rows 3 and 5 with step 6 on row 5"
-    row3_names_token_rows R8; }
+# Each case below runs in both modes: row 5 names step 3 locally and step 4 in
+# the cloud, and nothing else may change with the mode.
+names_step() { line_has "^FAIL row $2:.*step $3\$" || extra "$1" "row $2 does not name step $3"; }
+for mode in local cloud; do
+  if [ "$mode" = cloud ]; then arg=--cloud tstep=4; else arg= tstep=3; fi
+  # The endpoint's own answers come only past the token's permission check.
+  good; set_patch 'HTTP/2.0 422 Unprocessable Entity' 'Validation Failed (HTTP 422)' 1
+  check_case "W1 a 422, $mode" 1 F5 ${arg:+"$arg"} && names_step "W1 $mode" 5 "$tstep"
+  good; set_patch 'HTTP/2.0 200 OK' '' 0
+  check_case "W3 a 200 with gh exiting 0, $mode" 1 F5 ${arg:+"$arg"} && names_step "W3 $mode" 5 "$tstep"
+  good; set_patch 'HTTP/2.0 409 Conflict' 'Conflict (HTTP 409)' 1
+  check_case "W8 a 409, $mode" 1 F5 ${arg:+"$arg"} && names_step "W8 $mode" 5 "$tstep"
+  good; set_patch 'HTTP/2.0 401 Unauthorized' 'Bad credentials (HTTP 401)' 1
+  check_case "W2 a 401, $mode" 1 F5 ${arg:+"$arg"} && names_step "W2 $mode" 5 6
+  good; touch "$work/rules.401"; set_patch 'HTTP/2.0 401 Unauthorized' 'Bad credentials (HTTP 401)' 1
+  check_case "R8 an expired token fails the rules read and the probe write, $mode" 1 "U3 F5" ${arg:+"$arg"} && names_step "R8 $mode" 5 6
 
-good; no_answer
-check_case "W7 no status line in the cloud" 1 5 --cloud &&
-  { names_no_token_step W7 5; line_has '^FAIL row 5:.*network' || extra W7 "row 5 does not name the network"; }
-good; touch "$work/rules.fail"; no_answer
-check_case "R9 no answer from GitHub fails the rules read and the probe write" 1 - &&
-  { [ "$(fail_rows)" = "3 5 " ] || extra R9 "the FAIL rows are '$(fail_rows)', not 3 and 5"
-    names_no_token_step R9 3 5
-    row3_names_token_rows R9; }
-good; touch "$work/rules.fail"; no_answer
-check_case "R10 no answer from GitHub in the cloud" 1 - --cloud &&
-  { [ "$(fail_rows)" = "3 5 " ] || extra R10 "the FAIL rows are '$(fail_rows)', not 3 and 5"
-    names_no_token_step R10 3 5
-    row3_names_token_rows R10; }
+  # Every other answer says nothing about the control.
+  good; no_answer
+  check_case "W4 no status line, $mode" 1 U5 ${arg:+"$arg"}
+  good; set_patch '' '' 0
+  check_case "W9 empty output with gh exiting 0, $mode" 1 U5 ${arg:+"$arg"}
+  good
+  printf 'HTTP/2.0 403 Forbidden\n\n{"message":"Blocked by egress policy"}\n' >"$work/patch.out"
+  echo 'Blocked by egress policy (HTTP 403)' >"$work/patch.err"
+  check_case "W6 a 403 with another message, $mode" 1 U5 ${arg:+"$arg"}
+  # The proxy's 403 for a repository not attached to the session: its message
+  # starts with "GitHub access to" and contains "is not enabled for this
+  # session" (code.claude.com/docs/en/cloud-environments).
+  good
+  printf 'HTTP/2.0 403 Forbidden\n\n{"message":"GitHub access to Rourke9001/TyrePlatform is not enabled for this session"}\n' >"$work/patch.out"
+  echo 'GitHub access to Rourke9001/TyrePlatform is not enabled for this session (HTTP 403)' >"$work/patch.err"
+  check_case "W10 the cloud proxy's 403, $mode" 1 U5 ${arg:+"$arg"}
+  good
+  printf 'HTTP/2.0 403 Forbidden\nX-Ratelimit-Remaining: 0\n\n{"message":"API rate limit exceeded for user ID 1."}\n' >"$work/patch.out"
+  echo 'API rate limit exceeded for user ID 1. (HTTP 403)' >"$work/patch.err"
+  check_case "W11 GitHub's 403 for a rate limit, $mode" 1 U5 ${arg:+"$arg"}
+  for code in 404 407 429 500 502 503; do
+    good; set_patch "HTTP/2.0 $code Status" "Status (HTTP $code)" 1
+    check_case "W12 a $code, $mode" 1 U5 ${arg:+"$arg"}
+  done
+  good; touch "$work/rules.fail"
+  check_case "R4 the rules read fails, $mode" 1 U3 ${arg:+"$arg"}
+  good; touch "$work/ruleset-21929055.fail"
+  check_case "R6 the ruleset read fails, $mode" 1 U3 ${arg:+"$arg"}
+  good; touch "$work/rules.fail"; no_answer
+  check_case "R9 no answer from GitHub on the rules read or the probe write, $mode" 1 "U3 U5" ${arg:+"$arg"}
+  good; touch "$work/rules.fail"; set_patch 'HTTP/2.0 503 Service Unavailable' 'Service Unavailable (HTTP 503)' 1
+  check_case "R10 a failed rules read and a 503 on the probe write, $mode" 1 "U3 U5" ${arg:+"$arg"}
+done
 good; unset GH_TOKEN; touch "$work/rules.fail"; no_answer
-check_case "K5 no token and no answer in the cloud" 1 - --cloud &&
-  { [ "$(fail_rows)" = "3 4 5 " ] || extra K5 "the FAIL rows are '$(fail_rows)', not 3, 4 and 5"
-    line_has '^FAIL row 4:.*step 4' || extra K5 "row 4 does not name step 4"
-    line_has '^FAIL row 5:.*row 4 fails, the step it names' || extra K5 "row 5 does not send the owner to row 4's step"; }
+check_case "K5 no token and no answer in the cloud" 1 "U3 F4 U5" --cloud && names_step K5 4 4
 
 good; git -C "$repo" config --unset-all credential.https://github.com.helper
-check_case "C1 the gh helper is git's last" 1 6 && { [ ! -e "$work/push-argv" ] || extra C1 "the dry run ran with a failed helper check"; }
+check_case "C1 the gh helper is git's last" 1 F6 && { [ ! -e "$work/push-argv" ] || extra C1 "the dry run ran with a failed helper check"; }
 good; git -C "$repo" remote set-url origin "$work/missing.git"
-check_case "C2 the dry run cannot push" 1 6
+check_case "C2 the dry run cannot push" 1 F6 && names_step C2 6 2
 good; git -C "$repo" config --unset-all credential.https://github.com.helper; git -C "$repo" remote set-url origin "$work/missing.git"
 check_case "C3 the cloud skips row 6" 0 - --cloud
+good; git -C "$repo" remote set-url origin "$work/missing.git"; touch "$work/ruleset-21929055.fail"
+check_case "C4 the dry run cannot push after GitHub answered the rules read" 1 "U3 F6" && names_step C4 6 2
+good; git -C "$repo" remote set-url origin "$work/missing.git"; touch "$work/rules.fail"; no_answer
+check_case "C5 the dry run cannot push and GitHub gave no answer" 1 "U3 U5 U6"
+good; git -C "$repo" remote set-url origin "$work/missing.git"; touch "$work/rules.401"; set_patch 'HTTP/2.0 401 Unauthorized' 'Bad credentials (HTTP 401)' 1
+check_case "C6 an expired token and a dry run that cannot push" 1 "U3 F5 U6" && names_step C6 5 6
+good; git -C "$repo" config --unset-all credential.https://github.com.helper; touch "$work/rules.fail"; no_answer
+check_case "C7 the gh helper is git's last and GitHub gave no answer" 1 "U3 U5 F6" && names_step C7 6 2
 
 good
 check_case "U1 an unknown argument" 2 - --bogus && { line_has 'usage: make guard-check' || extra U1 "no usage line"; }

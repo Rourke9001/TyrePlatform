@@ -21,6 +21,10 @@ repo=Rourke9001/TyrePlatform
 failed=0
 ok() { echo "OK row $1: $2"; }
 bad() { echo "FAIL row $1: $2: $3. Fix: $4"; failed=1; }
+# FAIL takes only an answer on the row's own list. gh exits 1 for any failure,
+# and the cloud proxy and GitHub's rate limits answer 403 too, so any other
+# result says nothing about the control and guesses no cause (TYRE-473, U210).
+unchecked() { echo "UNCHECKED row $1: $2: $3. Run make guard-check again once any FAIL row is fixed; if row $1 stays UNCHECKED, $4"; failed=1; }
 
 hooks_path=$(git config --get core.hooksPath 2>/dev/null | tr -d '\r')
 hook_mode=$(git ls-files -s -- .githooks/pre-push | cut -d' ' -f1)
@@ -48,27 +52,23 @@ ids=$(gh api "repos/$repo/rules/branches/develop" --jq '[.[] | select(.type == "
 rules_rc=$?
 ids=${ids//$'\r'/}
 pr_held=0
-read_failed=0
+unread=""
+[ "$rules_rc" -ne 0 ] && unread="develop's rules"
 if [ "$rules_rc" -eq 0 ] && [ -n "$ids" ]; then
   for id in $ids; do
     bypass=$(gh api "repos/$repo/rulesets/$id" --jq '.current_user_can_bypass // "absent"' 2>/dev/null)
     bypass_rc=$?
     bypass=${bypass//$'\r'/}
-    if [ "$bypass_rc" -ne 0 ]; then read_failed=1
+    if [ "$bypass_rc" -ne 0 ]; then unread="a pull request ruleset on develop"
     elif [ "$bypass" = never ]; then pr_held=1; fi
   done
 fi
-# A read fails more often for the token or the network than for the ruleset,
-# and rows 4 and 5 name the fix for each (TYRE-473).
-read_fix="if row 4 or 5 fails, that row's fix; else docs/runbooks/github-access.md step 1"
 if [ "$pr_held" -eq 1 ]; then
   ok 3 "develop needs a pull request"
-elif [ "$rules_rc" -ne 0 ]; then
-  bad 3 "develop needs a pull request" "gh could not read develop's rules, so the ruleset went unchecked" "$read_fix"
+elif [ -n "$unread" ]; then
+  unchecked 3 "develop needs a pull request" "gh could not read $unread" "docs/runbooks/github-access.md step 1"
 elif [ -z "$ids" ]; then
   bad 3 "develop needs a pull request" "no ruleset requires a pull request on develop" "docs/runbooks/github-access.md step 1"
-elif [ "$read_failed" -eq 1 ]; then
-  bad 3 "develop needs a pull request" "gh could not read a pull request ruleset on develop, so it went unchecked" "$read_fix"
 else
   bad 3 "develop needs a pull request" "no pull request ruleset on develop is one this token's user cannot bypass" "docs/runbooks/github-access.md step 1"
 fi
@@ -89,17 +89,16 @@ resp=${resp//$'\r'/}
 code=$(printf '%s\n' "$resp" | grep -Eo -m1 '^HTTP/[0-9.]+ [0-9]{3}' | grep -Eo '[0-9]{3}$')
 if [ "$code" = 403 ] && [[ "$resp" == *"Resource not accessible by personal access token"* ]]; then
   ok 5 "token cannot write a branch"
-elif [ -z "$code" ]; then
-  # gh api -i prints the status line of any answer GitHub gives, so with none
-  # the request got no answer, and the token's step helps only when row 4
-  # fails too (TYRE-473).
-  bad 5 "token cannot write a branch" "gh printed no status line, so no answer came from GitHub (the network, a proxy, or gh itself)" "if row 4 fails, the step it names; else check the network and that gh runs, then run make guard-check again"
 elif [ "$code" = 401 ]; then
   bad 5 "token cannot write a branch" "GitHub refused the token (HTTP 401), so it is expired or revoked" "docs/runbooks/github-access.md step 6"
-elif [ "$code" = 403 ]; then
-  bad 5 "token cannot write a branch" "HTTP 403, but not GitHub's refusal of the token's permissions" "$token_step"
+elif [[ "$code" == 2?? || "$code" == 409 || "$code" == 422 ]]; then
+  # The endpoint's own answers, which GitHub gives only past the token's
+  # permission check (docs.github.com/en/rest/git/refs, TYRE-473).
+  bad 5 "token cannot write a branch" "the probe write got HTTP $code, so GitHub let this token try the write" "$token_step"
 else
-  bad 5 "token cannot write a branch" "the probe write got HTTP $code, not 403" "$token_step"
+  seen=${code:+HTTP $code}
+  [ "$code" = 403 ] && seen="HTTP 403 without GitHub's refusal of the token's permissions"
+  unchecked 5 "token cannot write a branch" "the probe write got ${seen:-no status line}" "$token_step"
 fi
 
 # The cloud has no git credential of its own, so only a local run reads this
@@ -111,8 +110,13 @@ if [ "$cloud" -eq 0 ]; then
     bad 6 "git signs in by its own credential" "git's last helper for github.com is gh's, so a push would sign in as the token" "docs/runbooks/github-access.md step 2"
   elif GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS= SSH_ASKPASS= git push --dry-run origin HEAD:refs/heads/tyre-473-guard-check >/dev/null 2>&1; then
     ok 6 "git signs in by its own credential"
-  else
+  elif [ "$rules_rc" -eq 0 ]; then
+    # GitHub answered row 3's rules read in this run, so a failed dry run is
+    # read as git's sign-in; without that answer nothing tells the two apart
+    # (TYRE-473, U210).
     bad 6 "git signs in by its own credential" "a dry-run push to origin failed without a prompt" "docs/runbooks/github-access.md step 2"
+  else
+    unchecked 6 "git signs in by its own credential" "a dry-run push to origin failed without a prompt, and so did row 3's rules read" "docs/runbooks/github-access.md step 2"
   fi
 fi
 

@@ -392,8 +392,21 @@ that one setting.
 ### 6. `make guard-check`
 
 `scripts/guard-check.sh` reads; it changes nothing. It prints one line
-per row, `OK` or `FAIL` with the runbook step that fixes it, and exits 1
-if any row failed. Rows:
+per row: `OK`; `FAIL` when an answer on the row's own list says the
+control is missing, with what installs it, most often a runbook step;
+or `UNCHECKED` when the row asked GitHub and got no answer about the
+control. An `UNCHECKED` line guesses no cause: it says what was seen,
+then to run `make guard-check` again once any `FAIL` row is fixed, and,
+if the row stays `UNCHECKED`, the row's own runbook step. `gh`
+documents exit 1 as "If a command fails for any reason"
+(cli.github.com/manual/gh_help_exit-codes), and GitHub's rate limits
+and the cloud proxy answer 403 too, so a result off a row's list says
+nothing about the control. Rows 1, 2 and 4
+read only the checkout and the environment, so they are never
+`UNCHECKED`. The script exits 1 if any row is not `OK`, with no third
+code: make turns any failed recipe into its own exit 2, and a control
+not proved still stops the run (U210, the owner's amendment of this
+section, 13 Nov 2026). Rows:
 
 1. `core.hooksPath` is `.githooks`, and `.githooks/pre-push` exists and
    is mode 100755 in git.
@@ -402,24 +415,41 @@ if any row failed. Rows:
    `pull_request` rule, and at least one ruleset carrying that rule
    reads `"current_user_can_bypass": "never"`. GitHub applies every
    ruleset that matches, so one the caller cannot bypass is enough. A
-   ruleset read that leaves the field out does not count.
+   ruleset read that leaves the field out does not count. The row fails,
+   naming step 1, when the rules read lists no `pull_request` rule or
+   every ruleset read answers and none says `never`. When a `gh` read
+   exits non-zero and no ruleset read says `never`, the row is
+   `UNCHECKED`: GitHub lists only 200 for the rules read and says "The
+   branch does not need to exist" (docs.github.com/en/rest/repos/rules),
+   so a failed read says nothing about the ruleset.
 4. `GH_TOKEN` is set and starts with `github_pat_`.
 5. `PATCH /repos/Rourke9001/TyrePlatform/git/refs/heads/tyre-473-no-such-ref`
    answers 403 from GitHub, with GitHub's message "Resource not
    accessible by personal access token" (the lead's read, 13 Nov 2026).
-   A token with Contents write gets 422, an expired one 401, and the
-   cloud proxy has 403s of its own with other messages; anything but
-   that status and message fails the row.
+   An expired token gets 401, which fails the row with step 6. A token
+   with Contents write gets one of the endpoint's own answers, 200, 409
+   or 422 (docs.github.com/en/rest/git/refs; the lead's call on the
+   stored login got 422), which GitHub gives only past the token's
+   permission check, so any 2xx, 409 or 422 fails the row with the
+   token's step. Anything else leaves the row `UNCHECKED`: no status
+   line, a 403 with another message (the cloud proxy has its own, and
+   so do GitHub's rate limits), 404, which GitHub also gives for missing
+   permissions
+   (docs.github.com/en/rest/authentication/authenticating-to-the-rest-api),
+   407, 429 and any 5xx.
 6. Git's last `credential.https://github.com.helper` value is not the
    `gh` helper, and `git push --dry-run origin
    HEAD:refs/heads/tyre-473-guard-check` exits 0 with
    `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `GIT_ASKPASS=` and
-   `SSH_ASKPASS=`, so a missing sign-in fails the row and never opens a
-   browser or a prompt. The two askpass variables are emptied because
-   VS Code's terminal sets them, and git falls back to that program
-   even with terminal prompts off (the red team's probe, round 1; the
-   owner's first sign-in attempt on 13 Nov 2026 was answered by
-   something other than the browser).
+   `SSH_ASKPASS=`, so a missing sign-in fails the dry run and never
+   opens a browser or a prompt. The two askpass variables are emptied
+   because VS Code's terminal sets them, and git falls back to that
+   program even with terminal prompts off (the red team's probe, round
+   1; the owner's first sign-in attempt on 13 Nov 2026 was answered by
+   something other than the browser). A failed dry run fails the row,
+   naming step 2, only when row 3's rules read got an answer in the
+   same run; without one nothing tells a missing sign-in from the
+   network, and the row is `UNCHECKED`.
 
 `make guard-check CLOUD=1` runs rows 1 to 5 only: a cloud session's git
 goes through the proxy.
@@ -638,22 +668,33 @@ last.
 
 The contract for `scripts/guard-check.test.sh`. Every row passing gives
 exit 0 and one `OK` per row. Each of these alone gives exit 1 and a
-`FAIL` naming the row:
+`FAIL` naming the row and its fix:
 
 - `core.hooksPath` unset; set to another directory; the hook file
   missing.
 - `TYRE_PROMOTE=1` in the environment.
 - The rules list has no `pull_request` rule; the ruleset reads
-  `current_user_can_bypass` other than `never`; `gh` fails.
+  `current_user_can_bypass` other than `never`.
 - `GH_TOKEN` unset; empty; a value that does not start with
   `github_pat_`.
-- The ref update answers 422; 401; 200; `gh` prints no status line.
+- The ref update answers 422; 409; 200; 401.
 - The helper's last value is the `gh` helper; the dry-run push exits
-  non-zero.
+  non-zero after the rules read got an answer.
 - With `CLOUD=1`: row 6 is not run, and its stubs failing changes
   nothing.
 
-The output never contains the token's value, which a case asserts.
+Each of these gives exit 1 and an `UNCHECKED` line for its row, which
+says what was seen, then the re-run, then the row's own step:
+
+- `gh` fails on the rules read; on a ruleset read.
+- The ref update gets no status line; no output; a 403 with another
+  message, such as the cloud proxy's or a rate limit's; 404; 407; 429;
+  500; 502; 503.
+- The dry-run push exits non-zero and the rules read failed too.
+
+The cases for rows 3 and 5 run with and without `CLOUD=1`, since row 5
+names the token's step for the mode. The output never contains the
+token's value, which a case asserts.
 
 ## Order of the owner's steps, and the PR's gate
 
