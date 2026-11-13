@@ -367,8 +367,18 @@ It judges every remote, not only `origin`, so a push by URL is refused
 too. It names the two branches in the hook itself: they are the two
 deploy branches of ADR-0004, not tenant configuration.
 
-`TYRE_PROMOTE=1` opens both branches. On `develop` the ruleset still
-refuses the push on the server. On `main` it is the promotion.
+`TYRE_PROMOTE=1` opens both branches to an update. On `develop` the
+ruleset still refuses the push on the server. On `main` it is the
+promotion.
+
+It never opens a delete. A line whose local ref is `(delete)` and whose
+remote ref is one of the two branches is refused whatever
+`TYRE_PROMOTE` holds, with a refusal that says so. A promotion never
+deletes, and an empty variable in the promotion command makes `:main`,
+which is a delete: `TYRE_PROMOTE=1 git push origin "$sha":main` with
+`sha` unset printed `- [deleted] main` against a scratch remote (the red
+team's probe, round 2). GitHub's deletion rules on both branches would
+refuse it too; the hook says why first.
 
 ### 5. `make hooks-install`
 
@@ -474,6 +484,13 @@ the command for their own terminal, in both spellings:
 - Git Bash: `TYRE_PROMOTE=1 git push origin <sha>:main`
 - PowerShell: `$env:TYRE_PROMOTE='1'; git push origin <sha>:main; $env:TYRE_PROMOTE=$null`
 
+`<sha>` is the 40-character value typed out, never a variable: a shell
+variable set in the session does not exist in the owner's terminal, and
+an empty one turns the refspec into `:main`. So the step prints the SHA
+first, and the runbook's step 3 does the same (`echo "$sha"` in the
+shell that set it, then the two forms with the value typed in). No doc
+keeps the `"$sha":main` spelling.
+
 When the owner says it is pushed, the step goes on from
 `git fetch origin main` as today. The runbook's Promote to production
 step 3 and CONTRIBUTING's promotion paragraph carry the same two forms,
@@ -544,6 +561,7 @@ ending with no diff. The result goes in the PR body.
 | `docs/runbooks/environment-release.md:1046-1048` | It says close-out's step 7 "follows this section"; say that close-out makes the checks and hands the push to the owner. |
 | `docs/lessons.md`, 2026-08-31, the promotion rule (`:1691`) | Its command gains `TYRE_PROMOTE=1`, in the owner's terminal; the hook refuses it otherwise. |
 | `docs/delivery-history.md:27-29` | The same promotion command, stated in the present tense; the same change. |
+| `docs/lessons.md`, 2026-11-10, `make check` past the 600 s limit (`:1959-1962`), and the 2026-09-24 bullet (`:723-725`) | `make check` now starts with `hooks-install`, so its parts are four, with `make hooks-install` first (TYRE-473). |
 | `docs/runbooks/environment-release.md:128-133, 625-631` | These blocks write environments and variables, which need Administration and Environments write. Say they run in the owner's own terminal, not in a Claude session. |
 | `CONTRIBUTING.md:47-51` | The promotion push needs `TYRE_PROMOTE=1`; add that a change reaches `develop` only by pull request. |
 | `docs/implementation-order.md:196-200` | The restore of a deleted `develop` is the owner's, with `TYRE_PROMOTE=1`; ruleset 21929055 now refuses the deletion this guards against. |
@@ -609,6 +627,7 @@ of the remote throughout.
 | from a linked worktree: a feature push; `HEAD:main` | pushed; refused |
 | `TYRE_PROMOTE=0`, `TYRE_PROMOTE=true`, `TYRE_PROMOTE=` with a push to `develop` | refused |
 | `TYRE_PROMOTE=1 git push origin develop:main`, a fast-forward | pushed, and the remote's `main` moved |
+| `TYRE_PROMOTE=1 git push origin :main`; `TYRE_PROMOTE=1 git push origin :develop` (deletes) | refused, with the delete named |
 | a push of `main`'s own commit to `main` (nothing to update) | exits 0, nothing moved |
 
 `--no-verify`, `-c core.hooksPath=` and an unset `core.hooksPath` are
