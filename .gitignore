@@ -67,3 +67,7 @@ docs/HANDOFF_*.md
 # Run state for skills and the pipeline lead (TYRE-412): per-session and
 # per-machine, never documentation.
 .superpowers/
+
+# A person's Claude Code settings, the gh token among them
+# (docs/runbooks/github-access.md, TYRE-473).
+.claude/settings.local.json
