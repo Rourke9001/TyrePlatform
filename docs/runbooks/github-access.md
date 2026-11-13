@@ -12,8 +12,10 @@ Three things hold what a Claude session can write to this repository
   checkout, and a delete of either always. `main` is promoted only with
   `TYRE_PROMOTE=1`, from the owner's own terminal.
 
-`make guard-check` reads each of them and prints one `OK` or `FAIL` line per
-row. `make check` and `make pipeline` run `make hooks-install`, which installs
+`make guard-check` reads each of them and prints one line per row: `OK`;
+`FAIL`, with what installs the missing control; or `UNCHECKED` when GitHub gave
+the row no answer, with a re-run first and the row's step below if it repeats.
+`make check` and `make pipeline` run `make hooks-install`, which installs
 the push hook (guard-check row 1). Every step below runs in the owner's own
 terminal, never in a Claude session, unless its check says "in a Claude
 session".

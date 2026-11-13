@@ -24,8 +24,11 @@ stage would run as a plain subagent.
    Without it every teammate below would run as a plain subagent, which
    this playbook's messaging and waiting are not written for. Then run
    `make guard-check` in the foreground; a non-zero exit stops the run, and
-   the owner gets its output, each FAIL line naming the runbook step that
-   fixes it (`docs/runbooks/github-access.md`, TYRE-473).
+   the owner gets its output. A FAIL line names what installs the missing
+   control, most often a step of `docs/runbooks/github-access.md`. An
+   UNCHECKED line means GitHub gave the row no answer: launch again once
+   any FAIL is fixed, and if the row stays UNCHECKED, take the step it
+   names (TYRE-473, U210).
 2. `$ARGUMENTS` must match `^TYRE-[1-9][0-9]*( TYRE-[1-9][0-9]*)*$` with no
    key repeated, as the launcher checks. If it does not, stop.
 3. Look for state files: `.superpowers/sdd/*-pipeline-*/state.md`. A file's
