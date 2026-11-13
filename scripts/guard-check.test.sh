@@ -160,8 +160,8 @@ check_case() {
 }
 line_has() { printf '%s\n' "$out" | grep -q -- "$1"; }
 extra() { fail_case "$1" "$2"; }
-# A read that fails is the token's or the network's before it is the
-# ruleset's, so row 3 sends the owner to rows 4 and 5 first (TYRE-473).
+# Row 3's fix for a failed read: scripts/guard-check.sh, the comment above
+# read_fix (TYRE-473).
 row3_names_token_rows() {
   local l3
   l3=$(printf '%s\n' "$out" | grep '^FAIL row 3:')
@@ -171,6 +171,20 @@ row3_names_token_rows() {
     *) extra "$1" "row 3 does not name rows 4 and 5" ;;
   esac
 }
+# Rows 3 and 5 when GitHub gives no answer: scripts/guard-check.sh, the
+# comment in row 5's no-status-line branch (TYRE-473).
+names_no_token_step() {
+  local label=$1 l row
+  shift
+  for row in "$@"; do
+    l=$(printf '%s\n' "$out" | grep "^FAIL row $row:")
+    case "$l" in
+      '') extra "$label" "no FAIL row $row line" ;;
+      *"step 3"* | *"step 4"*) extra "$label" "row $row sends a missing answer to the token's step" ;;
+    esac
+  done
+}
+fail_rows() { printf '%s\n' "$out" | sed -n 's/^FAIL row \([0-9]\):.*/\1/p' | tr '\n' ' '; }
 
 good
 check_case "G1 every row passes on the owner's credential layout" 0 - &&
@@ -228,8 +242,10 @@ good; set_patch 'HTTP/2.0 401 Unauthorized' 'Bad credentials (HTTP 401)' 1
 check_case "W2 a 401" 1 5 && { line_has 'step 6' || extra W2 "the fix does not name step 6"; }
 good; set_patch 'HTTP/2.0 200 OK' '' 0
 check_case "W3 a 200" 1 5
-good; set_patch 'error connecting to api.github.com' 'dial tcp: lookup api.github.com' 1
-check_case "W4 no status line" 1 5
+no_answer() { set_patch 'error connecting to api.github.com' 'dial tcp: lookup api.github.com' 1; }
+good; no_answer
+check_case "W4 no status line" 1 5 &&
+  { names_no_token_step W4 5; line_has '^FAIL row 5:.*network' || extra W4 "row 5 does not name the network"; }
 good; printf 'HTTP/1.1 403 Forbidden%s\n\n{"message":"Resource not accessible by personal access token"}\n' "$cr" >"$work/patch.out"
 check_case "W5 a status line ending in a CR" 0 -
 good
@@ -242,6 +258,25 @@ check_case "R8 an expired token fails the rules read and the probe write" 1 - &&
   { { [ "$(printf '%s\n' "$out" | grep -c '^FAIL ')" -eq 2 ] && line_has '^FAIL row 3:' && line_has '^FAIL row 5:.*step 6'; } ||
       extra R8 "the FAIL lines are not rows 3 and 5 with step 6 on row 5"
     row3_names_token_rows R8; }
+
+good; no_answer
+check_case "W7 no status line in the cloud" 1 5 --cloud &&
+  { names_no_token_step W7 5; line_has '^FAIL row 5:.*network' || extra W7 "row 5 does not name the network"; }
+good; touch "$work/rules.fail"; no_answer
+check_case "R9 no answer from GitHub fails the rules read and the probe write" 1 - &&
+  { [ "$(fail_rows)" = "3 5 " ] || extra R9 "the FAIL rows are '$(fail_rows)', not 3 and 5"
+    names_no_token_step R9 3 5
+    row3_names_token_rows R9; }
+good; touch "$work/rules.fail"; no_answer
+check_case "R10 no answer from GitHub in the cloud" 1 - --cloud &&
+  { [ "$(fail_rows)" = "3 5 " ] || extra R10 "the FAIL rows are '$(fail_rows)', not 3 and 5"
+    names_no_token_step R10 3 5
+    row3_names_token_rows R10; }
+good; unset GH_TOKEN; touch "$work/rules.fail"; no_answer
+check_case "K5 no token and no answer in the cloud" 1 - --cloud &&
+  { [ "$(fail_rows)" = "3 4 5 " ] || extra K5 "the FAIL rows are '$(fail_rows)', not 3, 4 and 5"
+    line_has '^FAIL row 4:.*step 4' || extra K5 "row 4 does not name step 4"
+    line_has '^FAIL row 5:.*row 4 fails, the step it names' || extra K5 "row 5 does not send the owner to row 4's step"; }
 
 good; git -C "$repo" config --unset-all credential.https://github.com.helper
 check_case "C1 the gh helper is git's last" 1 6 && { [ ! -e "$work/push-argv" ] || extra C1 "the dry run ran with a failed helper check"; }
