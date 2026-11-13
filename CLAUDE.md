@@ -188,7 +188,9 @@ one is replaced by a new pair. `gh-token-required.sh` refuses a `gh` command in
 a session without the restricted token, which would run on `gh`'s full stored
 login. It does not judge `gh` run through another command, such as the
 playbooks' `timeout 540 gh run watch`, a read that both playbooks reach only
-after the token is checked.
+after the token is checked. `gate-not-piped.sh` and `migration-immutable.sh`
+read the call with `jq` and let it through when `jq` is missing (TYRE-265), so
+`jq` must be on `PATH`.
 
 The merge and the push are held by the thing that knows the answer, not by
 reading a command's text: the `develop` ruleset (a pull request is required,
