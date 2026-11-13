@@ -150,6 +150,8 @@ jobs:
         run: make pipeline-wait-test
       - name: Hook cases
         run: make hooks-test
+      - name: Guard check cases
+        run: make guard-check-test
 
   api:
     name: Go

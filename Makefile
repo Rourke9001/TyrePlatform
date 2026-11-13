@@ -354,6 +354,14 @@ pipeline-wait-test: ## The wait's refusals and a 1 s wait, direct and through ma
 hooks-install: ## Point git at .githooks, so pre-push refuses a push to develop or main (TYRE-473)
 	@git config core.hooksPath .githooks
 
+.PHONY: guard-check
+guard-check: ## Read-only proof of the develop ruleset, the gh token, the push hook and git's credential; CLOUD=1 skips git's (docs/runbooks/github-access.md, TYRE-473)
+	@bash scripts/guard-check.sh $(if $(filter 1,$(CLOUD)),--cloud)
+
+.PHONY: guard-check-test
+guard-check-test: ## The guard check's rows on a temp repository, with a stub gh and a recording git (TYRE-473)
+	bash scripts/guard-check.test.sh
+
 .PHONY: hooks-test
 hooks-test: ## The hooks: each one settings.json names is executable, and the merge and push guard's cases (TYRE-413)
 	bash scripts/hooks.test.sh
@@ -426,7 +434,7 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bi
 	$(MAKE) web-bundle
 
 .PHONY: test
-test: db-reset db-test db-test-privileged db-provision-test api-test web-test web-production deploy-gate-test deploy-guard-test deploy-smoke-test pipeline-launch-test pipeline-review-test pipeline-wait-test hooks-test ## Every test in the repo
+test: db-reset db-test db-test-privileged db-provision-test api-test web-test web-production deploy-gate-test deploy-guard-test deploy-smoke-test pipeline-launch-test pipeline-review-test pipeline-wait-test hooks-test guard-check-test ## Every test in the repo
 
 .PHONY: check
 check: hooks-install fmt lint test ## What CI runs. Run this before you commit.
