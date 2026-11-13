@@ -405,15 +405,22 @@ if any row failed. Rows:
 `make guard-check CLOUD=1` runs rows 1 to 5 only: a cloud session's git
 goes through the proxy.
 
-`.claude/commands/pipeline.md`, Before anything, gains a step after the
-agent-teams check: run `make guard-check`; non-zero stops the run and
-shows the output. `.claude/commands/close-out.md`'s cloud-mode paragraph
+`.claude/commands/pipeline.md`, Before anything, gains the check inside
+step 1, after the agent-teams check, as a second paragraph: run
+`make guard-check`; non-zero stops the run and shows the output. It is
+not a new numbered step, because the playbook and
+`docs/superpowers/specs/2026-11-11-bounded-lead-waits-design.md:323`
+cite steps 2 to 7 by number. `.claude/commands/close-out.md`'s
+cloud-mode paragraph
 gains: run `make hooks-install`, then `make guard-check CLOUD=1`; on a
 failure post the output as the report and stop. When the failing row is
 the token, section 7's hook refuses the `gh api` call that posts the
 report, so the stop goes to the owner as the push notification
 close-out already sends when a run stops early (`close-out.md:190-193`),
-with the check's output in it.
+with the check's output in it. Close-out's guards read the PR with
+`gh api` before the cloud-mode paragraph runs (`close-out.md:20-35`), so
+a cloud session without the token is refused there first; `close-out.md`
+says that refusal stops the run the same way, with the notification.
 
 It is not part of `make lint` or `make test`: CI has no token and must
 not need one.
@@ -425,7 +432,11 @@ or a cloud session on another environment can lack it, and `gh` would
 then run on a full credential in silence. One hook closes that:
 `.claude/hooks/gh-token-required.sh`, registered in
 `.claude/settings.json` under `PreToolUse`, matcher `Bash`, with
-`"if": "Bash(gh *)"`.
+`"if": "Bash(gh *)"` and `"onFailure": "block"`. Without the second, a
+hook that cannot start or times out lets the call go ahead: the
+settings schema in Claude Code 2.1.323 gives the default as "the
+failure is reported and the action goes ahead" (planner's reading of
+the installed schema, 13 Nov 2026), which would fail open.
 
 The script reads no command text. It exits 0 when `GH_TOKEN` starts with
 `github_pat_`, and otherwise exits 2 with one message: this session has
@@ -486,7 +497,8 @@ also runs section 7's hook four times: with `GH_TOKEN` unset, empty and
 set to a value that does not start with `github_pat_`, each exiting 2
 with the runbook named on stderr, and with a `github_pat_` value,
 exiting 0 with no output. And it asserts that the hook's entry in
-`settings.json` carries `"if": "Bash(gh *)"`.
+`settings.json` carries `"if": "Bash(gh *)"` and
+`"onFailure": "block"`.
 
 `scripts/guard-check.test.sh` runs The check's cases below with stub
 `gh` and `git` on `PATH` and a temp repository. `make
@@ -512,6 +524,8 @@ Each case is shown red before the code that turns it green
 | `.claude/commands/close-out.md` | Step 7 (Promotion, above); the cloud-mode check (section 6). |
 | `.claude/commands/pipeline.md` | Before anything: the `make guard-check` step. |
 | `docs/runbooks/environment-release.md:1032-1042` | Promote to production steps 3 and 4 (Promotion, above). |
+| `docs/runbooks/environment-release.md:1046-1048` | It says close-out's step 7 "follows this section"; say that close-out makes the checks and hands the push to the owner. |
+| `docs/lessons.md`, 2026-08-31, the promotion rule (`:1691`) | Its command gains `TYRE_PROMOTE=1`, in the owner's terminal; the hook refuses it otherwise. |
 | `docs/runbooks/environment-release.md:128-133, 625-631` | These blocks write environments and variables, which need Administration and Environments write. Say they run in the owner's own terminal, not in a Claude session. |
 | `CONTRIBUTING.md:47-51` | The promotion push needs `TYRE_PROMOTE=1`; add that a change reaches `develop` only by pull request. |
 | `docs/implementation-order.md:196-200` | The restore of a deleted `develop` is the owner's, with `TYRE_PROMOTE=1`; ruleset 21929055 now refuses the deletion this guards against. |
