@@ -122,9 +122,9 @@ The research and probes are in
   21929055 and 21133437 both read `"current_user_can_bypass": "never"`
   with an empty `bypass_actors`. GitHub's pages do not say in words that
   an empty bypass list binds the admin, so the check reads this field.
-  It was read under the stored login. A read with no credential answers
-  200 and leaves the field out, and the read under the restricted token
-  has not been made: the owner's probe read only the ruleset list.
+  A read with no credential answers 200 and leaves the field out. Under
+  the restricted token it reads `never` (the lead's read on 13 Nov 2026,
+  once the owner had installed the token).
 - **`develop` has only the deletion rule today**
   (`gh api repos/Rourke9001/TyrePlatform/rules/branches/develop`), and
   the `production` environment has a `required_reviewers` rule naming
@@ -391,10 +391,7 @@ if any row failed. Rows:
 3. `GET /repos/Rourke9001/TyrePlatform/rules/branches/develop` lists a
    `pull_request` rule, and that rule's ruleset reads
    `"current_user_can_bypass": "never"`. A ruleset read that leaves the
-   field out fails the row. If the restricted token's read turns out to
-   leave it out, that shows at the owner's step 3, and the fix is to
-   move the bypass half of this row to the runbook's step 1, where the
-   owner's own terminal reads it.
+   field out fails the row.
 4. `GH_TOKEN` is set and starts with `github_pat_`.
 5. `PATCH /repos/Rourke9001/TyrePlatform/git/refs/heads/tyre-473-no-such-ref`
    answers 403 from GitHub. A token with Contents write gets 422, an
@@ -746,8 +743,16 @@ missed step stops that run with the row that failed.
     would put every other repository's `gh` on this token.
 17. **The builder check's other questions.** Which `gh` forms work under
     the token: the owner's probe answers it. Whether the ruleset read
-    carries `current_user_can_bypass` under the token: not probed, and
-    section 6 row 3 says what moves if it does not.
+    carries `current_user_can_bypass` under the token: it does, read by
+    the lead under the installed token.
+18. **The owner's steps 1 to 3 were done and read back on 13 Nov 2026,
+    before the plan.** `rules/branches/develop` lists `pull_request` on
+    ruleset 21929055 with 0 required approvals; git's helper for
+    `github.com` ends in `manager` and a non-interactive dry-run push
+    exits 0; the session's `GH_TOKEN` is a fine-grained token, and the
+    ref update on a ref that does not exist answers 403, "Resource not
+    accessible by personal access token". The settings `env` reached
+    the running session with no restart.
 
 ## Left to the builder
 
