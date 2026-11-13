@@ -1,7 +1,7 @@
 # Branch writes held by GitHub and git: a develop ruleset, a scoped gh token and a pre-push hook
 
-Date: 2026-11-13. Ticket: TYRE-473 (epic TYRE-10). Status: awaiting the
-owner's approval. From the 9 Nov 2026 design audit, section 3 (verdict
+Date: 2026-11-13. Ticket: TYRE-473 (epic TYRE-10). Status: approved by
+the owner on 13 Nov 2026 (U209). From the 9 Nov 2026 design audit, section 3 (verdict
 Replace); owner ruling U201 accepted the ruleset and the owner's GitHub
 steps. The ticket cites no SRS requirement: this is repo tooling, no
 product code.
@@ -11,10 +11,12 @@ framing of evasion forms as the accepted limit of a text guard. U123 (the
 owner merges every PR), U126 (a feature-branch push runs without a
 prompt) and TYRE-250 (a written rule is enforced, not recalled) stand.
 
-The owner answered the product questions on 13 Nov 2026: the token is
-created now and probed; the owner's setup steps run after the PR opens
-and before the merge; the cloud routine gets a restricted token of its
-own.
+The owner answered the product questions on 13 Nov 2026 (U208): the
+token is created now and probed; the owner's setup steps run after the
+PR opens and before the merge; the cloud routine gets a restricted
+token of its own. With the approval (U209) the owner moved three of
+those steps to before the build: the ruleset, git's credential and the
+local token.
 
 This spec departs from the ticket's design in six places:
 
@@ -238,8 +240,8 @@ each under a permission the token holds.
   `gh` calls at hand-over are refused unless the session carries the
   token. So the ruleset, git's credential and the local token (the
   runbook's steps 1 to 3) come before implementation, not after the PR
-  opens. This changes the timing the owner chose on 13 Nov 2026 for
-  those three steps and is put to the owner with this spec.
+  opens. The owner chose that with the approval (U209, 13 Nov 2026),
+  changing the timing first chosen for those three steps (U208).
 - The guard's registration and its file leave in one commit, the
   registration first. A registered hook whose file is gone would fail on
   every Bash call of every session in this checkout.
