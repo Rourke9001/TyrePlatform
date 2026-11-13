@@ -30,7 +30,7 @@ bad() { echo "FAIL row $1: $2: $3. Fix: $4"; failed=1; }
 unchecked() { echo "UNCHECKED row $1: $2: $3. Run make guard-check again once any FAIL row is fixed; if row $1 stays UNCHECKED, $4"; failed=1; }
 
 hooks_path=$(git config --get core.hooksPath 2>/dev/null | tr -d '\r')
-hook_mode=$(git ls-files -s -- .githooks/pre-push | cut -d' ' -f1)
+hook_mode=$(git ls-files -s -- .githooks/pre-push 2>/dev/null | cut -d' ' -f1)
 if [ "$hooks_path" != .githooks ]; then
   bad 1 "push hook installed" "core.hooksPath is '${hooks_path:-unset}', not .githooks" "make hooks-install, on a checkout whose .githooks/pre-push is 100755 in git"
 elif [ ! -f .githooks/pre-push ]; then
