@@ -114,9 +114,9 @@ if [ "$cloud" -eq 0 ]; then
   elif GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS= SSH_ASKPASS= git push --dry-run origin HEAD:refs/heads/tyre-473-guard-check >/dev/null 2>&1; then
     ok 6 "git signs in by its own credential"
   elif [ "$rules_rc" -eq 0 ]; then
-    # GitHub answered row 3's rules read in this run, so a failed dry run is
-    # read as git's sign-in; without that answer nothing tells the two apart
-    # (TYRE-473, U210).
+    # The check sees only the rules read's exit code, so only a read that
+    # succeeded shows GitHub took a request in this run; only then is a failed
+    # dry run read as git's sign-in (TYRE-473, U210).
     bad 6 "git signs in by its own credential" "a dry-run push to origin failed without a prompt" "docs/runbooks/github-access.md step 2"
   else
     unchecked 6 "git signs in by its own credential" "a dry-run push to origin failed without a prompt, and so did row 3's rules read" "docs/runbooks/github-access.md step 2"

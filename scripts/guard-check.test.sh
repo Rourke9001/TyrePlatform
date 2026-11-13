@@ -235,8 +235,8 @@ check_case "K4 no token in the cloud" 1 F4 --cloud && { line_has '^FAIL row 4:.*
 good; printf 'HTTP/1.1 403 Forbidden%s\n\n{"message":"Resource not accessible by personal access token"}\n' "$cr" >"$work/patch.out"
 check_case "W5 a status line ending in a CR" 0 -
 
-# Each case below runs in both modes: row 5 names step 3 locally and step 4 in
-# the cloud, and nothing else may change with the mode.
+# Each case in this loop runs in both modes: row 5 names step 3 locally and
+# step 4 in the cloud, and nothing else may change with the mode.
 names_step() { line_has "^FAIL row $2:.*step $3\$" || extra "$1" "row $2 does not name step $3"; }
 for mode in local cloud; do
   if [ "$mode" = cloud ]; then arg=--cloud tstep=4; else arg= tstep=3; fi
@@ -295,7 +295,7 @@ check_case "C2 the dry run cannot push" 1 F6 && names_step C2 6 2
 good; git -C "$repo" config --unset-all credential.https://github.com.helper; git -C "$repo" remote set-url origin "$work/missing.git"
 check_case "C3 the cloud skips row 6" 0 - --cloud
 good; git -C "$repo" remote set-url origin "$work/missing.git"; touch "$work/ruleset-21929055.fail"
-check_case "C4 the dry run cannot push after GitHub answered the rules read" 1 "U3 F6" && names_step C4 6 2
+check_case "C4 the dry run cannot push after the rules read succeeded" 1 "U3 F6" && names_step C4 6 2
 good; git -C "$repo" remote set-url origin "$work/missing.git"; touch "$work/rules.fail"; no_answer
 check_case "C5 the dry run cannot push and GitHub gave no answer" 1 "U3 U5 U6"
 good; git -C "$repo" remote set-url origin "$work/missing.git"; touch "$work/rules.401"; set_patch 'HTTP/2.0 401 Unauthorized' 'Bad credentials (HTTP 401)' 1
