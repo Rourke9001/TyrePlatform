@@ -546,7 +546,7 @@ ending with no diff. The result goes in the PR body.
 
 | Where | Change |
 | --- | --- |
-| `CLAUDE.md:179-189`, the hooks paragraph | Still three hooks; the guard's sentences go and `gh-token-required.sh` takes its place, in one sentence. A new short paragraph says what holds the merge and the push now: the `develop` ruleset, the restricted `gh` token and `.githooks/pre-push`, that `make guard-check` proves them, that `--no-verify` and a hand-set `TYRE_PROMOTE` are the limits, and cites the runbook. |
+| `CLAUDE.md:179-189`, the hooks paragraph | Still three hooks; the guard's sentences go and `gh-token-required.sh` takes its place, in one sentence. A new short paragraph says what holds the merge and the push now: the `develop` ruleset, the restricted `gh` token and `.githooks/pre-push`, that `make guard-check` proves them, that `--no-verify`, `-c core.hooksPath=`, a hand-set `TYRE_PROMOTE` and a `gh` call that drops the token are among the limits, and cites the runbook's list of them. |
 | `.claude/settings.json` | The guard's registration goes; `gh-token-required.sh` is registered with `"if": "Bash(gh *)"`. Nothing under `permissions` changes. |
 | `CLAUDE.md`, Commands | Add `make hooks-install` and `make guard-check`. |
 | `CLAUDE.md`, Repo etiquette | `develop` takes a change only through a pull request (ruleset, U201). |

@@ -191,11 +191,12 @@ login.
 The merge and the push are held by the thing that knows the answer, not by
 reading a command's text: the `develop` ruleset (a pull request is required,
 U201), the restricted `gh` token (no Contents write, so no merge and no branch
-write) and `.githooks/pre-push` (no update of `develop` or `main`, and no
-delete, unless `TYRE_PROMOTE=1` for the owner's promotion of `main`).
-`make guard-check` proves them. `git push --no-verify` and a hand-set
-`TYRE_PROMOTE` are the limits. The owner's steps are
-`docs/runbooks/github-access.md`.
+write) and `.githooks/pre-push` (no update of `develop` or `main` unless
+`TYRE_PROMOTE=1`, which the owner sets to promote `main`, and never a
+delete). `make guard-check` proves them. `git push --no-verify`,
+`git -c core.hooksPath=`, a hand-set `TYRE_PROMOTE` and a `gh` call that
+drops the token are among the limits. `docs/runbooks/github-access.md` lists
+more under What this does not hold, and holds the owner's steps.
 
 **Comments**
 `docs/comments.md` is the full standard; these are the operative rules.
