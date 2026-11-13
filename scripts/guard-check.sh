@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Read-only proof of what holds a merge and a push: the git hook, the develop
-# ruleset, the restricted gh token and git's own credential. One line per row,
-# so a missing control names the runbook step that installs it (TYRE-473,
-# docs/runbooks/github-access.md). It prints no output of gh or git, so
+# ruleset, the restricted gh token and git's own credential. One line per row:
+# OK; FAIL when a read shows the control missing, with its fix, most often a
+# runbook step; or UNCHECKED when GitHub gave the row no answer about it, with
+# a re-run and then the row's step (TYRE-473, U210,
+# docs/runbooks/github-access.md). Of what gh and git return it prints only an
+# HTTP status code, the core.hooksPath value and the hook's index mode, so
 # neither the token nor a credential in a remote URL can reach it.
 set -uo pipefail
 
