@@ -58,9 +58,9 @@ if [ "$rules_rc" -eq 0 ] && [ -n "$ids" ]; then
     elif [ "$bypass" = never ]; then pr_held=1; fi
   done
 fi
-# A failed read is more often the token or the network than the ruleset, and
-# rows 4 and 5 name the step for the token (TYRE-473).
-read_fix="if row 4 or 5 fails, the step it names; else docs/runbooks/github-access.md step 1"
+# A read fails more often for the token or the network than for the ruleset,
+# and rows 4 and 5 name the fix for each (TYRE-473).
+read_fix="if row 4 or 5 fails, that row's fix; else docs/runbooks/github-access.md step 1"
 if [ "$pr_held" -eq 1 ]; then
   ok 3 "develop needs a pull request"
 elif [ "$rules_rc" -ne 0 ]; then
@@ -90,7 +90,10 @@ code=$(printf '%s\n' "$resp" | grep -Eo -m1 '^HTTP/[0-9.]+ [0-9]{3}' | grep -Eo 
 if [ "$code" = 403 ] && [[ "$resp" == *"Resource not accessible by personal access token"* ]]; then
   ok 5 "token cannot write a branch"
 elif [ -z "$code" ]; then
-  bad 5 "token cannot write a branch" "gh printed no status line" "$token_step"
+  # gh api -i prints the status line of any answer GitHub gives, so with none
+  # the request got no answer, and the token's step helps only when row 4
+  # fails too (TYRE-473).
+  bad 5 "token cannot write a branch" "gh printed no status line, so no answer came from GitHub (the network, a proxy, or gh itself)" "if row 4 fails, the step it names; else check the network and that gh runs, then run make guard-check again"
 elif [ "$code" = 401 ]; then
   bad 5 "token cannot write a branch" "GitHub refused the token (HTTP 401), so it is expired or revoked" "docs/runbooks/github-access.md step 6"
 elif [ "$code" = 403 ]; then
