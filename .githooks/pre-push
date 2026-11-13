@@ -2,7 +2,8 @@
 # Refuses a push that would update or delete develop or main, the two deploy
 # branches (ADR-0004): develop takes a pull request, and the owner promotes
 # main with TYRE_PROMOTE=1. Git hands this hook each target after resolving
-# the command, so no spelling of the push escapes it; --no-verify does
+# the command, so no spelling of the push escapes it, but --no-verify or a
+# core.hooksPath set for the one command (-c core.hooksPath=) skips the hook
 # (TYRE-473, docs/runbooks/github-access.md).
 while read -r local_ref _local_oid remote_ref _remote_oid; do
   case "$remote_ref" in
