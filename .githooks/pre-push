@@ -1,0 +1,22 @@
+#!/bin/sh
+# Refuses a push that would update or delete develop or main, the two deploy
+# branches (ADR-0004): develop takes a pull request, and the owner promotes
+# main with TYRE_PROMOTE=1. Git hands this hook each target after resolving
+# the command, so no spelling of the push escapes it; --no-verify does
+# (TYRE-473, docs/runbooks/github-access.md).
+while read -r local_ref _local_oid remote_ref _remote_oid; do
+  case "$remote_ref" in
+    refs/heads/develop | refs/heads/main) ;;
+    *) continue ;;
+  esac
+  # A promotion never deletes, and an empty variable in the promotion
+  # command turns its refspec into a delete (TYRE-473).
+  if [ "$local_ref" = "(delete)" ]; then
+    echo "pre-push: refused, this push would delete $remote_ref. TYRE_PROMOTE never allows a delete." >&2
+    exit 1
+  fi
+  [ "${TYRE_PROMOTE:-}" = 1 ] && continue
+  echo "pre-push: refused, this push would update $remote_ref. develop takes a change only through a pull request; main is promoted by the owner from their own terminal (docs/runbooks/environment-release.md, Promote to production)." >&2
+  exit 1
+done
+exit 0
