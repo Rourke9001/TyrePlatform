@@ -128,7 +128,9 @@ make db-test-privileged  # negative controls that need a superuser to stage
 make test           # everything: db, api, web
 make fmt            # gofmt + prettier, in place
 make lint           # gofmt/prettier check, vet, staticcheck, Bicep lint, actionlint, eslint, tsc, comments, stylelint, Go pins, money paths, bundle
-make check          # fmt + lint + test. Run before every commit.
+make hooks-install  # point git at .githooks (pre-push); make check and make pipeline run it
+make guard-check    # read-only proof of the develop ruleset, the gh token, the push hook and git's credential; CLOUD=1 in the cloud
+make check          # hooks-install + fmt + lint + test. Run before every commit.
 make pipeline T=TYRE-123  # one job (a ticket, or T="TYRE-1 TYRE-2" for a small-fix bundle) to a reviewed PR
 ```
 
@@ -178,15 +180,22 @@ order. If a gate cannot run, fix the gate — do not let it pass silently.
 
 Three hooks in `.claude/hooks/` refuse the edit or command rather than warn
 after it, because each rule had already been written down and did not hold
-(TYRE-250, TYRE-413). `gate-not-piped.sh` blocks a gate piped into anything, since the
+(TYRE-250, TYRE-413, TYRE-473). `gate-not-piped.sh` blocks a gate piped into anything, since the
 status you read back is the pipe's; `set -o pipefail` is the way through.
 `migration-immutable.sh` blocks an edit to a migration already on
 `origin/develop` — a migration on a feature branch stays editable, an applied
-one is replaced by a new pair. `merge-push-guard.sh` refuses a merge through
-`gh pr merge` or `gh api`, since the owner merges every PR (U123), and asks
-before a push, a ref write or a contents write that lands on `develop` or
-`main`, since both deploy (U167). It judges the command's text, so a command
-built to evade it can pass; the hook's header names the gaps.
+one is replaced by a new pair. `gh-token-required.sh` refuses a `gh` call in
+a session without the restricted token, which would run on `gh`'s full stored
+login.
+
+The merge and the push are held by the thing that knows the answer, not by
+reading a command's text: the `develop` ruleset (a pull request is required,
+U201), the restricted `gh` token (no Contents write, so no merge and no branch
+write) and `.githooks/pre-push` (no update of `develop` or `main`, and no
+delete, unless `TYRE_PROMOTE=1` for the owner's promotion of `main`).
+`make guard-check` proves them. `git push --no-verify` and a hand-set
+`TYRE_PROMOTE` are the limits. The owner's steps are
+`docs/runbooks/github-access.md`.
 
 **Comments**
 `docs/comments.md` is the full standard; these are the operative rules.
@@ -344,7 +353,8 @@ The push that opens the PR is not a stop (U193, owner, 9 Nov 2026).
 - Branches: `develop` is the integration branch and what staging runs;
   `main` is what production runs, and it only advances by fast-forwarding to
   a vetted `develop` commit (ADR-0004, ADR-0017). Do not commit to `main`
-  directly.
+  directly. `develop` takes a change only through a pull request (ruleset
+  21929055, U201).
 - Branch: `TYRE-123-short-description`, cut from `develop`. The Jira key is
   what links the branch, the commits and the PR back to the ticket.
 - Commits: conventional commits with the key — `feat(capture): TYRE-42 add

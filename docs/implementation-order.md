@@ -197,4 +197,6 @@ If `origin/develop` is missing entirely, it was deleted by
 `deleteBranchOnMerge`. Restore it from the head of its newest CI push run,
 not from `main`, which would drop every commit not yet promoted:
 `gh run list -R Rourke9001/TyrePlatform --branch develop --event push --limit 1 --json headSha --jq '.[0].headSha'`,
-then `git push origin <that sha>:refs/heads/develop`.
+then `git push origin <that sha>:refs/heads/develop`, which is the owner's push,
+with `TYRE_PROMOTE=1`. Ruleset 21929055 now refuses the deletion this guards
+against (TYRE-473).

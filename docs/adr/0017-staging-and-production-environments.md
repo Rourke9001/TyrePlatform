@@ -320,3 +320,5 @@ NFR-BAK-005 and NFR-BAK-006 cover failures recovered by a point-in-time
 restore inside South Africa North, and a region-wide outage waits for the
 region (SRS errata, TYRE-321). The geo-redundant backup stays: it costs
 nothing at pilot size, and changing it means rebuilding the server.
+
+**Amended 2026-11-13 (TYRE-473, U201):** the `production` environment requires the owner's review (read 13 Nov 2026), so "no required reviewer" and "Not taken: a reviewer click per release" in the approval bullet no longer hold. The `deploy-prod` jobs wait in the run's "Review deployments" box.

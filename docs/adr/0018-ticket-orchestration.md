@@ -102,3 +102,5 @@ would let subagent-driven development move into the team, and stage 5 too
 if the owner revisits U125;
 Paperclip or a similar tool can use Jira as its tracker; or a second
 engineer needs pipelines to run at the same time.
+
+**Amended 2026-11-13 (TYRE-473, U201):** ruleset 21929055 now requires a pull request on `develop`, so the gap at "the `develop` ruleset only blocks deletion" is closed, and the owner's own docs changes go through a pull request too. The routine's `gh` runs on a restricted token (no Contents write) that cannot merge. What is left to the prompt is a fast-forward of `main`, which the production approval holds and `.githooks/pre-push` refuses without `TYRE_PROMOTE=1`; close-out hands that push to the owner (`docs/runbooks/github-access.md`).

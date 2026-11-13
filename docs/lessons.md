@@ -208,9 +208,17 @@ make one structural change that reads the text the way its consumer does
 (here, bash). Never patch per finding; rerun the whole case list after the
 change, so a reopened case shows.
 
+**Amended 2026-11-13 (TYRE-473):** ask the consumer first. The consumer of a
+push is git and of a merge GitHub, so a `pre-push` hook, a ruleset and a
+token without Contents write answer what a command would do; read the text
+the way its consumer does only when no consumer can be asked. TYRE-473
+replaced the guard with the `pre-push` hook, the `develop` ruleset and the
+restricted token.
+
 ## 2026-11-03 - jq on Windows ends every line with a CR, so a multi-line command never matches a line exactly (TYRE-413)
 
-**What happened:** `.claude/hooks/merge-push-guard.sh` drops a heredoc's
+**What happened:** `.claude/hooks/merge-push-guard.sh` (the guard TYRE-473
+deleted; the rule below stands) drops a heredoc's
 body by matching its closing delimiter line. Its test fed a command with
 `<<'EOF'` ... `EOF`, and the delimiter never matched: `jq -r` on Windows
 writes CRLF, so every line of `.tool_input.command` ended in a CR. Git
@@ -720,9 +728,10 @@ identity (TYRE-317 comment 13468), never in the admin center.
 - When vitest fails with worker exits and no assertion failure, read it as
   the host, not the code. Do not debug it and do not re-run it while memory
   is short. Re-run the whole `make check` when the machine is quiet, and
-  quote that run as the gate. Run it in the foreground in two halves,
-  `make fmt lint` then `make test`, each inside the tool's 10-minute limit,
-  so an idle session never holds it (2026-09-24).
+  quote that run as the gate. Run it in the foreground in parts,
+  `make hooks-install`, then `make fmt lint`, then `make test` (TYRE-473 added
+  the first), each inside the tool's 10-minute limit, so an idle session never
+  holds it (2026-09-24).
 - On this host run the gate as `VITEST_MAX_WORKERS=4 make check`. When web
   tests time out in files the branch did not touch, cap the workers and
   re-run before reading the diff for a cause. Never raise a test timeout or
@@ -1688,8 +1697,10 @@ repository with no integration branch. Nothing was lost: the trees were
 identical. But every hash cited in `docs/implementation-order.md` stopped
 resolving, and a local `develop` left unreset silently became a fork.
 
-**The rule:** promote with `git push origin origin/develop:main` from a
-terminal, never a pull request (ADR-0004, CONTRIBUTING.md). To check whether
+**The rule:** promote with `TYRE_PROMOTE=1 git push origin origin/develop:main`
+from the owner's terminal, never a pull request (ADR-0004, CONTRIBUTING.md;
+`.githooks/pre-push` refuses it otherwise, TYRE-473, and the runbook's Promote
+to production has the SHA form). To check whether
 two branches agree after any promotion, compare
 `git rev-parse <ref>^{tree}` — **trees, never hashes**, because a rebase leaves
 the tree equal and every hash different. Cut feature branches as
@@ -1956,7 +1967,8 @@ preconditions that give it teeth.
 the background and its exit code was never read. The web suite alone takes
 about 176 s, and the build, lint and production checks add the rest.
 
-**The rule:** run `make check` as its three parts, each a separate foreground
-target with its own exit code and no pipe: `make fmt`, `make lint`, then
+**The rule:** run `make check` as its four parts, each a separate foreground
+target with its own exit code and no pipe: `make hooks-install` first
+(TYRE-473), then `make fmt`, `make lint`, then
 `VITEST_MAX_WORKERS=4 make test`. Report each exit code. If `make test` alone
 passes the limit, run its prerequisites one target per call.
