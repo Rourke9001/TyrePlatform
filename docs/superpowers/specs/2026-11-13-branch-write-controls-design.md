@@ -389,18 +389,27 @@ if any row failed. Rows:
    is mode 100755 in git.
 2. `TYRE_PROMOTE` is not set in this environment.
 3. `GET /repos/Rourke9001/TyrePlatform/rules/branches/develop` lists a
-   `pull_request` rule, and that rule's ruleset reads
-   `"current_user_can_bypass": "never"`. A ruleset read that leaves the
-   field out fails the row.
+   `pull_request` rule, and at least one ruleset carrying that rule
+   reads `"current_user_can_bypass": "never"`. GitHub applies every
+   ruleset that matches, so one the caller cannot bypass is enough. A
+   ruleset read that leaves the field out does not count.
 4. `GH_TOKEN` is set and starts with `github_pat_`.
 5. `PATCH /repos/Rourke9001/TyrePlatform/git/refs/heads/tyre-473-no-such-ref`
-   answers 403 from GitHub. A token with Contents write gets 422, an
-   expired one 401; anything but 403 fails the row.
+   answers 403 from GitHub, with GitHub's message "Resource not
+   accessible by personal access token" (the lead's read, 13 Nov 2026).
+   A token with Contents write gets 422, an expired one 401, and the
+   cloud proxy has 403s of its own with other messages; anything but
+   that status and message fails the row.
 6. Git's last `credential.https://github.com.helper` value is not the
    `gh` helper, and `git push --dry-run origin
    HEAD:refs/heads/tyre-473-guard-check` exits 0 with
-   `GIT_TERMINAL_PROMPT=0` and `GCM_INTERACTIVE=never`, so a missing
-   sign-in fails the row and never opens a browser.
+   `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `GIT_ASKPASS=` and
+   `SSH_ASKPASS=`, so a missing sign-in fails the row and never opens a
+   browser or a prompt. The two askpass variables are emptied because
+   VS Code's terminal sets them, and git falls back to that program
+   even with terminal prompts off (the red team's probe, round 1; the
+   owner's first sign-in attempt on 13 Nov 2026 was answered by
+   something other than the browser).
 
 `make guard-check CLOUD=1` runs rows 1 to 5 only: a cloud session's git
 goes through the proxy.
@@ -508,6 +517,14 @@ workflows" job beside `hooks-test`.
 Each case is shown red before the code that turns it green
 (`docs/lessons.md`, 2026-11-03, the text-matching gate).
 
+The registered hook is also watched refusing once, live, since a
+configuration that is present proves nothing is enforced
+(`docs/lessons.md`, 2026-08-21; TYRE-250's bar). After the registration
+lands, the implementer makes the working copy's hook refuse every token,
+runs one `gh` command and sees the refusal naming the runbook, runs one
+`git` command and sees it run, and restores the file with the Edit tool,
+ending with no diff. The result goes in the PR body.
+
 ### 11. Docs
 
 | Where | Change |
@@ -526,6 +543,7 @@ Each case is shown red before the code that turns it green
 | `docs/runbooks/environment-release.md:1032-1042` | Promote to production steps 3 and 4 (Promotion, above). |
 | `docs/runbooks/environment-release.md:1046-1048` | It says close-out's step 7 "follows this section"; say that close-out makes the checks and hands the push to the owner. |
 | `docs/lessons.md`, 2026-08-31, the promotion rule (`:1691`) | Its command gains `TYRE_PROMOTE=1`, in the owner's terminal; the hook refuses it otherwise. |
+| `docs/delivery-history.md:27-29` | The same promotion command, stated in the present tense; the same change. |
 | `docs/runbooks/environment-release.md:128-133, 625-631` | These blocks write environments and variables, which need Administration and Environments write. Say they run in the owner's own terminal, not in a Claude session. |
 | `CONTRIBUTING.md:47-51` | The promotion push needs `TYRE_PROMOTE=1`; add that a change reaches `develop` only by pull request. |
 | `docs/implementation-order.md:196-200` | The restore of a deleted `develop` is the owner's, with `TYRE_PROMOTE=1`; ruleset 21929055 now refuses the deletion this guards against. |
