@@ -33,12 +33,14 @@ r=repos/Rourke9001/TyrePlatform
 case "${GH_TOKEN:-}" in *TYRE473SENTINEL*) echo "${GH_TOKEN:-}" >&2 ;; esac
 bad() { echo "$*" >>"$d/bad-call"; exit 3; }
 notfound() { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+unauthorized() { echo "gh: Bad credentials (HTTP 401)" >&2; exit 1; }
 emit() { if [ -e "$d/jq-crlf" ]; then sed $'s/$/\r/'; else cat; fi; }
 if [ "$#" -eq 4 ] && [ "$1" = api ] && [ "$3" = --jq ]; then
   case "$2" in
     "$r/rules/branches/develop")
       [ "$4" = '[.[] | select(.type == "pull_request") | .ruleset_id] | unique | .[]' ] || bad "$*"
       [ -e "$d/rules.fail" ] && notfound
+      [ -e "$d/rules.401" ] && unauthorized
       jq -r "$4" "$d/rules.json" | tr -d '\r' | emit
       exit 0 ;;
     "$r/rulesets/"*)
@@ -119,7 +121,7 @@ good() {
   echo '[{"type":"deletion","ruleset_source_type":"Repository","ruleset_source":"Rourke9001/TyrePlatform","ruleset_id":21929055},{"type":"pull_request","parameters":{"required_approving_review_count":0},"ruleset_source_type":"Repository","ruleset_source":"Rourke9001/TyrePlatform","ruleset_id":21929055}]' >"$work/rules.json"
   echo '{"id":21929055,"name":"Protect develop from deletion","enforcement":"active","bypass_actors":[],"current_user_can_bypass":"never"}' >"$work/ruleset-21929055.json"
   patch_403
-  rm -f "$work/rules.fail" "$work"/ruleset-*.fail "$work/ruleset-21929056.json" "$work/jq-crlf" \
+  rm -f "$work/rules.fail" "$work/rules.401" "$work"/ruleset-*.fail "$work/ruleset-21929056.json" "$work/jq-crlf" \
     "$work/push-argv" "$work/push-env" "$work/bad-call"
   unset TYRE_PROMOTE
   export GH_TOKEN=github_pat_TYRE473SENTINEL
@@ -158,6 +160,17 @@ check_case() {
 }
 line_has() { printf '%s\n' "$out" | grep -q -- "$1"; }
 extra() { fail_case "$1" "$2"; }
+# A read that fails is the token's or the network's before it is the
+# ruleset's, so row 3 sends the owner to rows 4 and 5 first (TYRE-473).
+row3_names_token_rows() {
+  local l3
+  l3=$(printf '%s\n' "$out" | grep '^FAIL row 3:')
+  case "$l3" in
+    *"Fix: docs/runbooks/github-access.md step 1") extra "$1" "row 3 sends a failed read to step 1 alone" ;;
+    *"row 4 or 5"*) ;;
+    *) extra "$1" "row 3 does not name rows 4 and 5" ;;
+  esac
+}
 
 good
 check_case "G1 every row passes on the owner's credential layout" 0 - &&
@@ -188,14 +201,14 @@ check_case "R2 the token's user can bypass" 1 3
 good; echo '{"id":21929055}' >"$work/ruleset-21929055.json"
 check_case "R3 the ruleset lacks the field" 1 3
 good; touch "$work/rules.fail"
-check_case "R4 the rules read fails" 1 3
+check_case "R4 the rules read fails" 1 3 && row3_names_token_rows R4
 good
 echo '[{"type":"pull_request","ruleset_id":21929055},{"type":"pull_request","ruleset_id":21929056}]' >"$work/rules.json"
 echo '{"id":21929055,"current_user_can_bypass":"always"}' >"$work/ruleset-21929055.json"
 echo '{"id":21929056,"current_user_can_bypass":"never"}' >"$work/ruleset-21929056.json"
 check_case "R5 a second pull_request ruleset that cannot be bypassed" 0 -
 good; touch "$work/ruleset-21929055.fail"
-check_case "R6 the ruleset read fails" 1 3
+check_case "R6 the ruleset read fails" 1 3 && row3_names_token_rows R6
 good; touch "$work/jq-crlf"
 check_case "R7 gh output ending in a CR" 0 -
 
@@ -223,6 +236,12 @@ good
 printf 'HTTP/2.0 403 Forbidden\n\n{"message":"Blocked by egress policy"}\n' >"$work/patch.out"
 echo 'Blocked by egress policy (HTTP 403)' >"$work/patch.err"
 check_case "W6 a proxy's 403" 1 5
+
+good; touch "$work/rules.401"; set_patch 'HTTP/2.0 401 Unauthorized' 'Bad credentials (HTTP 401)' 1
+check_case "R8 an expired token fails the rules read and the probe write" 1 - &&
+  { { [ "$(printf '%s\n' "$out" | grep -c '^FAIL ')" -eq 2 ] && line_has '^FAIL row 3:' && line_has '^FAIL row 5:.*step 6'; } ||
+      extra R8 "the FAIL lines are not rows 3 and 5 with step 6 on row 5"
+    row3_names_token_rows R8; }
 
 good; git -C "$repo" config --unset-all credential.https://github.com.helper
 check_case "C1 the gh helper is git's last" 1 6 && { [ ! -e "$work/push-argv" ] || extra C1 "the dry run ran with a failed helper check"; }

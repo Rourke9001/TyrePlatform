@@ -48,20 +48,27 @@ ids=$(gh api "repos/$repo/rules/branches/develop" --jq '[.[] | select(.type == "
 rules_rc=$?
 ids=${ids//$'\r'/}
 pr_held=0
+read_failed=0
 if [ "$rules_rc" -eq 0 ] && [ -n "$ids" ]; then
   for id in $ids; do
     bypass=$(gh api "repos/$repo/rulesets/$id" --jq '.current_user_can_bypass // "absent"' 2>/dev/null)
     bypass_rc=$?
     bypass=${bypass//$'\r'/}
-    if [ "$bypass_rc" -eq 0 ] && [ "$bypass" = never ]; then pr_held=1; fi
+    if [ "$bypass_rc" -ne 0 ]; then read_failed=1
+    elif [ "$bypass" = never ]; then pr_held=1; fi
   done
 fi
+# A failed read is more often the token or the network than the ruleset, and
+# rows 4 and 5 name the step for the token (TYRE-473).
+read_fix="if row 4 or 5 fails, the step it names; else docs/runbooks/github-access.md step 1"
 if [ "$pr_held" -eq 1 ]; then
   ok 3 "develop needs a pull request"
 elif [ "$rules_rc" -ne 0 ]; then
-  bad 3 "develop needs a pull request" "gh could not read develop's rules" "docs/runbooks/github-access.md step 1"
+  bad 3 "develop needs a pull request" "gh could not read develop's rules, so the ruleset went unchecked" "$read_fix"
 elif [ -z "$ids" ]; then
   bad 3 "develop needs a pull request" "no ruleset requires a pull request on develop" "docs/runbooks/github-access.md step 1"
+elif [ "$read_failed" -eq 1 ]; then
+  bad 3 "develop needs a pull request" "gh could not read a pull request ruleset on develop, so it went unchecked" "$read_fix"
 else
   bad 3 "develop needs a pull request" "no pull request ruleset on develop is one this token's user cannot bypass" "docs/runbooks/github-access.md step 1"
 fi
