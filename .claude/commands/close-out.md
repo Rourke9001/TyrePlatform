@@ -32,7 +32,11 @@ a doc names, says `gh pr list` or `gh pr view`, use the REST form:
 head commit, not on `develop`. Run `git fetch origin develop main`
 (adding `--unshallow` if `git rev-parse --is-shallow-repository` says
 `true`) and `git checkout --detach origin/develop`, and read and edit only
-from there.
+from there. Then run `make hooks-install` and `make guard-check CLOUD=1`; on a
+non-zero exit, post its output as the report and stop. A `gh` call refused for
+want of the restricted token, there or in the guards above, also stops the
+run, and since the report cannot be posted then, the push notification carries
+the check's output or the refusal (below).
 
 **Local mode only, next:** before checking anything out, look for
 `.superpowers/sdd/*-pipeline-*/state.md`. If one exists whose last finished
@@ -158,8 +162,15 @@ working in this checkout.
        is from 6 to 17 inclusive: list "promote outside 06:00 to 18:00
        SAST" (NFR-AVL-003). The `10#` matters: bash reads a zero-padded `08`
        or `09` as invalid octal.
-   - Otherwise run `git push origin <sha>:main`, never through a pull
-     request (ADR-0004), then `git fetch origin main`;
+   - Otherwise stop and give the owner the full 40-character `<sha>`
+     first, then the push for their own terminal with it typed in, never
+     through a pull request (ADR-0004): Git Bash
+     `TYRE_PROMOTE=1 git push origin <sha>:main`, PowerShell
+     `$env:TYRE_PROMOTE='1'; git push origin <sha>:main; $env:TYRE_PROMOTE=$null`.
+     Type the SHA, not a variable: a variable set here does not exist in
+     the owner's terminal, and an empty one turns the refspec into `:main`,
+     a delete. A session cannot push `main` (`.githooks/pre-push`). When
+     the owner says it is pushed, go on from `git fetch origin main`;
      `git rev-parse origin/main` must equal `<sha>`.
    - Watch CI's `main` run for `<sha>` with step 2's bounded watch
      (`--branch main --commit <sha>`) and cite its URL. Green means

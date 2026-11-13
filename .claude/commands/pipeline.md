@@ -22,7 +22,10 @@ stage would run as a plain subagent.
 1. Run `printenv CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`. If it is not `1`,
    stop and tell the owner to launch with `make pipeline T="$ARGUMENTS"`.
    Without it every teammate below would run as a plain subagent, which
-   this playbook's messaging and waiting are not written for.
+   this playbook's messaging and waiting are not written for. Then run
+   `make guard-check` in the foreground; a non-zero exit stops the run, and
+   the owner gets its output, each FAIL line naming the runbook step that
+   fixes it (`docs/runbooks/github-access.md`, TYRE-473).
 2. `$ARGUMENTS` must match `^TYRE-[1-9][0-9]*( TYRE-[1-9][0-9]*)*$` with no
    key repeated, as the launcher checks. If it does not, stop.
 3. Look for state files: `.superpowers/sdd/*-pipeline-*/state.md`. A file's

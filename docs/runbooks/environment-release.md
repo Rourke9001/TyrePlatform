@@ -118,6 +118,9 @@ prints anything, stop.
    `azure/login`. List the live credential first and copy its owner and
    repo portion byte for byte into the new subject. The form below is what
    the live credential showed on 9 Oct 2026; the listing is the authority.
+   The block also writes the GitHub environment and its branch policy, which
+   need Administration and Environments write, so it runs in the owner's own
+   terminal, not in a Claude session (`docs/runbooks/github-access.md`).
 
    ```bash
    az identity federated-credential list -g $RG --identity-name id-tyre-deploy-$ENV --query "[].{name:name,subject:subject}" -o table
@@ -614,7 +617,10 @@ before its first platform apply, so the order differs from staging's.
    The credential's subject names the GitHub environment `production`, not
    `$ENV`. List staging's live credential and copy its owner and repo
    portion byte for byte, as staging's step 3 says; the form below is what
-   it showed on 9 Oct 2026:
+   it showed on 9 Oct 2026. The block also writes the GitHub environment, its
+   branch policy and a variable, which need Administration and Environments
+   write, so it runs in the owner's own terminal, not in a Claude session
+   (`docs/runbooks/github-access.md`):
 
    ```bash
    az identity federated-credential list -g rg-tyre-staging --identity-name id-tyre-deploy-staging --query "[].{name:name,subject:subject}" -o table
@@ -1029,11 +1035,29 @@ production's schema yet (TYRE-434).
      production already at the checkout's highest migration, step 2 changes
      nothing. Stop on anything step 3 stops on. Then `git switch -`.
 
-3. **Fast-forward `main`:** `git push origin "$sha":main`, never through a
+3. **Fast-forward `main`**, from the owner's own terminal, never through a
    pull request (ADR-0004). A pull request into `main` is closed
-   automatically (TYRE-313).
+   automatically (TYRE-313). First print the SHA in the shell that ran steps
+   1 and 2: `echo "$sha"`. Then run the push with that 40-character value
+   typed in. Git Bash:
 
-4. **CI on `main` deploys production.** Watch it:
+   ```bash
+   TYRE_PROMOTE=1 git push origin <sha>:main
+   ```
+
+   PowerShell:
+
+   ```powershell
+   $env:TYRE_PROMOTE='1'; git push origin <sha>:main; $env:TYRE_PROMOTE=$null
+   ```
+
+   Type the SHA, not `"$sha"`: a variable set in one shell does not exist in
+   another, and an empty one turns the refspec into `:main`, a delete.
+   `.githooks/pre-push` refuses a push to `main` without `TYRE_PROMOTE=1`
+   and a delete always (`docs/runbooks/github-access.md`).
+
+4. **CI on `main` deploys production.** The `deploy-prod` jobs wait for the
+   owner's approval in the run's "Review deployments" box. Watch it:
 
    ```bash
    gh run list -R Rourke9001/TyrePlatform --branch main --commit "$sha" --workflow CI
@@ -1043,9 +1067,10 @@ production's schema yet (TYRE-434).
 
 5. **Record the release** (Each release step 5, `ENV=prod`, U118).
 
-Close-out's step 7 follows this section when the owner asks, but never
+Close-out's step 7 makes this section's checks when the owner asks, but never
 migrates production: it stops where step 2 would be needed, and lists the
-migrate for the owner (`.claude/commands/close-out.md`).
+migrate for the owner. It also hands step 3's push to the owner, since a
+session cannot push `main` (`.claude/commands/close-out.md`).
 
 **What this order rests on.** Every migration leaves the schema usable by
 the image production is running. One that cannot, such as a dropped or

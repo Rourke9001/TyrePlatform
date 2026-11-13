@@ -47,8 +47,13 @@ A workflow closes any pull request opened into `main` (TYRE-313).
 `main` is what production runs, so a promotion is a production release. It
 follows `docs/runbooks/environment-release.md`, Promote to production: choose
 a `develop` commit staging ran green, migrate production first if it is
-behind, then `git push origin <sha>:main`, and CI on `main` deploys
-production.
+behind, then the owner pushes from their own terminal with `TYRE_PROMOTE=1`
+and the 40-character SHA typed out: Git Bash
+`TYRE_PROMOTE=1 git push origin <sha>:main`, PowerShell
+`$env:TYRE_PROMOTE='1'; git push origin <sha>:main; $env:TYRE_PROMOTE=$null`.
+Type the SHA, not a variable: an empty one turns the refspec into `:main`, a
+delete. CI on `main` then deploys production. A change reaches `develop` only
+by pull request (ruleset 21929055, U201); see `docs/runbooks/github-access.md`.
 
 If that push is rejected as non-fast-forward, `main` has diverged and
 something has been committed or merged into it directly. Fix the divergence;
