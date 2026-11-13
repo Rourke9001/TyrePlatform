@@ -137,7 +137,8 @@ fail_case() { echo "FAIL: $1 ($2)"; if [ -n "$out" ]; then printf '%s\n' "$out" 
 # The rows are every line that is not OK, in order: F<n> for FAIL, U<n> for
 # UNCHECKED. A FAIL line names its fix. An UNCHECKED line names none: it ends
 # with the re-run, then the row's own step (scripts/guard-check.sh, the
-# comment above unchecked).
+# comment above unchecked). On exit 0 or 1 every line is a row, so nothing
+# git or gh writes reaches the output (the script's header).
 check_case() {
   local label=$1 want=$2 rows=$3 rc problems="" got n i line r step token_step=3
   shift 3
@@ -163,6 +164,7 @@ check_case() {
   fi
   while IFS= read -r line; do
     case "$line" in
+      "OK row "[1-6]": "?*) ;;
       "FAIL row "[1-6]": "?*". Fix: "?*) ;;
       "FAIL "*) problems="$problems a FAIL line names no fix;" ;;
       "UNCHECKED row "*)
@@ -179,6 +181,7 @@ check_case() {
           "UNCHECKED row $r: "?*". Run make guard-check again once any FAIL row is fixed; if row $r stays UNCHECKED, docs/runbooks/github-access.md step $step") ;;
           *) problems="$problems UNCHECKED row $r does not end with the re-run, then step $step;" ;;
         esac ;;
+      *) [ "$rc" -gt 1 ] || problems="$problems a line that is not a row: '$line';" ;;
     esac
   done <<<"$out"
   if [ -n "$problems" ]; then fail_case "$label" "$problems"; return 1; fi
@@ -203,6 +206,9 @@ good; rm "$repo/.githooks/pre-push"
 check_case "H3 hook file missing" 1 F1
 good; git -C "$repo" update-index --chmod=-x .githooks/pre-push
 check_case "H4 hook committed without the executable bit" 1 F1
+good; cp "$repo/.git/index" "$work/index.bak"; printf 'not an index' >"$repo/.git/index"
+check_case "H5 a corrupt index" 1 F1
+cp "$work/index.bak" "$repo/.git/index"
 
 good; export TYRE_PROMOTE=1
 check_case "P1 TYRE_PROMOTE set to 1" 1 F2
