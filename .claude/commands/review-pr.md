@@ -87,8 +87,8 @@ does not use step 2: it runs the review and the auditors in place by
    `Review: fix round <k>, <range>`, where `<k>` is one more than the fix
    rounds this PR has had. With `from <sha>`, where `<sha>` names the same
    commit as the `<before>` of a `Minor batch: <before>..<after>` line in the
-   PR's Decisions (`git rev-parse` of each is equal), this is the
-   Minor batch's re-review: its first line is `Review: Minor batch, <range>`,
+   PR's Decisions whose `<after>` is a different commit (`git rev-parse` of
+   each), this is the Minor batch's re-review: its first line is `Review: Minor batch, <range>`,
    and it is not a fix round, so it does not count toward `<k>`. Count the fix-round reports already under
    `.superpowers/sdd/*-review-pr<n>/` in the main checkout, a fix-round report being one whose
    first line starts `Review: fix round`, and, for a PR a `/pipeline` run
