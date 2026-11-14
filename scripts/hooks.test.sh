@@ -46,11 +46,17 @@ if [ "$got_mcp" = "$want_mcp" ]; then echo "PASS: settings.json allows the conne
 rovo_check() { rovo_out=$(git -C "$1" grep -l Atlassian_Rovo -- .claude 2>&1); rovo_rc=$?; [ "$rovo_rc" -eq 1 ]; }
 if rovo_check "$root"; then echo "PASS: no tracked file under .claude names Atlassian_Rovo"; else
   echo "FAIL: git grep for Atlassian_Rovo exited $rovo_rc: $rovo_out"; fails=$((fails + 1)); fi
-mkdir -p "$work/rovo/repo/.claude"
+# The fixture's git runs in its own home, whose global ignore holds .claude/,
+# and add -f tracks the file anyway, so a developer's ignore cannot leave it
+# untracked and fail a correct tree (TYRE-481).
+rovo_home="$work/rovo/home"
+mkdir -p "$work/rovo/repo/.claude" "$rovo_home/git"
+printf '.claude/\n' >"$rovo_home/git/ignore"
 printf 'Atlassian_Rovo\n' >"$work/rovo/repo/.claude/named.md"
-git init -q "$work/rovo/repo" && git -C "$work/rovo/repo" -c core.autocrlf=false add .claude/named.md
-rovo_check "$work/rovo/repo"
-if [ "$rovo_rc" -eq 0 ]; then echo "PASS: the Atlassian_Rovo check fails a tracked file naming it"; else
+rovo_git() { HOME="$rovo_home" XDG_CONFIG_HOME="$rovo_home" GIT_CONFIG_NOSYSTEM=1 git "$@"; }
+if ! rovo_fx=$({ rovo_git init -q "$work/rovo/repo" && rovo_git -C "$work/rovo/repo" -c core.autocrlf=false add -f .claude/named.md; } 2>&1); then
+  echo "FAIL: the Atlassian_Rovo fixture was not built: $rovo_fx"; fails=$((fails + 1))
+elif rovo_check "$work/rovo/repo"; [ "$rovo_rc" -eq 0 ]; then echo "PASS: the Atlassian_Rovo check fails a tracked file naming it"; else
   echo "FAIL: the Atlassian_Rovo check on a tracked file naming it exited $rovo_rc: $rovo_out"; fails=$((fails + 1)); fi
 if rovo_check "$work/rovo/missing"; then echo "FAIL: the Atlassian_Rovo check passes when git grep fails"; fails=$((fails + 1)); else
   echo "PASS: the Atlassian_Rovo check fails when git grep fails (exit $rovo_rc)"; fi
