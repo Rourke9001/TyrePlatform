@@ -20,64 +20,6 @@ recorded as a comment on the ticket being worked, and the SRS row is
 prepared for the owner's Cowork agent. No new ticket is raised, and the SRS
 is updated, never worked around (U194, owner, 9 Nov 2026).
 
-## Which bugs a branch fixes
-
-A bug is behaviour that is wrong for an input or state the system can reach,
-a raw call as the app role included; a refusal with the wrong code or
-message; or a comment, runbook or doc line the code proves false. A missing
-feature, an untested path that hides no bug, a nit and a rejected
-alternative are not bugs.
-
-Every finding takes one of four classes, whether the branch's own work, its
-red team or its stage 5 review made it (U191, owner, 9 Nov 2026). A bug
-takes one of these three:
-
-- **`introduced`.** The wrong behaviour does not exist at the merge base.
-- **`on-path`.** It is older, and the input that reaches it runs through
-  code the branch adds or changes, or it makes the branch's own feature give
-  a wrong result. A comment, doc or runbook line is `on-path` when the diff
-  touches it or it describes code the branch changes.
-- **`unrelated`.** It is older, and neither.
-
-An `introduced` or `on-path` bug is fixed on the branch with a regression
-test. It is never ticketed and never merged open; a Minor the owner accepts
-at the cap (below) is closed, not open. The PR's Decisions name
-each fix, so the code review sees it.
-
-An `unrelated` bug is not fixed here. Its evidence goes as a comment on an
-open ticket found by a board search for the file or function name, with the
-search used. Only when the search finds none is a new ticket raised, linked
-to the parent, the ticket whose work found the issue. Decisions names the
-bug and its ticket.
-
-A finding that is not a bug is `not a bug` and takes the schedule test
-(U130), except a spec finding, below: would the owner schedule it before
-the pilot? If so, one ticket linked to the parent; if not, one line under
-"Set aside" in the PR body. A Minor that is not a bug never becomes a ticket
-on its own. Search the board before raising any ticket, and add the evidence
-to an open one rather than raise a second. A question for the owner is a
-comment on the parent ticket, not a ticket.
-
-A Critical or Important finding that the branch does not do what its own
-spec, plan or definition of done requires is a spec finding. It is not a
-bug by the definition, but it is fixed on the branch like an `introduced`
-bug and counts toward the cap in The review loop.
-
-A finding is open until it is fixed, handed to a ticket, set aside under the
-schedule test (U130) or ruled by the owner to stay as it is. An owner answer
-that orders or shapes a fix leaves the finding open, and the next fixer gets
-it with that answer. An `introduced` bug is closed only by a fix, with one
-exception: at the cap, the owner may accept an open Minor that is not
-against rules 1 to 3. It goes as a comment on the working ticket and the
-PR's Decisions name it (U198, owner, 9 Nov 2026).
-
-A finding against rules 1 to 3 below is a bug at any severity. It is
-verified even when Minor, and stops for the owner once per finding, whatever
-its class. If the owner has an `unrelated` one fixed on this branch, that
-fix gets a re-review of its own range and is not one of the two rounds in
-The review loop. A fix that needs a live environment step or a decision the
-branch cannot make also stops for the owner.
-
 ## The capture target
 
 > A driver captures a vehicle in about three minutes, on a phone, in the sun,
@@ -124,15 +66,13 @@ Every command is in the Makefile. Use it rather than remembering flags.
 make db-up          # Postgres 16 in docker, port 5433
 make db-reset       # drop, apply schema, regenerate and load seeds
 make db-test        # the verification suite, as a non-superuser
-make db-test-privileged  # negative controls that need a superuser to stage
 make test           # everything: db, api, web
-make fmt            # gofmt + prettier, in place
 make lint           # gofmt/prettier check, vet, staticcheck, Bicep lint, actionlint, eslint, tsc, comments, stylelint, Go pins, money paths, bundle
-make hooks-install  # point git at .githooks (pre-push); make check and make pipeline run it
-make guard-check    # read-only proof of the develop ruleset, the gh token, the push hook and git's credential; CLOUD=1 in the cloud
 make check          # hooks-install + fmt + lint + test. Run before every commit.
 make pipeline T=TYRE-123  # one job (a ticket, or T="TYRE-1 TYRE-2" for a small-fix bundle) to a reviewed PR
 ```
+
+`make help` lists the rest.
 
 `make db-test` is the important one. It asserts tenant isolation, append-only
 grants, `security_invoker` on every view, all 15 Appendix E valuations to the
@@ -185,22 +125,22 @@ status you read back is the pipe's; `set -o pipefail` is the way through.
 `migration-immutable.sh` blocks an edit to a migration already on
 `origin/develop` — a migration on a feature branch stays editable, an applied
 one is replaced by a new pair. `gh-token-required.sh` refuses a `gh` command in
-a session without the restricted token, which would run on `gh`'s full stored
-login. It does not judge `gh` run through `timeout` or `env`, such as the
-playbooks' `timeout 540 gh run watch`, a read that both playbooks reach only
-after the token is checked. `gate-not-piped.sh` and `migration-immutable.sh`
+a local session without the restricted token, which would run on `gh`'s full
+stored login; in a cloud session it lets `gh` through, since GitHub sees the
+cloud's own login there whatever the token. It does not judge `gh` run through
+`timeout` or `env`, such as the playbooks' `timeout 540 gh run watch`, a read
+each playbook reaches only after a plain `gh` call has passed the hook. `gate-not-piped.sh` and `migration-immutable.sh`
 read the call with `jq` and let it through when `jq` is missing (TYRE-265), so
 `jq` must be on `PATH`.
 
 The merge and the push are held by the thing that knows the answer, not by
-reading a command's text: the `develop` ruleset (a pull request is required,
-U201), the restricted `gh` token (no Contents write, so no merge and no branch
-write) and `.githooks/pre-push` (no update of `develop` or `main` unless
-`TYRE_PROMOTE=1`, which the owner sets to promote `main`, and never a
-delete). `make guard-check` proves them. `git push --no-verify`,
-`git -c core.hooksPath=`, a hand-set `TYRE_PROMOTE` and a `gh` call that
-drops the token are among the limits. `docs/runbooks/github-access.md` lists
-more under What this does not hold, and holds the owner's steps.
+reading a command's text. In a local session that is the `develop` ruleset (a
+pull request is required, U201), the restricted `gh` token and
+`.githooks/pre-push`, and `make guard-check` proves them. In a cloud session
+GitHub sees the cloud's own login: the ruleset, the cloud's proxy and the push
+hook hold a push, and nothing refuses a merge of an open pull request (U213).
+`docs/runbooks/github-access.md` says what holds each, what does not, and the
+owner's steps.
 
 **Comments**
 `docs/comments.md` is the full standard; these are the operative rules.
@@ -246,112 +186,17 @@ Every non-obvious rule should cite its requirement ID (`FR-VAL-006`,
 
 ## How work runs
 
-Every ticket runs these five stages in order, and no stage starts until the
-one before it is done (owner, 5 Oct 2026, TYRE-394).
-`make pipeline T=TYRE-nnn` runs all five for one job with an agent team, a
-lead and teammates that plan and implement, and ends at a reviewed PR
-(TYRE-412, ADR-0018). A job is one large ticket, or one bundle of one or
-more small fixes (U195, owner, 9 Nov 2026; U136). `/ticket` is the manual
-path and walks the stages by hand.
+Every ticket runs five stages in order: spec, plan, red team, implement,
+code review. `make pipeline T=TYRE-nnn` runs them with an agent team, and
+`/ticket` is the manual path. `docs/how-work-runs.md` is the authority for
+the stages, small fixes, which bugs a branch fixes, severity, the review
+loop and the owner's stops. Read it before you work a ticket, review a
+branch, fix a finding or class a bug. Hold these without opening it:
 
-1. **Spec.** `superpowers:brainstorming` writes
-   `docs/superpowers/specs/<date>-<topic>-design.md`, which is committed. It
-   cites SRS IDs from Confluence and never copies the requirement text. A
-   requirement that does not fit stops the stage, as the SRS paragraph at
-   the top of this file says (U194). Under `make pipeline` the lead writes
-   the spec. It asks the owner the product and preference questions in one
-   batch, and settles the engineering ones from primary documentation and
-   proven practice, with the source under "Lead's calls". The owner
-   approves the written spec (U195).
-2. **Plan.** `superpowers:writing-plans` writes
-   `docs/superpowers/plans/<date>-<topic>.md`, which is gitignored.
-3. **Red team.** Dispatch the `plan-red-team` agent on the spec and the plan.
-   Each Critical or Important finding is either fixed in the plan or put to the
-   owner, and the agent runs again until it returns no Critical. The verdict
-   and the count of findings fixed and ruled on go in the PR body, because the
-   plan itself is not committed. Under `make pipeline` the lead rules a
-   disputed engineering finding itself, with a source; a product dispute, or
-   a Critical still open after round 3, goes to the owner.
-4. **Implement.** Use `superpowers:subagent-driven-development` against the
-   plan. Under `make pipeline` the implementer uses
-   `superpowers:executing-plans` instead, because a teammate cannot collect
-   its subagents' results (ADR-0018, ADR-0023). Run `make check`. Under
-   `/ticket` the PR opens now; under `make pipeline` it opens after the
-   review loop.
-5. **Code review.** Every PR that is not docs-only gets this stage. A diff
-   is docs-only when every changed file is a `*.md` that is not a
-   `CLAUDE.md` and not under `.claude/`, `api/`, `db/`, `web/` or `infra/`;
-   an empty diff is not docs-only. Nothing that wrote the code reviews it,
-   because a reviewer that shares the author's context shares its blind
-   spots (U192, owner, 9 Nov 2026). Under `make pipeline` the lead runs it,
-   because the implementer's final review was a self-review. A teammate
-   cannot collect a review; the lead can (ADR-0023). Under `/ticket` a
-   separate Claude session, not a subagent of the one that wrote the code,
-   runs `/review-pr <n>`. Both follow The review loop below.
-   `/code-review ultra` is the owner's to launch. The owner merges only
-   once no Critical or Important finding and no `introduced` or `on-path`
-   bug is open (U191).
-
-When a PR merges into `develop`, a Claude Code routine runs
-`/close-out <n> cloud` (ADR-0018). Run `/close-out <n>` by hand only when
-the routine did not run or stopped; its comment on the merged PR says which.
-By hand it does the same with a local gate.
-
-**Small fixes** skip stages 1 and 3 and keep a short plan in the PR body. A
-small fix is one defect with a regression test, no migration, no new endpoint,
-route or screen, and no change to a non-negotiable rule. When in doubt, it is
-not a small fix. `/ticket` waits for the owner to confirm the small-fix call;
-under `make pipeline` the lead makes it per key and states the reason in the
-PR body. In a launch of more than one key, a key it calls not small stops,
-because it needs its own run; a single such key is a large ticket.
-An `introduced` or `on-path` bug whose fix would break this definition stops
-for the owner: the key becomes a full ticket (for a bundle, the run ends and
-the owner relaunches the other keys). Related small fixes may share one PR,
-each with its own commit, regression test and short plan in the PR body;
-one stage 5 review covers them (U136, owner, 16 Oct 2026).
-
-### The review loop
-
-One full review of the branch, merge base to HEAD, then at most two fix
-rounds (U192). A fresh fixer does each round, and the re-review that follows
-reads only the commits that round added. A re-review does not look outside
-that range, and a verified finding that arrives from outside it anyway is
-classified like any other. The loop ends as soon as a review leaves no open
-`introduced` or `on-path` bug and no open spec finding (Which bugs a branch
-fixes). If one is still open once the second round has closed, however it
-closed, the loop is at its cap and stops for the owner, who chooses one more
-fix round, a different design for the mechanism (`/design-audit`), ending
-the run, or accepting each open Minor that is not against rules 1 to 3
-(U198). A round that commits nothing gets no re-review, since an empty
-range has nothing to review (U196, owner, 9 Nov 2026).
-
-After the loop, a red gate (the lead's own `make lint` and `make test` before
-the push, or CI on the pushed head) gets one fresh fixer and a re-review of
-that fix's range, outside the two rounds; inside a fix round, a red gate
-gets one more fresh fixer in that round. A second red stops for the owner.
-An out-of-round fix (an owner-ordered fix, a gate fix or a CI fix) that
-leaves something open stops for the owner.
-
-### The stops
-
-A `make pipeline` run waits for the owner at these points and no others:
-
-| Stop                      | When                                                                                                                                                                                         |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Product questions         | Large ticket only. One batch, before the spec is written up.                                                                                                                                 |
-| Spec approval             | Large ticket only. The written spec, before planning.                                                                                                                                        |
-| Red-team dispute          | Large ticket only. A product dispute, or a Critical open after round 3.                                                                                                                      |
-| SRS change                | A requirement does not fit, or a better approach exists.                                                                                                                                     |
-| Rules 1 to 3              | A verified finding against rule 1, 2 or 3, once per finding.                                                                                                                                 |
-| Live step or decision     | A fix needs a live environment step or a decision the branch cannot make.                                                                                                                    |
-| Not a small fix           | A key the lead calls not small in a launch of more than one key (a single such key is a large ticket), or an `introduced` or `on-path` fix that would break the small-fix definition.        |
-| The cap                   | The review loop reaches its cap, or an out-of-round fix leaves something open.                                                                                                               |
-| Red gate                  | A gate is red a second time, inside a fix round or after the loop (The review loop).                                                                                                         |
-| A teammate's stop-and-ask | A destructive step, a broken plan, failing baseline tests.                                                                                                                                   |
-| The run cannot go on      | A check, a review or an agent fails twice, or the checkout is not in the state the run recorded (wrong branch, dirty tree, a ref that moved). `/pipeline`, When something fails, lists each. |
-| The merge                 | Always the owner's.                                                                                                                                                                          |
-
-The push that opens the PR is not a stop (U193, owner, 9 Nov 2026).
+- A bug the branch introduced, or one on its path, is fixed on the branch.
+- Nothing that wrote the code reviews it.
+- A finding against rules 1 to 3 stops for the owner.
+- The owner merges, always.
 
 ## Repo etiquette
 
