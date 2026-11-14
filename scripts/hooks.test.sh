@@ -41,9 +41,19 @@ want_mcp=$(printf 'mcp__claude_ai_Atlassian_MCP__%s\n' getJiraIssue listJiraIssu
 got_mcp=$(jq -r '.permissions.allow[] | select(startswith("mcp__claude_ai_Atlassian"))' "$root/.claude/settings.json" | tr -d '\r' | LC_ALL=C sort)
 if [ "$got_mcp" = "$want_mcp" ]; then echo "PASS: settings.json allows the connector's twelve tools and no other Atlassian tool"; else
   echo "FAIL: settings.json's Atlassian allow rules are: $got_mcp"; fails=$((fails + 1)); fi
-rovo=$(git -C "$root" grep -l Atlassian_Rovo -- .claude 2>/dev/null)
-if [ -z "$rovo" ]; then echo "PASS: no tracked file under .claude names Atlassian_Rovo"; else
-  echo "FAIL: these name Atlassian_Rovo: $rovo"; fails=$((fails + 1)); fi
+# Only exit 1, no match, passes: a git failure exits 128 with nothing on
+# stdout, so an empty list proves nothing (TYRE-481).
+rovo_check() { rovo_out=$(git -C "$1" grep -l Atlassian_Rovo -- .claude 2>&1); rovo_rc=$?; [ "$rovo_rc" -eq 1 ]; }
+if rovo_check "$root"; then echo "PASS: no tracked file under .claude names Atlassian_Rovo"; else
+  echo "FAIL: git grep for Atlassian_Rovo exited $rovo_rc: $rovo_out"; fails=$((fails + 1)); fi
+mkdir -p "$work/rovo/repo/.claude"
+printf 'Atlassian_Rovo\n' >"$work/rovo/repo/.claude/named.md"
+git init -q "$work/rovo/repo" && git -C "$work/rovo/repo" -c core.autocrlf=false add .claude/named.md
+rovo_check "$work/rovo/repo"
+if [ "$rovo_rc" -eq 0 ]; then echo "PASS: the Atlassian_Rovo check fails a tracked file naming it"; else
+  echo "FAIL: the Atlassian_Rovo check on a tracked file naming it exited $rovo_rc: $rovo_out"; fails=$((fails + 1)); fi
+if rovo_check "$work/rovo/missing"; then echo "FAIL: the Atlassian_Rovo check passes when git grep fails"; fails=$((fails + 1)); else
+  echo "PASS: the Atlassian_Rovo check fails when git grep fails (exit $rovo_rc)"; fi
 want_tools="tools: Read, Grep, Glob, Bash, mcp__claude_ai_Atlassian_MCP__getJiraIssue, mcp__claude_ai_Atlassian_MCP__listJiraIssueComments, mcp__claude_ai_Atlassian_MCP__searchConfluence, mcp__claude_ai_Atlassian_MCP__getConfluenceContent"
 got_tools=$(grep -m1 '^tools: ' "$root/.claude/agents/plan-red-team.md" | tr -d '\r')
 if [ "$got_tools" = "$want_tools" ]; then echo "PASS: plan-red-team names the connector's four tools"; else
