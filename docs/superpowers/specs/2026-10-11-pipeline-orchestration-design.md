@@ -1,5 +1,7 @@
 # Design: pipeline orchestration (TYRE-412)
 
+*Since TYRE-481 (14 Nov 2026) the CLAUDE.md sections How work runs, Which bugs a branch fixes, The review loop and The stops live in `docs/how-work-runs.md`, and a `CLAUDE.md` section or line number this record cites is as of its date.*
+
 - **Date:** 2026-10-11
 - **Ticket:** TYRE-412, under epic TYRE-10.
 - **Decisions it rests on:**

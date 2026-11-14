@@ -1,5 +1,7 @@
 # Autonomous runs: one lead takes a job to a reviewed PR
 
+*Since TYRE-481 (14 Nov 2026) the CLAUDE.md sections How work runs, Which bugs a branch fixes, The review loop and The stops live in `docs/how-work-runs.md`, and a `CLAUDE.md` section or line number this record cites is as of its date.*
+
 Date: 2026-11-09. Ticket: TYRE-470. Status: approved by the owner on
 9 Nov 2026 (U191 to U195, on the ticket). Builds on ADR-0018
 and `docs/superpowers/specs/2026-10-11-pipeline-orchestration-design.md`.

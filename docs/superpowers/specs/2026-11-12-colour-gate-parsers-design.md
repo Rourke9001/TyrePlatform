@@ -1,5 +1,7 @@
 # The colour gate, read by parsers: stylelint for CSS, eslint selectors for TSX
 
+*Since TYRE-481 (14 Nov 2026) the CLAUDE.md sections How work runs, Which bugs a branch fixes, The review loop and The stops live in `docs/how-work-runs.md`, and a `CLAUDE.md` section or line number this record cites is as of its date.*
+
 Date: 2026-11-12. Ticket: TYRE-475 (epic TYRE-443). Status: approved by
 the owner on 12 Nov 2026 (U206). From the 9 Nov 2026 design audit, section 5 (verdict
 Replace); the owner approved replacing the gate on 9 Nov (ticket). The

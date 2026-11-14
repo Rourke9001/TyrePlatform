@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 9 Nov 2026, with U191 to U195). Its PR is
   #208. It supersedes ADR-0018's stage 5
-  decision and its push stop. Amended 10 Nov 2026 (TYRE-476, U205).
+  decision and its push stop. Amended 10 Nov 2026 (TYRE-476, U205) and 14 Nov 2026 (TYRE-481, U212).
 - **Date:** 2026-11-09
 - **Deciders:** Rourke (owner)
 - **Related:** ADR-0018 · TYRE-470, TYRE-395, TYRE-476 · U123, U124, U125, U146,
@@ -239,3 +239,5 @@ different tier from the author. When the plan's files meet an auditor's
 trigger, the implementer runs on Opus and the reviewer is on the author's
 tier. The auditors those files trigger are then the independent check for
 that work.
+
+**Amended 2026-11-14 (TYRE-481, U212):** the loop's rules live in `docs/how-work-runs.md`, which took CLAUDE.md's process sections, so the line above that says each lives in CLAUDE.md now reads that file, under the same section names. U212 amends U191, U192 and U198. Only a blocking finding (a Critical or Important `introduced` or `on-path` bug, a rule 1 to 3 finding or a spec finding) starts a fix round or reaches the cap. A Minor rides in a round that runs anyway, or in one Minor batch after the loop, whose re-review fixes nothing and lists its Minors in the PR for close-out to file. Accepting a Minor at the cap goes. The verifier gives the full pass only to an item that could block, and the lead gates each head once.

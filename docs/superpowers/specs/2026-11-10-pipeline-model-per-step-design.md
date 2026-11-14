@@ -1,5 +1,7 @@
 # Pipeline models: each step runs on the model the owner chose
 
+*Since TYRE-481 (14 Nov 2026) the CLAUDE.md sections How work runs, Which bugs a branch fixes, The review loop and The stops live in `docs/how-work-runs.md`, and a `CLAUDE.md` section or line number this record cites is as of its date.*
+
 Date: 2026-11-10. Ticket: TYRE-476. Status: approved by the owner on
 10 Nov 2026, with the two answers under Settled by the owner.
 The mapping is owner ruling U205 (10 Nov 2026, on the ticket). Builds on

@@ -1,5 +1,7 @@
 # Bounded waits: a pipeline lead never waits on something that cannot wake it
 
+*Since TYRE-481 (14 Nov 2026) the CLAUDE.md sections How work runs, Which bugs a branch fixes, The review loop and The stops live in `docs/how-work-runs.md`, and a `CLAUDE.md` section or line number this record cites is as of its date.*
+
 Date: 2026-11-11. Ticket: TYRE-478. Status: approved by the owner on
 11 Nov 2026. Builds on ADR-0018, ADR-0023 and
 `docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`. The ticket
