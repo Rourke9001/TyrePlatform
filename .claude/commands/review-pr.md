@@ -85,8 +85,9 @@ does not use step 2: it runs the review and the auditors in place by
    only there. A verifier writes to the report path its caller gives. The
    first line is `Review: full, <range>`, or for a re-review
    `Review: fix round <k>, <range>`, where `<k>` is one more than the fix
-   rounds this PR has had. With `from <sha>`, where `<sha>` is the `<before>` of a
-   `Minor batch: <before>..<after>` line in the PR's Decisions, this is the
+   rounds this PR has had. With `from <sha>`, where `<sha>` names the same
+   commit as the `<before>` of a `Minor batch: <before>..<after>` line in the
+   PR's Decisions (`git rev-parse` of each is equal), this is the
    Minor batch's re-review: its first line is `Review: Minor batch, <range>`,
    and it is not a fix round, so it does not count toward `<k>`. Count the fix-round reports already under
    `.superpowers/sdd/*-review-pr<n>/` in the main checkout, a fix-round report being one whose
