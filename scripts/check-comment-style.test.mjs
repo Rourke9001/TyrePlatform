@@ -8,9 +8,9 @@
 // check-comment-style.mjs builds EM_DASH from a code point: this source line
 // must not itself contain the text the fixture plants.
 
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
@@ -128,16 +128,16 @@ const CASES = [
     expectFail: false,
   },
   {
-    // A git hook has no extension, so it is keyed by name (TYRE-482).
+    // A git hook has no extension, so it is known by its directory (TYRE-482).
     name: 'git-hook-is-checked',
-    file: 'pre-push',
+    file: '.githooks/pre-commit',
     content: `#!/bin/sh\n# ${'Task'} ${'4'} refuses the push\nexit 0\n`,
     expectRule: 'plan-step-reference',
     expectFail: true,
   },
   {
     name: 'git-hook-clean-comment',
-    file: 'pre-push',
+    file: '.githooks/pre-commit',
     content: `#!/bin/sh\n# Git hands the hook each target after resolving the command (TYRE-473)\nexit 0\n`,
     expectFail: false,
   },
@@ -149,6 +149,7 @@ let failures = 0;
 try {
   for (const c of CASES) {
     const path = join(dir, c.file);
+    mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, c.content);
     let stderr = '';
     let failed = false;
