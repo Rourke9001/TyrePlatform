@@ -1,7 +1,8 @@
 # The pipeline's review loop ends on severity, the process text leaves CLAUDE.md, and the cloud close-out runs without a token
 
 Date: 2026-11-14. Ticket: TYRE-481 (epic TYRE-10), with its comment 14219
-as Part 6. Status: draft, waiting for the owner's approval. The ticket
+as Part 6. Status: approved by the owner on 14 Nov 2026, with the cloud
+gap of section 6 accepted (U213); the loop rule is U212. The ticket
 cites no SRS requirement: this is pipeline tooling and instruction files,
 no product code.
 
