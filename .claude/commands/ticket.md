@@ -58,9 +58,9 @@ Work ticket **$ARGUMENTS** through the five stages in
     `ticket: none found` under Set aside, with no ticket raised), adds the
     Decisions lines to the PR body and pushes, which the brief leaves to its
     caller. A Minor the fixer reports `not fixed, <why>` goes under Minors left
-    open, and one it reports `not reproduced` under Set aside. Then, unless the
-    session committed nothing (U196), a separate
+    open, and one it reports `not reproduced` under Set aside. Then a separate
     session runs `/review-pr <n> <level> from <sha>`, where for the Minor batch
-    `<sha>` is its `<before>`. After the Minor batch's re-review, the Minors it
+    `<sha>` is its `<before>`; a Minor batch that committed nothing gets no
+    re-review (U196). After the Minor batch's re-review, the Minors it
     reports go in the PR body under Minors left open, and a blocking finding it
     reports goes to the owner.
