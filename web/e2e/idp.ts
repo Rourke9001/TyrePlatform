@@ -194,8 +194,7 @@ export async function stubIdentityProvider(
 }
 
 // The library's stored user as it wrote it, or null, so a test can see a
-// renewal land. The app reads that user only through getUser(); only this
-// helper and lapseSession touch its key.
+// renewal land. The app reads that user only through getUser().
 export function storedUser(page: Page): Promise<string | null> {
   return page.evaluate(() => {
     const key = Object.keys(window.localStorage).find((k) => k.startsWith("oidc.user:"));

@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Cases for .claude/hooks and .githooks (TYRE-473, TYRE-481). Every hook
 # settings.json names, and .githooks/pre-push, must be executable in git, or
-# Linux, where the cloud routines run, cannot run it. Then the make wiring, the
-# gh hook's registration and its cases, local and cloud, the connector allow
-# rules, then the push cases: real git push against a bare remote, through the
-# hook installed as make hooks-install installs it.
+# Linux, where the cloud routines run, cannot run it. The push cases run real
+# git push against a bare remote, through the hook installed as make
+# hooks-install installs it.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)

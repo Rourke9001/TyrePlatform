@@ -1,7 +1,8 @@
 #!/bin/sh
-# Refuses a push that would update or delete develop or main, the two deploy
-# branches (ADR-0004): develop takes a pull request, and the owner promotes
-# main with TYRE_PROMOTE=1. Git hands this hook each target after resolving
+# Refuses a push that would delete develop or main, the two deploy branches
+# (ADR-0004), or update either without TYRE_PROMOTE=1, which the owner sets
+# to promote main. The variable opens an update of develop too, where the
+# ruleset still refuses it. Git hands this hook each target after resolving
 # the command, so no spelling of the push escapes it, but --no-verify or a
 # core.hooksPath set for the one command (-c core.hooksPath=) skips the hook
 # (TYRE-473, docs/runbooks/github-access.md).
