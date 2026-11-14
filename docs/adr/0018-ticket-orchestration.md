@@ -104,3 +104,12 @@ Paperclip or a similar tool can use Jira as its tracker; or a second
 engineer needs pipelines to run at the same time.
 
 **Amended 2026-11-13 (TYRE-473, U201):** ruleset 21929055 now requires a pull request on `develop`, so the gap at "the `develop` ruleset only blocks deletion" is closed, and the owner's own docs changes go through a pull request too. The routine's `gh` runs on a restricted token (no Contents write) that cannot merge. What is left to the prompt is a fast-forward of `main`, which the production approval holds and `.githooks/pre-push` refuses without `TYRE_PROMOTE=1`; close-out hands that push to the owner (`docs/runbooks/github-access.md`).
+
+**Amended 2026-11-14 (TYRE-481, U212, U213):** the five stages this ADR cites from CLAUDE.md live in `docs/how-work-runs.md`. The 13 Nov amendment's sentence that the routine's `gh` runs on a restricted token that cannot merge is withdrawn. In the cloud GitHub sees the cloud's own login, which acts as the owner, can merge a pull request, and is refused a ref write by the cloud's proxy (TYRE-473 comment 14220). The routine runs close-out with no token. As of this date a cloud session is held as the table below says; `docs/runbooks/github-access.md`, step 4, keeps it current.
+
+| A cloud session tries | What answers |
+| --- | --- |
+| A push to `develop` | GitHub refuses: ruleset 21929055 requires a pull request, and the cloud's login cannot bypass it (row 3, read in the cloud) |
+| A REST ref write, a branch delete, a push of a tag | The cloud's proxy refuses |
+| A merge of an open pull request | Nothing refuses. Only `/close-out`'s cloud paragraph says never. A merge reaches `develop` and staging; production still waits for the owner. The owner accepts this (U213) |
+| A fast-forward of `main` | `.githooks/pre-push`, which cloud mode installs, refuses without `TYRE_PROMOTE=1`; a production deploy waits for the owner's approval |

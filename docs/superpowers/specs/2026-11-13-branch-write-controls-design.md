@@ -1,5 +1,7 @@
 # Branch writes held by GitHub and git: a develop ruleset, a scoped gh token and a pre-push hook
 
+*Since TYRE-481 (14 Nov 2026) the CLAUDE.md sections How work runs, Which bugs a branch fixes, The review loop and The stops live in `docs/how-work-runs.md`, and a `CLAUDE.md` section or line number this record cites is as of its date. TYRE-481's spec (`docs/superpowers/specs/2026-11-14-loop-exit-and-cloud-close-out-design.md`) withdraws this spec's cloud token in sections 2, 6, 7 and 12, its definition of done and lead's call 16 (U213).*
+
 Date: 2026-11-13. Ticket: TYRE-473 (epic TYRE-10). Status: approved by
 the owner on 13 Nov 2026 (U209). From the 9 Nov 2026 design audit, section 3 (verdict
 Replace); owner ruling U201 accepted the ruleset and the owner's GitHub
