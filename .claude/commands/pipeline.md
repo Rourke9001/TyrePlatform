@@ -80,8 +80,8 @@ stage would run as a plain subagent.
    Re-review `<id>` (Review loop step 8). Otherwise resume at step 6, which
    for a `Fix owner-<n>:`, `Fix gate:` or `Fix ci:` line is that round's
    own judge (A round outside the two), and for a `Fix minor:` line The Minor
-   batch's net, unless that line ends `net done` or the stage is `loop done`
-   or later. At stage `loop done`, go to Hand-over. At
+   batch's net, from the net's step 5 when that line ends `net done`, unless
+   the stage is `loop done` or later. At stage `loop done`, go to Hand-over. At
    `PR opened` or `CI fix`, once any open round is closed: if
    `git rev-list origin/<branch>..HEAD` is non-empty, run
    `git push -u origin <branch>`; then wait for CI on HEAD as in Hand-over
