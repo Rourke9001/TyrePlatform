@@ -139,7 +139,8 @@ finding that arrives from outside it anyway is classified like any other.
 After the second fix round's re-review, a later one, or the Minor batch's, a
 blocking finding still open goes to the owner, with a recommendation to run `/design-audit <mechanism>`
 on the mechanism it sits in. Open Minors alone get one Minor batch session, which adds a
-`Minor batch: <before>..<after>` line to the PR's Decisions, and one
-re-review, `from <before>`. End a re-review by telling the owner to run,
+`Minor batch: <before>..<after>` line to the PR's Decisions, and, when the
+batch committed anything, one re-review, `from <before>`. A batch that commits
+nothing gets none (U196). End a re-review by telling the owner to run,
 from the main checkout, `git worktree remove ../tp-review-<n>` and
 `git branch -D review-pr<n> review-pr<n>-base`.
