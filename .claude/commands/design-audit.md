@@ -67,7 +67,8 @@ a different design, not another patch.
      owner's.
 
    A bug met on the way is listed apart, with its file and the input that
-   reaches it, under CLAUDE.md's definition. It is not a verdict.
+   reaches it, under the definition in `docs/how-work-runs.md`, Which bugs a
+   branch fixes. It is not a verdict.
 5. **Report** to `.superpowers/sdd/<date>-design-audit[-<slug>]/report.md`,
    mechanisms ranked by evidence. For each: name and files; evidence
    (commits, rounds, rulings, riders, lessons); the belief and what the

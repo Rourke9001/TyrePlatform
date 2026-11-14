@@ -8,7 +8,7 @@ make it say what is true, with the evidence attached.
 Take the PR number as the first argument. If none is given, find the most
 recently merged one with `gh pr list --state merged --limit 5`; in cloud
 mode the number is always given. A second argument `cloud` means this runs
-in the close-out routine (CLAUDE.md, How work runs; ADR-0018).
+in the close-out routine (`docs/how-work-runs.md`, How work runs; ADR-0018).
 
 Cloud sessions reject GitHub's GraphQL API, so every GitHub call below uses
 `gh api` with `repos/Rourke9001/TyrePlatform` written out, except
@@ -123,16 +123,34 @@ working in this checkout.
    what has stopped being about the queue. List every key checked and its
    status in the report, even when none changed.
 6. **Residuals.** The PR body's "Set aside" list is their record; chat is
-   not. Read it for bugs first, by CLAUDE.md's definition. An `introduced`
-   or `on-path` bug there (CLAUDE.md, Which bugs a branch fixes) means the
+   not. Read it for bugs first, by the definition in `docs/how-work-runs.md`,
+   Which bugs a branch fixes. A line marked not reproduced, or an `unrelated`
+   Minor's line with `ticket: none found`, is a Minor nobody verified, not a
+   bug (U212). An `introduced` or `on-path` bug there
+   (`docs/how-work-runs.md`, Which bugs a branch fixes) means the
    branch merged with one unfixed: raise no ticket for it, and list it
    under Waiting on the owner with the PR's key, as a miss for the owner to
-   rule on (U191). Raise a ticket, linked to its parent, only for an item
-   that is not a bug and passes CLAUDE.md's schedule test (U130). An SRS
+   rule on (U191). Raise a ticket, linked to its parent (in cloud mode, the
+   parent named in its description and the link under Waiting on the owner, as
+   the cloud paragraph says), only for an item that is not a bug and passes
+   the schedule test (`docs/how-work-runs.md`, Which bugs a branch fixes,
+   U130). An SRS
    change is a comment on the working ticket, never a ticket (U194). Search
    the board first, and comment on an open ticket
    rather than raise a second. If more than two items qualify, raise none
    and list them in the report as a decision waiting on the owner.
+
+   **Minors left open.** Read the PR body's Minors left open list. If it has
+   lines, search with `searchJiraIssuesUsingJql` for
+   `project = TYRE AND status = "To Do" AND summary ~ "Minors left open"` and
+   take the hit whose summary is exactly `Minors left open by pipeline runs`,
+   the lowest key if more than one. If there is none, raise one with
+   `createJiraIssue`: type Task, that summary, `priority` Low, and `parent`
+   TYRE-10 where the tool has that field; where it has not, the description
+   names TYRE-10 and the link goes under Waiting on the owner, with no
+   `executeWrite` call. Comment the lines on it, with the PR number. This is
+   not one of the items this step limits to two, and its lines are not misses
+   for the owner (U212).
 7. **Promote to production** if the owner asks, and never in cloud mode.
    This follows `docs/runbooks/environment-release.md`, Promote to
    production, except that it never migrates production: production holds
