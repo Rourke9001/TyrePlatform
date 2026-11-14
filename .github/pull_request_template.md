@@ -7,13 +7,13 @@ Closes TYRE- <!-- one `Closes` line per key -->
 
 ## How it ran
 
-Stages from CLAUDE.md, How work runs. Delete the line a small fix or a
+Stages from `docs/how-work-runs.md`, How work runs. Delete the line a small fix or a
 docs-only PR does not use, and say which one it is.
 
 - Spec: `docs/superpowers/specs/`
 - Red team: verdict, and the Critical/Important findings fixed and ruled on
 - Small fix: the plan, in a few lines
-- [ ] Code review: the run's review reports, or a separate session's `/review-pr` report; rounds run; nothing open (CLAUDE.md, The review loop)
+- [ ] Code review: the run's review reports, or a separate session's `/review-pr` report; rounds run; no blocking finding open, and the Minor batch run if one was due (`docs/how-work-runs.md`, The review loop)
 
 ## Checks
 
@@ -40,11 +40,20 @@ Tick only what this change actually touches; delete the rest.
 <!-- If this makes an architectural choice, link the ADR. If it makes one
      without an ADR, write the ADR first. -->
 
+## Minors left open
+
+<!-- One line each with file:line: an `introduced` or `on-path` Minor that
+     the Minor batch's re-review found, or one a fixer reported not fixed.
+     The merge accepts each, and close-out files them (U212). Delete the
+     heading when there are none. -->
+
 ## Set aside
 
-<!-- Findings this PR does not act on that are not bugs by CLAUDE.md's
-     definition: nits, wording, untested paths that hide no bug, rejected
-     alternatives, accepted trades, and improvements that fail the schedule
-     test. One line each with file:line. An `introduced` or `on-path` bug is fixed in this PR and never
-     listed here; an `unrelated` one is named under Decisions with its
-     ticket (U191). -->
+<!-- Findings this PR does not act on that are not bugs by the definition in
+     `docs/how-work-runs.md`, Which bugs a branch fixes: nits, wording,
+     untested paths that hide no bug, rejected alternatives, accepted trades,
+     improvements that fail the schedule test, a Minor closed as not
+     reproduced, and an `unrelated` Minor no ticket search found a home for.
+     One line each with file:line. An `introduced` or `on-path` bug is fixed
+     in this PR or listed under Minors left open, never here; an `unrelated`
+     one is named under Decisions with its ticket (U191). -->

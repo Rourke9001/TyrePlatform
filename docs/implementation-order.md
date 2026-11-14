@@ -126,8 +126,8 @@ document, extract, hooks or live.
 
 ## Constraints every branch carries
 
-A bug found on a branch is handled by its class (CLAUDE.md, Which bugs a
-branch fixes, U191); Set aside holds only what is not a bug.
+A bug found on a branch is handled by its class (`docs/how-work-runs.md`, Which
+bugs a branch fixes, U191); Set aside holds only what is not a bug.
 
 The capture route's entry has three ceilings, JavaScript and CSS in gzip
 bytes and fonts in raw bytes, each with 10% headroom over the figure it was

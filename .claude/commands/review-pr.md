@@ -2,7 +2,7 @@
 description: Stage 5 code review of a PR, run in a session that did not write it
 argument-hint: [PR number] [level, default high] [from <sha> for a re-review]
 ---
-Review PR **$ARGUMENTS** before it merges (CLAUDE.md, How work runs, stage 5).
+Review PR **$ARGUMENTS** before it merges (`docs/how-work-runs.md`, How work runs, stage 5).
 Report only: do not fix, commit, push, comment on GitHub or touch Jira unless
 the owner says so after reading the report.
 
@@ -24,7 +24,8 @@ does not use step 2: it runs the review and the auditors in place by
    reading on. A verifier takes the keys, the spec path, the review base and
    the range from its caller instead; with no range given, the range is
    `@{upstream}...HEAD`, and with no review base,
-   `git merge-base origin/develop HEAD`. Then `CLAUDE.md`, the `CLAUDE.md`
+   `git merge-base origin/develop HEAD`. Then `CLAUDE.md`,
+   `docs/how-work-runs.md`, the `CLAUDE.md`
    of each directory the diff touches, `docs/comments.md`, the spec the PR
    body names and any ADR it cites. Read each ticket and its
    comments in Jira and the SRS IDs it cites in Confluence. Read the earlier
@@ -67,11 +68,16 @@ does not use step 2: it runs the review and the auditors in place by
 3. **Run the auditors** whose trigger the reviewed diff meets, each given
    that diff's range: `rls-auditor`, `append-only-auditor`,
    `valuation-verifier`.
-4. **Verify every Critical and Important finding, and every rule 1 to 3
-   finding whatever its severity,** before keeping it. Try to disprove it
-   against the code, the spec and the installed library source, citing
-   `file:line`. Never rely on memory of how a library behaves
-   (docs/lessons.md, 2026-09-23). Drop what does not survive, and say why.
+4. **Give each raw item a severity, then verify what could block.**
+   `/code-review` gives no severity, so give each item one by
+   `docs/how-work-runs.md`, Severity. Verify every item that could be Critical
+   or Important, every item against rules 1 to 3 and every spec finding,
+   whatever its severity, before keeping it. Try to disprove it against the
+   code, the spec and the installed library source, citing `file:line`. Never
+   rely on memory of how a library behaves (docs/lessons.md, 2026-09-23). Drop
+   what does not survive, and say why. Every other item is a Minor: read it
+   from the diff against the review base, without reproducing it, for its one
+   line in step 5.
 5. **Report.** Write
    `.superpowers/sdd/<date>-review-pr<n>/report-<short head sha>.md` in the
    main checkout, by absolute path (`git worktree list` prints the main
@@ -79,15 +85,18 @@ does not use step 2: it runs the review and the auditors in place by
    only there. A verifier writes to the report path its caller gives. The
    first line is `Review: full, <range>`, or for a re-review
    `Review: fix round <k>, <range>`, where `<k>` is one more than the fix
-   rounds this PR has had. Count the fix-round reports already under
+   rounds this PR has had. With `from <sha>`, where `<sha>` is the `<before>` of a
+   `Minor batch: <before>..<after>` line in the PR's Decisions, this is the
+   Minor batch's re-review: its first line is `Review: Minor batch, <range>`,
+   and it is not a fix round, so it does not count toward `<k>`. Count the fix-round reports already under
    `.superpowers/sdd/*-review-pr<n>/` in the main checkout, a fix-round report being one whose
    first line starts `Review: fix round`, and, for a PR a `/pipeline` run
    opened, the `Fix 1:`, `Fix 2:` and `Fix 3:` lines in the `state.md` step
    1 read; its other `Fix` lines are rounds outside the two and do not count.
-   A verifier's first line is `Review: <range>`. For each surviving finding
+   A verifier's first line is `Review: <range>`. For each finding step 4 verified,
    give the severity, `file:line`, what is wrong and why it matters, the
    evidence, and the fix, and on a line of its own `Class: <class>`, its
-   class by CLAUDE.md, Which bugs a branch fixes (U191): `introduced`,
+   class by `docs/how-work-runs.md`, Which bugs a branch fixes (U191): `introduced`,
    `on-path`, `unrelated` or `not a bug`. Where that section says merge
    base, use `git merge-base origin/<base branch> <PR head>`, or the
    verifier's review base from step 1, never `<sha>`. After the class, add
@@ -95,10 +104,13 @@ does not use step 2: it runs the review and the auditors in place by
    finding, as in `Class: on-path rule 1-3`; a spec finding is not a bug,
    so its line is `Class: not a bug spec`. Use the class words nowhere
    else in the report. For an `unrelated` bug, give the open ticket found
-   and the search used, or "none found". For a Minor that is not a bug,
+   and the search used, or "none found". For each Minor step 4 did not verify,
+   give one line: its ID, `file:line`, what is wrong in a clause, and its
+   `Class:` line; an `unrelated` one's line also carries `ticket: <key>` or
+   `ticket: none found`, with the search used. For a Minor that is not a bug,
    give at most five, each with a one-line fix, and count the rest. It is
    fixed in the PR or goes under the PR's "Set aside", never into a ticket
-   of its own (CLAUDE.md, U130). List what you set aside, with the reason,
+   of its own the schedule test (`docs/how-work-runs.md`, Which bugs a branch fixes, U130). List what you set aside, with the reason,
    and what step 4 dropped, with why. When a finding lands on a mechanism
    that an earlier round of this PR, or an earlier PR, already fixed, say so
    in the finding and recommend `/design-audit <mechanism>` before the next
@@ -111,17 +123,22 @@ does not use step 2: it runs the review and the auditors in place by
    from step 1.
 
 Reply with the counts by severity and by class, the merge verdict (merge,
-merge after fixes, or do not merge) and the report path. Any finding still
-open, by CLAUDE.md's meaning of open (Which bugs a branch fixes), means merge
-after fixes. A verifier replies as its caller's brief says.
+merge after fixes, or do not merge) and the report path. A blocking finding open
+(`docs/how-work-runs.md`, A blocking finding) means merge after fixes. Open
+`introduced` or `on-path` Minors alone mean merge after fixes on a PR whose
+Decisions name no Minor batch, and merge on one whose Decisions do; then list
+them for the PR body's Minors left open (`docs/how-work-runs.md`, The Minor
+batch). A verifier replies as its caller's brief says.
 
 For a PR, each fix round runs in a fresh session, and its re-review runs here
-as `/review-pr <n> <level> from <sha>` (CLAUDE.md, The review loop, U192),
+as `/review-pr <n> <level> from <sha>` (`docs/how-work-runs.md`, The review loop, U192, U212),
 where `<sha>` is the short head sha in the previous report's filename. A
 re-review takes that round's range and does not look outside it; a verified
 finding that arrives from outside it anyway is classified like any other.
-After the second fix round's re-review, or a later one, what is still open
-goes to the owner, with a recommendation to run `/design-audit <mechanism>`
-on the mechanism it sits in. End a re-review by telling the owner to run,
+After the second fix round's re-review, a later one, or the Minor batch's, a
+blocking finding still open goes to the owner, with a recommendation to run `/design-audit <mechanism>`
+on the mechanism it sits in. Open Minors alone get one Minor batch session, which adds a
+`Minor batch: <before>..<after>` line to the PR's Decisions, and one
+re-review, `from <before>`. End a re-review by telling the owner to run,
 from the main checkout, `git worktree remove ../tp-review-<n>` and
 `git branch -D review-pr<n> review-pr<n>-base`.

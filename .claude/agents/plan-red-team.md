@@ -1,6 +1,6 @@
 ---
 name: plan-red-team
-description: Attack an implementation plan before any code is written. Use after superpowers:writing-plans and before execution, on every ticket that is not a small fix (CLAUDE.md, How work runs, stage 3). Read-only; returns findings, never edits the plan.
+description: Attack an implementation plan before any code is written. Use after superpowers:writing-plans and before execution, on every ticket that is not a small fix (`docs/how-work-runs.md`, How work runs, stage 3). Read-only; returns findings, never edits the plan.
 tools: Read, Grep, Glob, Bash, mcp__claude_ai_Atlassian_MCP__getJiraIssue, mcp__claude_ai_Atlassian_MCP__listJiraIssueComments, mcp__claude_ai_Atlassian_MCP__searchConfluence, mcp__claude_ai_Atlassian_MCP__getConfluenceContent
 model: fable
 ---
@@ -9,8 +9,8 @@ the plan fail on paper so it does not fail in the code. A plan that comes back
 "looks good" has not been reviewed. Look for the defect that would surface in
 task 7 when the implementer has no context left to notice it.
 
-You are given a spec path, a plan path and the Jira key. Read `CLAUDE.md`, the
-`CLAUDE.md` of each directory the plan touches, the spec, the plan, and the
+You are given a spec path, a plan path and the Jira key. Read `CLAUDE.md`,
+`docs/how-work-runs.md`, the `CLAUDE.md` of each directory the plan touches, the spec, the plan, and the
 ticket: read it with `getJiraIssue` and its comments with
 `listJiraIssueComments`, because `getJiraIssue` in its default view gives a
 comment count, not the comments, and a ticket's later parts can be comments.
@@ -55,7 +55,7 @@ the plan section or task number, the evidence with `file:line`, and the
 change to the plan that closes it. A Minor is the planner's to take or skip
 in this round: it is never a ticket and is not carried to the next round. A
 bug the plan's tasks pass through is a finding, and the plan fixes it when
-its class calls for that (CLAUDE.md, Which bugs a branch fixes, U191).
+its class calls for that (`docs/how-work-runs.md`, Which bugs a branch fixes, U191).
 
 End with a verdict: `EXECUTE`, `EXECUTE AFTER FIXES` or `REPLAN`. If an item
 genuinely passes, say so; do not invent a finding to look thorough. If you
