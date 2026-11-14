@@ -18,7 +18,7 @@ fail() {
 [ "$#" -eq 2 ] || refuse usage "bash scripts/pipeline-review.sh <state dir> <review id>"
 k=$2
 # The id names files, so nothing else may pass.
-[[ "$k" =~ ^([0-3]|gate|ci|owner-[1-9][0-9]*)$ ]] || refuse usage "review id '$k' is not 0 to 3, gate, ci or owner-<n>"
+[[ "$k" =~ ^([0-3]|gate|ci|minor|owner-[1-9][0-9]*)$ ]] || refuse usage "review id '$k' is not 0 to 3, gate, ci, minor or owner-<n>"
 [ -d "$1" ] || refuse usage "state directory '$1' does not exist"
 state=$(cd "$1" && pwd)
 here=$(cd "$(dirname "$0")" && pwd)
