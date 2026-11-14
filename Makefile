@@ -355,7 +355,7 @@ hooks-install: ## Point git at .githooks, so pre-push refuses a push to develop 
 	@git config core.hooksPath .githooks
 
 .PHONY: guard-check
-guard-check: ## Read-only proof of the develop ruleset, the gh token, the push hook and git's credential; CLOUD=1 skips git's (docs/runbooks/github-access.md, TYRE-473)
+guard-check: ## Read-only proof of the develop ruleset, the gh token, the push hook and git's credential; CLOUD=1 runs rows 1 to 3 only (docs/runbooks/github-access.md, TYRE-473, TYRE-481)
 	@bash scripts/guard-check.sh $(if $(filter 1,$(CLOUD)),--cloud)
 
 .PHONY: guard-check-test

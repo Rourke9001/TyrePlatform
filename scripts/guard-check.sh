@@ -6,7 +6,8 @@
 # a re-run and then the row's step (TYRE-473, U210,
 # docs/runbooks/github-access.md). Of what gh and git return it prints only an
 # HTTP status code, the core.hooksPath value and the hook's index mode, so
-# neither the token nor a credential in a remote URL can reach it.
+# neither the token nor a credential in a remote URL can reach it. Cloud mode
+# (--cloud, make guard-check CLOUD=1) runs rows 1 to 3 only (TYRE-481).
 set -uo pipefail
 
 usage() { echo "usage: make guard-check [CLOUD=1]" >&2; exit 2; }
@@ -73,11 +74,16 @@ elif [ -n "$unread" ]; then
 elif [ -z "$ids" ]; then
   bad 3 "develop needs a pull request" "no ruleset requires a pull request on develop" "docs/runbooks/github-access.md step 1"
 else
-  bad 3 "develop needs a pull request" "no pull request ruleset on develop is one this token's user cannot bypass" "docs/runbooks/github-access.md step 1"
+  bad 3 "develop needs a pull request" "no pull request ruleset on develop is one this session's GitHub user cannot bypass" "docs/runbooks/github-access.md step 1"
 fi
 
+# Rows 4 to 6 run locally only: in the cloud GitHub sees the cloud's own login,
+# not GH_TOKEN, so rows 4 and 5 would read a token nothing uses, and the cloud
+# has no git credential for row 6 (TYRE-481, docs/runbooks/github-access.md
+# step 4).
+if [ "$cloud" -eq 1 ]; then exit "$failed"; fi
+
 token_step="docs/runbooks/github-access.md step 3"
-[ "$cloud" -eq 1 ] && token_step="docs/runbooks/github-access.md step 4"
 case "${GH_TOKEN:-}" in
   github_pat_*) ok 4 "restricted gh token" ;;
   *) bad 4 "restricted gh token" "GH_TOKEN is not a fine-grained github_pat_ token" "$token_step" ;;
@@ -104,23 +110,20 @@ else
   unchecked 5 "token cannot write a branch" "the probe write got ${seen:-no status line}" "$token_step"
 fi
 
-# The cloud has no git credential of its own, so only a local run reads this
-# row. Prompts and askpass are off so a missing credential fails here instead
-# of waiting for a person.
-if [ "$cloud" -eq 0 ]; then
-  helper=$(git config --get-all credential.https://github.com.helper 2>/dev/null | tail -n 1 | tr -d '\r')
-  if [[ "$helper" == *"auth git-credential"* ]]; then
-    bad 6 "git signs in by its own credential" "git's last helper for github.com is gh's, so a push would sign in as the token" "docs/runbooks/github-access.md step 2"
-  elif GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS= SSH_ASKPASS= git push --dry-run origin HEAD:refs/heads/tyre-473-guard-check >/dev/null 2>&1; then
-    ok 6 "git signs in by its own credential"
-  elif [ "$rules_rc" -eq 0 ]; then
-    # The check sees only the rules read's exit code, so only a read that
-    # succeeded shows GitHub took a request in this run; only then is a failed
-    # dry run read as git's sign-in (TYRE-473, U210).
-    bad 6 "git signs in by its own credential" "a dry-run push to origin failed without a prompt" "docs/runbooks/github-access.md step 2"
-  else
-    unchecked 6 "git signs in by its own credential" "a dry-run push to origin failed without a prompt, and so did row 3's rules read" "docs/runbooks/github-access.md step 2"
-  fi
+# Prompts and askpass are off so a missing credential fails here instead of
+# waiting for a person.
+helper=$(git config --get-all credential.https://github.com.helper 2>/dev/null | tail -n 1 | tr -d '\r')
+if [[ "$helper" == *"auth git-credential"* ]]; then
+  bad 6 "git signs in by its own credential" "git's last helper for github.com is gh's, so a push would sign in as the token" "docs/runbooks/github-access.md step 2"
+elif GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS= SSH_ASKPASS= git push --dry-run origin HEAD:refs/heads/tyre-473-guard-check >/dev/null 2>&1; then
+  ok 6 "git signs in by its own credential"
+elif [ "$rules_rc" -eq 0 ]; then
+  # The check sees only the rules read's exit code, so only a read that
+  # succeeded shows GitHub took a request in this run; only then is a failed
+  # dry run read as git's sign-in (TYRE-473, U210).
+  bad 6 "git signs in by its own credential" "a dry-run push to origin failed without a prompt" "docs/runbooks/github-access.md step 2"
+else
+  unchecked 6 "git signs in by its own credential" "a dry-run push to origin failed without a prompt, and so did row 3's rules read" "docs/runbooks/github-access.md step 2"
 fi
 
 # END OF ROWS
