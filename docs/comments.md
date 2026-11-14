@@ -143,7 +143,10 @@ a comment, which states a constraint rather than an opinion:
   sentence or use a comma. A lone em dash as a display glyph for an absent
   value is not prose and is allowed.
 - Straight quotes only.
-- A colon introduces a list or an example, never joins two clauses.
+- A colon introduces a list, an example, or the reason or consequence of
+  the clause before it, as in "SET LOCAL, not SET: this binds to the
+  transaction". It does not join two clauses where neither explains the
+  other; end the sentence there (U214).
 - Plain words. "Use", not "leverage" or "utilise"; "to", not "in order to";
   "because", not "due to the fact that". "It is important to note" is
   deleted. Delve, pivotal, testament, showcase and their kind do not appear.
