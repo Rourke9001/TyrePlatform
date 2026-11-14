@@ -127,6 +127,20 @@ const CASES = [
     content: `# Renovate cannot see this ADD (TYRE-304)\nFROM scratch\n`,
     expectFail: false,
   },
+  {
+    // A git hook has no extension, so it is keyed by name (TYRE-482).
+    name: 'git-hook-is-checked',
+    file: 'pre-push',
+    content: `#!/bin/sh\n# ${'Task'} ${'4'} refuses the push\nexit 0\n`,
+    expectRule: 'plan-step-reference',
+    expectFail: true,
+  },
+  {
+    name: 'git-hook-clean-comment',
+    file: 'pre-push',
+    content: `#!/bin/sh\n# Git hands the hook each target after resolving the command (TYRE-473)\nexit 0\n`,
+    expectFail: false,
+  },
 ];
 
 const dir = mkdtempSync(join(tmpdir(), 'comment-style-'));

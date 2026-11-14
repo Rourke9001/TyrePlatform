@@ -15,9 +15,9 @@ const BLOCK_ONLY = new Set(['.css']);
 // markersFor lower-cases the extension, so '.dockerfile' also matches a
 // suffixed name such as bicep.Dockerfile (TYRE-401).
 const HASH = new Set(['.py', '.sh', '.bash', '.yml', '.yaml', '.toml', '.dockerfile']);
-// A bare dotfile has no extension as far as extname() is concerned, so these
-// are keyed by name.
-const HASH_NAMES = new Set(['Makefile', 'Dockerfile', '.gitignore', '.gitattributes', '.dockerignore', '.editorconfig', '.npmrc']);
+// A bare dotfile has no extension as far as extname() is concerned, and a git
+// hook has none at all, so these are keyed by name.
+const HASH_NAMES = new Set(['Makefile', 'Dockerfile', '.gitignore', '.gitattributes', '.dockerignore', '.editorconfig', '.npmrc', 'pre-push']);
 const DASH = new Set(['.sql']);
 
 // docs/ and markdown are prose: comparing alternatives and recording history
