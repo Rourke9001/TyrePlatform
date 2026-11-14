@@ -22,9 +22,9 @@ k=$2
 [ -d "$1" ] || refuse usage "state directory '$1' does not exist"
 state=$(cd "$1" && pwd)
 here=$(cd "$(dirname "$0")" && pwd)
-# The bound leaves a large branch several times the real-range spike's run and
-# still ends a hang inside the hour (the spec, Left to the builder). The
-# variable exists for the tests.
+# The bound leaves a large branch room to finish and still ends a hang inside
+# the hour (docs/superpowers/specs/2026-11-10-pipeline-model-per-step-design.md,
+# Left to the builder). The variable exists for the tests.
 bound=${PIPELINE_REVIEW_TIMEOUT:-2700}
 [[ "$bound" =~ ^[1-9][0-9]*$ ]] || refuse usage "PIPELINE_REVIEW_TIMEOUT '$bound' is not a number of seconds"
 command -v jq >/dev/null 2>&1 || refuse setup "jq is not on PATH"
@@ -42,8 +42,8 @@ cd "$here/.."
 # The flag makes every named subagent a teammate (scripts/pipeline.sh), and the
 # review needs none (TYRE-476).
 unset CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
-# The same backstop the launcher sets, and the one the spikes ran with, whoever
-# calls this script (TYRE-476).
+# The backstop the launcher sets (scripts/pipeline.sh), set here too so it
+# holds whoever calls this script (TYRE-476).
 export CLAUDE_CODE_SUBAGENT_MODEL=opus
 # The review runs on Opus alone (U205), and the project and user settings name
 # a Fable advisor that the review's subagent inherits. This variable makes the

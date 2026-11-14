@@ -6,7 +6,7 @@
 #
 # 600 s is the Bash tool's limit for one call, and make's own start-up can
 # carry a wait at the cap past it, so the playbook's foreground wait is 30 s
-# (TYRE-478; close-out uses `timeout 540` for the same reason).
+# (TYRE-478).
 set -euo pipefail
 
 usage="usage: make pipeline-wait S=<whole seconds, 1 to 600>"

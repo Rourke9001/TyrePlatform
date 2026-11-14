@@ -136,10 +136,9 @@ fail_case() { echo "FAIL: $1 ($2)"; if [ -n "$out" ]; then printf '%s\n' "$out" 
 
 # check_case <label> <want exit> <want rows | -> [args...]
 # The rows are every line that is not OK, in order: F<n> for FAIL, U<n> for
-# UNCHECKED. A FAIL line names its fix. An UNCHECKED line names none: it ends
-# with the re-run, then the row's own step (scripts/guard-check.sh, the
-# comment above unchecked). On exit 0 or 1 every line is a row, so nothing
-# git or gh writes reaches the output (the script's header).
+# UNCHECKED. A FAIL line names its fix. An UNCHECKED line names none and ends
+# with the re-run, then the row's own step (U210). On exit 0 or 1 every line
+# is a row, so nothing git or gh writes reaches the output (TYRE-473).
 check_case() {
   local label=$1 want=$2 rows=$3 rc problems="" got n i line r step
   shift 3

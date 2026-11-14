@@ -115,7 +115,7 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
     rememberSubject(signedIn.subject);
   } catch {
     // The library has stored its user, and its ID token names the person
-    // (spec section 6). With no last-known subject it serves no call and no
+    // (b9 spec, section 6). With no last-known subject it serves no call and no
     // draft could start under it (U104). It goes while it is still this
     // sign-in's, so the next load shows the sign-in screen.
     try {

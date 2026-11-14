@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # Cases for scripts/pipeline-review.sh (TYRE-476). The stub claude prints a
 # canned result, so these prove the checks and the child's launch shape. Only
-# a live review proves "/code-review ..." reaches claude.exe intact on Windows,
-# which the TYRE-476 spikes did.
+# a live review proves "/code-review ..." reaches claude.exe intact on Windows.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 script="$here/pipeline-review.sh"
 root=$(cd "$here/.." && pwd)
 work=$(cd "$(mktemp -d)" && pwd)
 trap 'rm -rf "$work"' EXIT
-# The repo's own path holds a space, so this one does too.
+# A checkout path can hold a space, so the state directory's does.
 state="$work/state dir"
 mkdir -p "$work/bin" "$state"
 
@@ -46,8 +45,7 @@ two='[
   {"file": "scripts/a.sh", "line": 3, "summary": "runs `rm -rf` unguarded", "failure_scenario": "f1"},
   {"file": "scripts/b.sh", "line": 9, "summary": "s2", "failure_scenario": "f2"}
 ]'
-# A result as the planted spike returned it: a fenced json block, then prose.
-# The real-range spike's ended at the closing fence.
+# A result with a fenced json block, then prose.
 fenced() { printf '%sjson\n%s\n%s\n\n%s' "$fence" "$1" "$fence" "$2"; }
 r_two=$(fenced "$two" "Two findings in the range.")
 jq -n --arg r "$r_two" '{type: "result", subtype: "success", is_error: false,
