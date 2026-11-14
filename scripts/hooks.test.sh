@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Cases for .claude/hooks and .githooks (TYRE-473). Every hook settings.json
-# names, and .githooks/pre-push, must be executable in git, or Linux, where the
-# cloud routines run, cannot run it. Then the make wiring, the gh hook's
-# registration and its four cases, then the push cases: real git push against a
-# bare remote, through the hook installed as make hooks-install installs it.
+# Cases for .claude/hooks and .githooks (TYRE-473, TYRE-481). Every hook
+# settings.json names, and .githooks/pre-push, must be executable in git, or
+# Linux, where the cloud routines run, cannot run it. Then the make wiring, the
+# gh hook's registration and its cases, local and cloud, the connector allow
+# rules, then the push cases: real git push against a bare remote, through the
+# hook installed as make hooks-install installs it.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
@@ -30,6 +31,23 @@ if [ "$reg_n" = 1 ] && [ "$reg_type" = command ] && [ "$reg_if" = 'Bash(gh *)' ]
 else
   echo "FAIL: gh-token-required.sh registration is '$reg'"; fails=$((fails + 1))
 fi
+
+# The connector's tools: settings.json allows exactly these twelve, and
+# executeWrite is left to ask, since it runs any write the connector has
+# (TYRE-481). No tracked file under .claude names the removed connector.
+want_mcp=$(printf 'mcp__claude_ai_Atlassian_MCP__%s\n' getJiraIssue listJiraIssueComments \
+  searchJiraIssuesUsingJql getConfluenceContent searchConfluence getAccessibleAtlassianResources \
+  search addOrEditJiraIssueComment transitionJiraIssue createJiraIssue discover executeRead | LC_ALL=C sort)
+got_mcp=$(jq -r '.permissions.allow[] | select(startswith("mcp__claude_ai_Atlassian"))' "$root/.claude/settings.json" | tr -d '\r' | LC_ALL=C sort)
+if [ "$got_mcp" = "$want_mcp" ]; then echo "PASS: settings.json allows the connector's twelve tools and no other Atlassian tool"; else
+  echo "FAIL: settings.json's Atlassian allow rules are: $got_mcp"; fails=$((fails + 1)); fi
+rovo=$(git -C "$root" grep -l Atlassian_Rovo -- .claude 2>/dev/null)
+if [ -z "$rovo" ]; then echo "PASS: no tracked file under .claude names Atlassian_Rovo"; else
+  echo "FAIL: these name Atlassian_Rovo: $rovo"; fails=$((fails + 1)); fi
+want_tools="tools: Read, Grep, Glob, Bash, mcp__claude_ai_Atlassian_MCP__getJiraIssue, mcp__claude_ai_Atlassian_MCP__listJiraIssueComments, mcp__claude_ai_Atlassian_MCP__searchConfluence, mcp__claude_ai_Atlassian_MCP__getConfluenceContent"
+got_tools=$(grep -m1 '^tools: ' "$root/.claude/agents/plan-red-team.md" | tr -d '\r')
+if [ "$got_tools" = "$want_tools" ]; then echo "PASS: plan-red-team names the connector's four tools"; else
+  echo "FAIL: plan-red-team's tools line is '$got_tools'"; fails=$((fails + 1)); fi
 
 # make hooks-install points git at .githooks, and pipeline runs it first
 # (TYRE-473). Make prints CRs on Windows, so strip them.

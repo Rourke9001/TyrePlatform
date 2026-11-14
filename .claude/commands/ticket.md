@@ -10,7 +10,10 @@ never starts it from here.
 Work ticket **$ARGUMENTS** through the five stages in CLAUDE.md (How work
 runs). Do not start a stage until the one before it is done.
 
-1. Fetch it from Jira (`getJiraIssue`). Read the description in full.
+1. Fetch it from Jira with `getJiraIssue` and its comments with
+   `listJiraIssueComments`, because the ticket's later parts can be comments
+   that `getJiraIssue` only counts. Read the description and the comments in
+   full.
 2. Read the requirement IDs it cites from the SRS in Confluence, not from a
    local copy (CLAUDE.md). Search, do not read the whole page.
 3. Restate in your own words: what changes, what must not change, and how we

@@ -363,7 +363,7 @@ guard-check-test: ## The guard check's rows on a temp repository, with a stub gh
 	bash scripts/guard-check.test.sh
 
 .PHONY: hooks-test
-hooks-test: ## The hooks: each one settings.json names and .githooks/pre-push is executable, the make wiring, the gh hook's registration and cases, and 35 real pushes through the pre-push hook (TYRE-473)
+hooks-test: ## The hooks: each one settings.json names and .githooks/pre-push is executable, the connector allow rules, the make wiring, the gh hook's registration and cases, and 35 real pushes through the pre-push hook (TYRE-473)
 	bash scripts/hooks.test.sh
 
 ## ---------------------------------------------------------------- aggregate
