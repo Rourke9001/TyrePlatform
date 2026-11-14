@@ -111,7 +111,8 @@ does not use step 2: it runs the review and the auditors in place by
    `ticket: none found`, with the search used. For a Minor that is not a bug,
    give at most five, each with a one-line fix, and count the rest. It is
    fixed in the PR or goes under the PR's "Set aside", never into a ticket
-   of its own the schedule test (`docs/how-work-runs.md`, Which bugs a branch fixes, U130). List what you set aside, with the reason,
+   of its own (the schedule test, `docs/how-work-runs.md`, Which bugs a branch
+   fixes, U130). List what you set aside, with the reason,
    and what step 4 dropped, with why. When a finding lands on a mechanism
    that an earlier round of this PR, or an earlier PR, already fixed, say so
    in the finding and recommend `/design-audit <mechanism>` before the next
