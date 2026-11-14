@@ -57,7 +57,7 @@ whichever database branch is cut first.
 | Sprint | Dates | Web, API and infrastructure lane | Database lane | Unlocks |
 |---|---|---|---|---|
 | 0 | 21 to 23 Oct | #141 (ADR-0020, TYRE-444); #142 (U146, TYRE-452); this page's PR with ADR-0021 (TYRE-350) | | A board with only build work on it |
-| 1. Foundations and trips | 22 to 30 Oct | Tread, ahead of the plan (U156, below): 445 colour and themes (with 281; 343 folded in), 446 type, 447's components and 240's screen ports (merged, #151 to #154); the capture fixes PR (129, 171, 173, 207, 218, 329, 342; merged, #167) with 154 and 334 and the network PR (389, 381, 388; merged, #165, with 381 awaiting its staging device check), both now written against Tread's capture files; 371 job runner and email (ADR first); 438 with 437's fix; 379 with 410 (merged, #166); 413 | 326 trips (merged, #148); 99 with 102, carrying 450 and #139's 18 set-aside bugs (B40) | Trips, which 319, 133, 441 and 76 build on; the job runner; Tread colour and type on every screen |
+| 1. Foundations and trips | 22 to 30 Oct | Tread, ahead of the plan (U156, below): 445 colour and themes (with 281; 343 folded in), 446 type, 447's components and 240's screen ports (merged, #151 to #154); the capture fixes PR (129, 171, 173, 207, 218, 329, 342; merged, #167) with 154 and 334 and the network PR (389, 381, 388; merged, #165, with 381 awaiting its staging device check), both now written against Tread's capture files; 371 job runner and email (ADR first); 438 with 437's fix; 379 with 410 (merged, #166); 413 (merged, #162) | 326 trips (merged, #148); 99 with 102, carrying 450 and #139's 18 set-aside bugs (B40) | Trips, which 319, 133, 441 and 76 build on; the job runner; Tread colour and type on every screen |
 | 2. Driver path and manager views | 31 Oct to 7 Nov | 240's behaviour fixes with 176 and back-dated movements (B41); 152's server, queue and office read | 319 with 323; 325 with void; 287; 243 slice 1, the lifecycle; 109, 286, 292 and 270; 432 (425 folded in); 100 with 372 | A driver captures only against a task; managers see inspections and act on exceptions (agreement 11.2) |
 | 3. Capture slice and reports | 8 to 16 Nov | Capture's remaining screens, on Tread's components: 152's photos, 448, 285 and 319's Today screen; 457 page titles and 458 inner and outer place words (U162); 460 double-tap zoom and 461 announced form errors (raised under U163, placed here by default); 320 reports and export (ADR first); 354, 363 and 367 | 459, a retired truck's open trip and a blank cancellation reason (raised under U161, placed here by default); 168 with 190's F10 (W5d), then 322 odometer import; 133 schedules; 243 slice 2, notifications; 284 compliance | The driver app as trained; H.1's reports; H.3 criterion 4's on-time figure |
 | 4. Hardening | 17 to 24 Nov | 115 with 140; 159; 377; 366 if BAC runs two or more operating groups; 434; 398 as a release step | The register batch (123, 120, 121, 244, 131, 113, 105); the suite PR (245, 112); 76 depot capture; 441 with 455, one spec for the driver's trip-vehicle screen (U162); 243 slice 3, rule administration | Money and dates right per tenant; the suite covering exceptions |
@@ -73,13 +73,13 @@ region-wide outage (U166, TYRE-321 comment 14113).
 
 ### Feature work and fixes
 
-Of the 62 tickets still open in sprints 1 to 4 and readiness, 24 are
-features, 8 are platform pieces and 30 are fixes; the fixes travel in about a
+Of the 59 tickets still open in sprints 1 to 4 and readiness, 24 are
+features, 5 are platform pieces and 30 are fixes; the fixes travel in about a
 dozen batched PRs, so feature work sets the pace.
 
 - **Features:** 76, 99, 100, 102, 109, 133, 152, 154, 243, 284, 285, 286,
   287, 292, 319, 320, 322, 325, 366, 367, 377, 441, 448, 455.
-- **Platform:** 321, 371, 379, 398, 410, 413, 434, 438.
+- **Platform:** 321, 371, 398, 434, 438.
 - **Fixes:** 105, 112, 113, 115, 120, 121, 123, 131, 140, 159, 168,
   176, 190, 240, 244, 245, 270, 323, 334, 354,
   363, 372, 381, 432, 450, 457, 458, 459, 460, 461. TYRE-275
