@@ -30,6 +30,28 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-14 - A token set on a cloud environment never reached GitHub, so the control a spec rested on held nothing there (TYRE-473, TYRE-481)
+
+**What happened:** TYRE-473's spec replaced the merge and push guard, for
+the cloud close-out, with a restricted `GH_TOKEN` on the routine's
+environment. It took that from one docs line, that a set token "passes
+through to the container unchanged", and nothing probed it in a cloud
+session. After PR #215 merged, the close-out's `make guard-check CLOUD=1`
+stopped at row 5, and a probe in that session showed why. GitHub reported a
+credential that expires the same day, not the owner's one-year token. A REST
+merge call on the already merged #215 answered 200. The row's ref write got
+the proxy's own 403, "Write access to this GitHub API path is not permitted
+through this proxy". So in the cloud the proxy's credential can merge, the
+token restricts nothing, and row 5 cannot pass.
+
+**The rule:** before a spec rests a control on what a cloud session's
+credential can or cannot do, run the probe in a cloud session and put its
+output in the spec. A docs line or a local probe is not the proof. Probe a
+merge only on an already merged PR, never an open one: a credential that may
+merge answers 200 with the existing merge SHA, and one that may not answers
+403. Until TYRE-481 lands, every cloud close-out stops at the check, so run
+`/close-out <n>` by hand.
+
 ## 2026-11-11 - A lead that ended its turn for a shutdown approval sat idle until the owner typed (TYRE-477, TYRE-478)
 
 **What happened:** in TYRE-477's run the lead asked the planner, and later
