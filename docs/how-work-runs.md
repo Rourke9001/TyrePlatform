@@ -233,8 +233,9 @@ PR, on the one To Do ticket `Minors left open by pipeline runs`, which it
 raises under TYRE-10 at Low priority when none exists. The owner launches that
 ticket like any other (Small fixes). On the manual path (`/ticket`), a blocking
 finding gets a fix session and `/review-pr <n> <level> from <sha>`; open Minors
-alone get one Minor batch session and one such re-review, and the session lists
-that re-review's Minors under Minors left open (U212).
+alone get one Minor batch session and, when it committed anything, one such
+re-review, and the session lists that re-review's Minors under Minors left open
+(U196, U212).
 
 ## The stops
 
