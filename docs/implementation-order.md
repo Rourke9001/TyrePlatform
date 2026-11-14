@@ -92,7 +92,7 @@ A11).
 ### After the pilot
 
 TYRE-449, Tread's per-device settings (C8). Also 209 with 236, 227, 255,
-263, 311, 361, 380 and 395, and the `post-poc` tickets below.
+263, 311, 361 and 380, and the `post-poc` tickets below.
 
 ## The Tread rework (epic TYRE-443)
 
