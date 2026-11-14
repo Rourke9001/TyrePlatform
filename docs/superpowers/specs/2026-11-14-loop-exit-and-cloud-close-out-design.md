@@ -82,12 +82,17 @@ its tool list names a connector that is gone.
   rules or rulesets on GitHub." It is silent on merging a pull request.
   code.claude.com/docs/en/routines: "Anything a scheduled task does
   through your connected GitHub identity or connectors appears as you."
-  GitHub cannot tell the owner's merge from one made as the owner.
+- **The cloud acts as the owner's own GitHub user, and its `gh` needs no
+  token.** PR #214's close-out report was posted by the routine on
+  13 Nov at 09:16Z, before `tyre-claude-cloud` existed, and GitHub lists
+  its author as `Rourke9001`, type `User` (issue comment 6848961438,
+  read 14 Nov). So GitHub cannot tell the owner's merge from one the
+  cloud makes.
 - **A cloud session is marked.** code.claude.com/docs/en/env-vars:
   `CLAUDE_CODE_REMOTE` is "Set automatically to `true` when Claude Code is
   running as a cloud session... Read this from a hook or setup script to
   detect whether you are in a cloud session". The docs do not say it for a
-  routine's run by name, so the probe below reads it.
+  routine's run by name. No cloud run has read it yet (section 6).
 - **Before #215 the cloud's merge was held by text too.**
   `merge-push-guard.sh` read the command's text, the design audit's
   verdict on it was Replace, and #215 deleted it. Keeping the routine
@@ -132,7 +137,7 @@ its tool list names a connector that is gone.
 ## Constraints
 
 - **This run edits its own rules.** The lead follows the playbook it was
-  launched with. Section 8 lists the three places where this run departs
+  launched with. Section 8 lists the four places where this run departs
   from it.
 - **The red team runs before its tool list is fixed.** The lead pastes
   the ticket and comment 14219 into this run's red-team dispatch. A
@@ -140,13 +145,13 @@ its tool list names a connector that is gone.
   (code.claude.com/docs/en/sub-agents: "the next delegation uses the
   updated definition, with no restart needed"), so after implementation
   the lead can prove the fix with one dispatch.
-- **The cloud proves itself only after the merge.** The first cloud
+- **The routine proves itself only after the merge.** The first cloud
   close-out, this PR's own, is the proof, and it fails closed. The owner
-  removes the token before merging, so that run has none. The owner's
-  probe before approval (section 6) reads the facts the design rests on
-  in a cloud session, so a wrong one is found now. The docs call a
-  routine's run a cloud session and do not say by name that the variable
-  is set in one, which only that first close-out can show.
+  removes the token before merging, so that run has none. Section 6's
+  check at the PR's box tries the new hook in a cloud session before the
+  merge. The docs call a routine's run a cloud session and do not say by
+  name that the variable is set in one, which only that first close-out
+  can show.
 - Rule numbers in `docs/runbooks/github-access.md` and row numbers in
   `scripts/guard-check.sh` are cited by the script's messages, its tests
   and the 473 spec. Neither is renumbered.
@@ -178,7 +183,8 @@ its tool list names a connector that is gone.
 - *Close-out runs locally by hand.* The restricted token holds a merge
   there. The owner rejected it: it is input after every merge.
 - *A GitHub rule that tells the owner's merge from the cloud's.* The
-  cloud acts as the owner, so a rule cannot tell them apart. The shapes
+  cloud acts as the owner's user (comment 6848961438 on #214), so a rule
+  cannot tell them apart. The shapes
   left are an approval from a second GitHub account on every PR, or a
   cloud login that cannot push close-out's docs branch. Each costs more
   than it saves.
@@ -269,6 +275,10 @@ Important.
      left open**, one line each with `file:line`;
    - an `unrelated` bug and a finding that is not a bug go where they go
      today.
+
+   A Minor that a later re-review finds, in a `gate`, `ci` or
+   `owner-<n>` round after the batch has run, is listed the same way and
+   not fixed. The batch runs once.
 5. The owner merges once no blocking finding is open and the Minor batch
    has run if one was due. The merge accepts each line under Minors left
    open. This replaces U198's acceptance at the cap.
@@ -401,7 +411,7 @@ citation of `docs/runbooks/github-access.md`, corrected for the cloud
 | --- | --- |
 | A push to `develop` | GitHub refuses: ruleset 21929055 requires a pull request, and the cloud's login cannot bypass it (row 3, read in the cloud) |
 | A REST ref write, a branch delete, a push of a tag | The cloud's proxy refuses |
-| A merge of an open pull request | Nothing refuses. `/close-out`'s cloud paragraph says never, and the routine's prompt only points at `/close-out` (ADR-0018). The owner accepts this (U213) |
+| A merge of an open pull request | Nothing refuses. Only `/close-out`'s cloud paragraph says never. A merge reaches `develop` and staging; production still waits for the owner. The owner accepts this (U213) |
 | A fast-forward of `main` | `.githooks/pre-push`, which cloud mode installs, refuses without `TYRE_PROMOTE=1`; a production deploy waits for the owner's approval |
 
 **`scripts/guard-check.sh --cloud`** runs rows 1, 2 and 3 and no other.
@@ -428,8 +438,12 @@ this does not hold.
   the routine works without one. Its check is that close-out's usual
   report.
 - Step 6 loses "or step 4".
-- What this does not hold gains the merge in the cloud, and the hook's
-  variable.
+- What this does not hold gains the merge in the cloud and the hook's
+  variable. Two of its bullets become false with the hook change and are
+  corrected: "the `gh` hook refuses `gh` where the token is missing", and
+  "A cloud session outside the routine's environment has its `gh` calls
+  refused". Any cloud session on this repository now runs `gh` as the
+  owner.
 
 **`.claude/commands/close-out.md`**, cloud mode: the paragraph keeps
 `make hooks-install` and `make guard-check CLOUD=1`, says a refused `gh`
@@ -443,27 +457,39 @@ the cloud only this line holds it.
   `gh-token-required.sh`.
 - ADR-0018: a dated amendment that withdraws the 13 Nov amendment's
   sentence on the routine's restricted token and gives the table.
-- The 473 spec: one italic line above section 2, above the cloud
-  sentence of section 6 and above lead's call 16, each pointing here.
+- The 473 spec: the one italic line under its title (section 5) also
+  says its cloud token, in sections 2, 6, 7 and 12, its definition of
+  done and lead's call 16, is withdrawn by this spec.
+- The Makefile's `guard-check` help line, and the script's header and
+  `--cloud` comments.
 - `docs/lessons.md`, the entry of 14 Nov: its last sentence, "Until
   TYRE-481 lands...", becomes what TYRE-481 did. Its rule already says a
   cloud control is probed in the cloud, which the ticket's definition of
   done asks for.
 
-**The owner's probe, before approval.** In a cloud session on the
-routine's environment, with nothing changed:
+**What the cloud has already shown.** The design rests on four facts,
+and cloud runs have shown three:
 
-```
-printenv CLAUDE_CODE_REMOTE
-env -u GH_TOKEN gh api user --jq '.login, .type'
-env -u GH_TOKEN gh api repos/Rourke9001/TyrePlatform/rulesets/21929055 --jq .current_user_can_bypass
-```
+- the cloud's `gh` works with no token and acts as the owner's user
+  (#214's close-out report, above);
+- the cloud's login cannot bypass the pull request rule on `develop`
+  (row 3 OK in the cloud, 14 Nov);
+- the cloud's credential can merge, and the proxy refuses a ref write
+  (the owner's probe, 14 Nov).
 
-The design needs `true`, the owner's login, and `never`. Their output
-goes here before the status line says approved. A different answer
-changes this section, not the others.
+The fourth is that `CLAUDE_CODE_REMOTE` is `true` where the hook runs.
+The docs say a hook can read it. Two checks cover it, and neither blocks
+the build:
 
-*Probe result:* pending.
+- Optional, with the approval: in any cloud session on this repository,
+  `printenv CLAUDE_CODE_REMOTE` prints `true`. This shows the variable
+  in Bash, not in a hook.
+- At the PR's box, after the owner has removed the token: a cloud session
+  on this PR's branch runs `gh api user --jq .login`. It prints the
+  owner's login only if the new hook let it through with no token. A
+  refusal there is found before the merge.
+
+*Optional probe result:* not run yet.
 
 ### 7. Tests
 
@@ -482,7 +508,7 @@ changes this section, not the others.
 ### 8. This run
 
 The lead follows the playbook it was launched with, and departs from it
-in three places, on the owner's answer of 14 Nov:
+in four places, on the owner's answer of 14 Nov:
 
 1. Review loop step 6 judges by section 2: only a blocking finding
    starts a fix round, and open `introduced` and `on-path` Minors ride in
@@ -492,6 +518,8 @@ in three places, on the owner's answer of 14 Nov:
    round.
 3. The verifier and the fixers read the branch's own `review-pr.md` and
    process file, so they work by the new text. Each dispatch says so.
+4. Every fixer's brief gains section 4's sentence: a Minor is unverified,
+   and one the fixer cannot make fail is reported and left alone.
 
 Sections 3 and 4 otherwise first apply to the next run.
 
@@ -535,9 +563,13 @@ Sections 3 and 4 otherwise first apply to the next run.
 7. `make guard-check CLOUD=1` runs rows 1 to 3, with its cases in
    `scripts/guard-check.test.sh`, and the `gh` hook's cloud cases are in
    `scripts/hooks.test.sh`. `make check` is green.
-8. Each line section 6 lists is corrected.
-9. Owner, just before the merge: remove `GH_TOKEN` from the routine's
-   environment and revoke `tyre-claude-cloud`. It is a box on the PR.
+8. Each line section 6 lists is corrected, and
+   `rg --hidden -g '!.git/' -l "tyre-claude-cloud|cloud token|step 4 in the cloud"`
+   lists only the runbook, whose step 4 says the token is revoked,
+   `docs/lessons.md`, the 473 spec and this spec.
+9. Owner, just before the merge, as a box on the PR: remove `GH_TOKEN`
+   from the routine's environment, revoke `tyre-claude-cloud`, and run
+   section 6's check in a cloud session on the PR's branch.
 10. After the merge: the first cloud close-out, this PR's own, runs with
     no token and posts its usual report. TYRE-473's definition of done
     item 7 closes on it. If its `gh` calls are refused, the owner gets
@@ -596,15 +628,19 @@ record. The run that builds this cannot.
 11. **Runbook step numbers and check row numbers stay.** The script's
     messages and its tests cite them
     (`scripts/guard-check.sh:72-122`, `scripts/guard-check.test.sh:145-157`).
-12. **The token goes before the merge, not after.** Then this PR's own
+12. **No probe blocks the approval.** The ticket asked for a cloud probe
+    before approval. Cloud runs already on record show three of the four
+    facts (section 6), and the fourth has a check before the merge. That
+    asks less of the owner, who wants a run with little input.
+13. **The token goes before the merge, not after.** Then this PR's own
     close-out is the first run with no token, and proves it (the builder
     check's question 1). Until the merge the cloud close-out stops at its
     first check either way (`docs/lessons.md:52-53`).
-13. **A Minor a fixer cannot reproduce is closed, not filed.** Nobody
+14. **A Minor a fixer cannot reproduce is closed, not filed.** Nobody
     verified it, so filing it would put an unproved bug on the board.
-14. **Part 6 stays in this run.** With the owner's answer it has no
-    design question left and one probe, so it is not split out.
-15. **This run pastes the ticket into its red-team dispatch.** The
+15. **Part 6 stays in this run.** With the owner's answer it has no
+    design question left, so it is not split out.
+16. **This run pastes the ticket into its red-team dispatch.** The
     agent's tool list is stale until this merges.
 
 ## Left to the builder
