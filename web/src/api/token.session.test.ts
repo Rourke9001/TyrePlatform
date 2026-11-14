@@ -224,7 +224,7 @@ describe("fetchMe after a 401 from the API", () => {
     window.localStorage.setItem(SUBJECT_KEY, "oid-a");
   });
 
-  // Review 1, R3: the page before the reload marked at-1 refused, and its
+  // The page before the reload marked at-1 refused, and its
   // renewal at once found no signal, so the library still holds at-1.
   it("reaches the actor on a reload whose refused token's renewal never landed", async () => {
     const idp = identityProvider();
@@ -352,8 +352,8 @@ describe("fetchMe after a 401 from the API", () => {
     expect(idp.bearers).toEqual([]);
   });
 
-  // F2's rule holds for the answer the retry brings back: the subject read
-  // before the first request must still stand (TYRE-471 spec, The session).
+  // The subject read before the first request must still stand for the
+  // answer the retry brings back (TYRE-471 spec, The session).
   it("writes no tenant when another sign-in changed the subject while the retry was in flight", async () => {
     const idp = identityProvider(json(200, tokens("at-2", "rt-2")));
     idp.api.push(unauthorized(), () => {
@@ -405,7 +405,7 @@ describe("a renewal past its bound (U199)", () => {
     expect(idp.sent).toEqual(["rt-s0", "rt-s0"]);
   });
 
-  // Owner, 10 Nov 2026: only a refusal lapses the session.
+  // U199 with Q1 (owner, 10 Nov 2026): only a refusal lapses the session.
   it("never lapses the session or removes the stored user, however often it times out", async () => {
     const idp = identityProvider(
       stalled(200).response,
