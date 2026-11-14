@@ -8,8 +8,7 @@ import { describe, expect, it } from "vitest";
 // TYRE-27, TYRE-445, TYRE-49: a gate that finds nothing has to be shown able
 // to find something. Planted text goes through the real stylelint and eslint
 // configs, and each list is compared exactly. Each TS path stands in for an
-// existing file, since the type-aware parser needs a file it can find (as
-// web/lint/legacyImports.test.ts says).
+// existing file, since the type-aware parser needs a file it can find.
 const WEB = fileURLToPath(new URL("..", import.meta.url));
 const eslint = new ESLint({ cwd: WEB });
 

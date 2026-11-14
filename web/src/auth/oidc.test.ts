@@ -137,7 +137,7 @@ describe("discardUser", () => {
 describe("the module's storedSession", () => {
   // Blocked site data makes the localStorage getter itself throw, so the
   // managers cannot be built. That is no session, and the store answers
-  // signed out, as it did with its own copy (TYRE-471 spec, The session).
+  // signed out (TYRE-471 spec, The session).
   // This file does not mock oidc.ts, so resetModules gives a fresh singleton.
   it("reads a localStorage getter that throws as no session", async () => {
     bearerSession();

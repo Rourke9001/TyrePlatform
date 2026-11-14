@@ -30,6 +30,25 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-14 - A routine kept the connector it was created with, so its Jira steps had no tool once the connector was re-added (TYRE-481, #217)
+
+**What happened:** on 14 Nov the owner removed the claude.ai Atlassian
+connector and re-added it on the v2 endpoint as "Atlassian MCP". TYRE-481
+renamed the tools in `.claude/settings.json` and the red-team agent, and
+nothing looked at the close-out routine. A routine stores its own connector
+list, and this one still held `Atlassian-Rovo` at
+`https://mcp.atlassian.com/v1/mcp`. PR #217's cloud close-out reported that
+connector answering 404, and the repo's `.mcp.json` server refused by the
+cloud proxy with 403, so the run had no Jira tool. It did the GitHub half and
+posted a partial report, and a local session did the board.
+
+**The rule:** when a connector is removed, renamed or re-added, read each
+routine's stored connectors in the same sitting (the RemoteTrigger tool's
+`get`, field `mcp_connections`, or the routine's own page) and give the
+routine the new one. Renaming the tools in the repo is half the job. When a
+close-out report says Jira was unreachable, check the routine's connector
+before anything else.
+
 ## 2026-11-14 - A token set on a cloud environment never reached GitHub, so the control a spec rested on held nothing there (TYRE-473, TYRE-481)
 
 **What happened:** TYRE-473's spec replaced the merge and push guard, for
