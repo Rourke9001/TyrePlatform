@@ -215,7 +215,10 @@ comments.
 
 `executeWrite` is not allowed ahead. It runs any write the connector has,
 Confluence pages included, and the old list allowed no Confluence write.
-An issue link now goes through it and asks once.
+An issue link now goes through it and asks once. In cloud mode close-out
+never calls it: a routine once sat at a permission prompt with nobody
+told (`docs/lessons.md:498-515`). There close-out names the parent key in
+a new ticket's description and lists the link under Waiting on the owner.
 
 `.claude/commands/ticket.md` step 1 names `listJiraIssueComments` beside
 `getJiraIssue`: the v2 `getJiraIssue` returns a comment count, not the
@@ -271,15 +274,25 @@ Important.
    round that commits. Nothing that review finds is fixed in the run:
    - a blocking finding stops for the owner at the row The cap, as for
      any round outside the two that leaves something open;
-   - an `introduced` or `on-path` Minor, and any Minor the batch's fixer
-     could not fix, goes in the PR body under a new heading, **Minors
-     left open**, one line each with `file:line`;
+   - an `introduced` or `on-path` Minor, and any Minor a fixer reported
+     `not fixed`, goes in the PR body under a new heading, **Minors left
+     open**, one line each with `file:line`;
    - an `unrelated` bug and a finding that is not a bug go where they go
      today.
 
-   A Minor that a later re-review finds, in a `gate`, `ci` or
-   `owner-<n>` round after the batch has run, is listed the same way and
-   not fixed. The batch runs once.
+   The lead records the lines for Minors left open and Set aside before
+   it goes to the cap for a blocking finding. A Minor listed there is
+   closed for the run and enters no later input file, and a round started
+   from that cap that closes clean ends the loop.
+
+   A Minor found once the loop has ended, whether or not a batch ran, is
+   listed the same way and not fixed. The batch runs once.
+
+   A Minor never stops the run. Where its fix would break the small-fix
+   definition, contradict the spec, or need a live step or a decision,
+   the fixer reports it `not fixed, <why>` and still ends `STATUS: done`.
+   Close a round's rows B and C, and the brief's "stop and report", apply
+   to blocking findings only.
 5. The owner merges once no blocking finding is open and the Minor batch
    has run if one was due. The merge accepts each line under Minors left
    open. This replaces U198's acceptance at the cap.
@@ -341,14 +354,23 @@ The verifier brief in `pipeline.md` and the verifier's form in
   reason.
 - The count check stays: every raw item appears in the report.
 
-A Minor is therefore unverified when a fixer gets it. The fixer brief
-says so: where the failing test cannot be made to fail, the fixer says
-that, with what it tried, and leaves the code alone. The lead closes that
-Minor as not reproduced and gives it one line under the PR's Set aside.
-It is not listed under Minors left open and not filed. This holds for a
-Minor only. A blocking finding has had the verifier's full pass, and a
-fixer that cannot reproduce one stops and reports, as the brief has it
-today.
+A Minor is therefore unverified when a fixer gets it, and the fixer
+brief says so. A fixer that cannot show a Minor is true reports it
+`not reproduced`, with what it tried, and leaves the code alone. For code
+that means the test that should fail does not. For a comment, doc or
+playbook line the fixer reads the line against the code or file it
+describes: a false line is fixed, with a note that no test can fail first
+for prose, and only a line that turns out true is `not reproduced`. The
+lead closes a `not reproduced` Minor with one line under the PR's Set
+aside. It is not listed under Minors left open and not filed. A blocking
+finding has had the verifier's full pass, and a fixer that cannot
+reproduce one stops and reports, as the brief has it today.
+
+The one line for an `unrelated` Minor also names the open ticket its
+board search found, or says none was found, with the search used. With a
+ticket, the lead comments the line there, marked unverified. With none it
+goes under Set aside, and no ticket is raised for a claim nobody
+verified.
 
 ### 5. The process text moves to `docs/how-work-runs.md`
 
@@ -643,6 +665,17 @@ record. The run that builds this cannot.
     design question left, so it is not split out.
 16. **This run pastes the ticket into its red-team dispatch.** The
     agent's tool list is stale until this merges.
+
+17. **The red team's round 1 rulings.** Four gaps in the rules above
+    were closed after approval, each an engineering detail of U212: what
+    `not reproduced` means for prose
+    (`.superpowers/sdd/2026-11-13-pipeline-TYRE-473/fixer-2-report.md:54`
+    shows fixers write "none can fail first for a prose line"); a Minor
+    never stops the run (`.claude/commands/pipeline.md:624-625`, rows B
+    and C); an unverified `unrelated` Minor raises no ticket; and the
+    order of the net's steps when the batch's review finds a blocking
+    finding. Cloud close-out never calls `executeWrite`
+    (`docs/lessons.md:498-515`).
 
 ## Left to the builder
 
