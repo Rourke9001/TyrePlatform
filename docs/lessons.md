@@ -49,8 +49,10 @@ credential can or cannot do, run the probe in a cloud session and put its
 output in the spec. A docs line or a local probe is not the proof. Probe a
 merge only on an already merged PR, never an open one: a credential that may
 merge answers 200 with the existing merge SHA, and one that may not answers
-403. Until TYRE-481 lands, every cloud close-out stops at the check, so run
-`/close-out <n>` by hand.
+403. TYRE-481 did that: the cloud close-out runs with no token, `make guard-check
+CLOUD=1` reads rows 1 to 3, the `gh` hook passes a cloud session, and
+`docs/runbooks/github-access.md` step 4 says what holds a cloud session and
+what does not.
 
 ## 2026-11-11 - A lead that ended its turn for a shutdown approval sat idle until the owner typed (TYRE-477, TYRE-478)
 

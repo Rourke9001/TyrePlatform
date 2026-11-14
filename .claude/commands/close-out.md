@@ -33,10 +33,15 @@ head commit, not on `develop`. Run `git fetch origin develop main`
 (adding `--unshallow` if `git rev-parse --is-shallow-repository` says
 `true`) and `git checkout --detach origin/develop`, and read and edit only
 from there. Then run `make hooks-install` and `make guard-check CLOUD=1`; on a
-non-zero exit, post its output as the report and stop. A `gh` call refused for
-want of the restricted token, there or in the guards above, also stops the
-run, and since the report cannot be posted then, the push notification carries
-the check's output or the refusal (below).
+non-zero exit, post its output as the report and stop. A refused `gh` call, there or in the
+guards above, also stops the run, and since the report cannot be posted then,
+the push notification carries the check's output or the refusal (below).
+Never merge a pull request and never call a merge endpoint (`gh pr merge`,
+`PUT .../pulls/<n>/merge`): in the cloud only this line holds it (U213,
+`docs/runbooks/github-access.md` step 4). Never call the connector's
+`executeWrite` here, since a routine can sit at a permission prompt nobody sees
+(docs/lessons.md, 2026-10-12): a ticket this run raises names its parent's key
+in its description, and the link goes under Waiting on the owner.
 
 **Local mode only, next:** before checking anything out, look for
 `.superpowers/sdd/*-pipeline-*/state.md`. If one exists whose last finished
