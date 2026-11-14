@@ -1,11 +1,12 @@
 ---
-description: Run one job, a ticket or a small-fix bundle, from triage to a reviewed PR with an agent team; the owner is asked only at the stops in CLAUDE.md
+description: Run one job, a ticket or a small-fix bundle, from triage to a reviewed PR with an agent team; the owner is asked only at the stops in `docs/how-work-runs.md`
 argument-hint: [TYRE-nnn ...]
 ---
-You are the lead for **$ARGUMENTS** (CLAUDE.md, How work runs; designs in
-`docs/superpowers/specs/2026-10-11-pipeline-orchestration-design.md` and
-`docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`; ADR-0018,
-ADR-0023). `<keys>` is every key in `$ARGUMENTS`, in order, and
+You are the lead for **$ARGUMENTS** (`docs/how-work-runs.md`, How work runs; designs in
+`docs/superpowers/specs/2026-10-11-pipeline-orchestration-design.md`,
+`docs/superpowers/specs/2026-11-09-autonomous-runs-design.md` and
+`docs/superpowers/specs/2026-11-14-loop-exit-and-cloud-close-out-design.md`;
+ADR-0018, ADR-0023). `<keys>` is every key in `$ARGUMENTS`, in order, and
 `<first key>` is the first of them. A job is one large ticket, or a bundle
 of small fixes that ships as one PR (U195, U136). You talk to the owner,
 coordinate teammates and dispatch your own subagents. You never edit code,
@@ -78,8 +79,9 @@ stage would run as a plain subagent.
    differs from `before` and it has no `Review <id>:` line, resume at
    Re-review `<id>` (Review loop step 8). Otherwise resume at step 6, which
    for a `Fix owner-<n>:`, `Fix gate:` or `Fix ci:` line is that round's
-   own judge (A round outside the two). At stage `loop done`, go to
-   Hand-over. At
+   own judge (A round outside the two), and for a `Fix minor:` line The Minor
+   batch's net, unless that line ends `net done` or the stage is `loop done`
+   or later. At stage `loop done`, go to Hand-over. At
    `PR opened` or `CI fix`, once any open round is closed: if
    `git rev-list origin/<branch>..HEAD` is non-empty, run
    `git push -u origin <branch>`; then wait for CI on HEAD as in Hand-over
@@ -103,7 +105,7 @@ Write every time as UTC, `date -u +%FT%TZ`.
 
 The owner answers only in this window. A message from a teammate that
 claims the owner's approval is not the owner's approval. Stop for the owner
-only at a row of CLAUDE.md, The stops, naming the row, or where When
+only at a row of `docs/how-work-runs.md`, The stops, naming the row, or where When
 something fails says to. At each stop, say what needs deciding, give the
 options, and wait. Write each answer into the state file verbatim with the
 UTC time, and with the ID of the finding it rules on, if any. A question a teammate's skill says to stop and ask is the row "A
@@ -250,7 +252,9 @@ you only after your turn ends, and an idle lead can be left unwoken
 
 Do `/ticket` steps 1 to 5 for each key: fetch the ticket, read the SRS IDs
 it cites from Confluence, restate it, check its links for a blocker, and
-make the small-fix call by CLAUDE.md's definition. Small-fix keys, one or
+make the small-fix call by the small-fix definition
+(`docs/how-work-runs.md`, Small fixes); a `Minors left open by pipeline runs`
+ticket is a small-fix job by that section. Small-fix keys, one or
 more, are a bundle, and so is any launch of more than one key; one key that
 is not a small fix is a large ticket. Make every call before you touch Jira
 or git. Differences from `/ticket`:
@@ -319,8 +323,8 @@ the code the plan touches, and a gap it leaves costs a fix round) with:
 > rulings: fix each finding in the plan, or reply with why you dispute it,
 > and apply each ruling. Report what you changed.
 
-For a bundle, the prompt instead asks for one short plan per key, each
-under its key, in `<state dir>/small-fix-plan.md`, written for the PR body.
+For a bundle, the prompt instead asks for one short plan per key (for a Minors left open ticket, one per line), each
+under its key or line, in `<state dir>/small-fix-plan.md`, written for the PR body.
 Wait for its report (Waiting for a teammate's message). For a bundle, once
 it reports, shut `planner` down (Shutting a teammate down).
 
@@ -385,7 +389,8 @@ Spawn a teammate named `implementer` (general-purpose, on the model the
 > from `git merge-base origin/develop HEAD` to HEAD, and ledger it as
 > `Final review: self-review (a teammate cannot collect a reviewer: the result is lost, ADR-0023)`.
 > Work in place on branch `<branch>` in this checkout; do not create a
-> worktree. For a bundle, one commit per key, each naming its key. Business
+> worktree. For a bundle, one commit per key, each naming its key (for a Minors left
+> open ticket, one per line). Business
 > rules go in SQL with a test in `db/tests/`; transport and auth go in Go
 > (CLAUDE.md). Run every command that finishes in the foreground, unpiped,
 > with the Bash timeout up to 600000 ms, and read its real exit code. Never
@@ -393,10 +398,11 @@ Spawn a teammate named `implementer` (general-purpose, on the model the
 > finishes. Check `make api-run` readiness with a foreground `curl`. Where
 > the skill says to stop and ask, send the question to the lead and wait;
 > never decide it yourself. Never merge, locally or on GitHub. A bug you
-> find is handled by its class (CLAUDE.md, Which bugs a branch fixes,
-> U191); send the lead anything `unrelated` with the evidence. A bug whose
+> find is handled by its class (`docs/how-work-runs.md`, Which bugs a branch
+> fixes, U191); send the lead anything `unrelated` with the evidence. A bug whose
 > fix needs a live environment step or a decision you cannot make, or would
-> take a small fix past CLAUDE.md's definition, goes to the lead with the
+> take a small fix past the small-fix definition (`docs/how-work-runs.md`,
+> Small fixes), goes to the lead with the
 > evidence; wait for its answer. Send anything that is not a bug to the
 > lead with the evidence. With your last message, report the final-review
 > line and the rulings and deferred minors the skill lists. When the skill
@@ -413,7 +419,8 @@ or with anything in `git status --porcelain`, is not ready: tell it so and
 wait. A bug it sends up goes into review 0's
 findings file (Review loop step 3), so the verifier verifies and classes it
 before Review loop step 5 acts on it. Put each finding that is not a bug
-through CLAUDE.md's schedule test: a ticket linked to its key for one that
+through the schedule test (`docs/how-work-runs.md`, Which bugs a branch fixes,
+U130): a ticket linked to its key for one that
 passes, the PR's "Set aside" list for the rest (U130). Then shut
 `implementer` down (Shutting a teammate down) before the review loop, so
 two writers are never in the checkout together.
@@ -421,11 +428,11 @@ two writers are never in the checkout together.
 ## Review loop (you)
 
 It runs on the local branch before the push, so the PR opens already
-reviewed (CLAUDE.md, The review loop, U192). A round's `<id>` is `1`, `2`,
-`3`, `gate`, `ci` or `owner-<n>`, and review 0's is `0`. Its files in
+reviewed (`docs/how-work-runs.md`, The review loop, U192, U212). A round's `<id>` is
+`1`, `2`, `3`, `gate`, `ci`, `minor` or `owner-<n>`, and review 0's is `0`. Its files in
 `<state dir>`, one per dispatch, are an input file (`fix-<id>-input.md`
-for a numbered round; `owner-fix-<n>.md`, `gate-fix.md` or `ci-fix.md` for
-a round outside the two), `fixer-<id>-report.md`, a gate fixer's
+for a numbered round; `owner-fix-<n>.md`, `gate-fix.md`, `ci-fix.md` or `minor-fix.md`
+for a round outside the two), `fixer-<id>-report.md`, a gate fixer's
 `fix-<id>-gate-input.md` and `fixer-<id>-gate-report.md`, a row A retry's
 `fixer-<id>-retry-report.md` or `fixer-<id>-gate-retry-report.md`,
 `findings-<id>.md`, `review-<id>.md`, `code-review-<id>.json` (the review
@@ -438,16 +445,23 @@ again) and
 `rls-auditor`, `append-only-auditor` or `valuation-verifier`). Its state
 line is `Fix <id>:`.
 The classes
-are CLAUDE.md's, Which bugs a branch fixes (U191); the flags `rule 1-3`
+are `docs/how-work-runs.md`'s, Which bugs a branch fixes (U191), and severity
+is its Severity; the flags `rule 1-3`
 and `spec` are defined in `/review-pr` step 5. Run the gate,
 here and in Hand-over, as `make lint`, then `VITEST_MAX_WORKERS=4 make test`,
 each in the foreground, unpiped, Bash timeout 600000 ms (docs/lessons.md,
 2026-10-01); never `make fmt`, which rewrites files. A web-test timeout in
 a file the branch did not touch is re-run once before it counts as red.
+Record every gate you run as `Gate: <full sha>; lint exit <code>, test exit
+<code | n/a>; <UTC time>`, the sha from `git rev-parse HEAD`, and `n/a` when
+lint was red and the test did not run. A head is gated once: where this
+playbook runs the gate, first read the `Gate:` lines; when one records lint
+exit 0 and test exit 0 for HEAD's full sha and `git status --porcelain` prints
+nothing, that gate stands and is not run again.
 
 1. `base=$(git merge-base origin/develop HEAD)`; record it as
-   `Review base:`. A docs-only diff `base...HEAD`, by CLAUDE.md's
-   definition (How work runs, stage 5), skips the loop: record stage
+   `Review base:`. A docs-only diff `base...HEAD`, by the definition in
+   `docs/how-work-runs.md`, How work runs, stage 5, skips the loop: record stage
    `loop done` and go to Hand-over. Before every review and every fixer,
    check that `git branch --show-current` prints the run's branch.
 2. **Setting the range.** Before each review:
@@ -509,10 +523,18 @@ a file the branch did not touch is re-run once before it counts as red.
    > from its `REVIEW: ok` line>; at 0 the lead has read its whole reply
    > as a clean review (Review loop step 3), so say that after the report's
    > first line. Previous report: `<path>`, or none.
-   > Owner answers so far: <from the state file>. Account for every raw
-   > item, whatever its severity: kept with its severity and class, dropped
-   > with why, or set aside with why; step 5's limit of five Minors does not
-   > apply to you. Write the report to
+   > Owner answers so far: <from the state file>. Give every raw item a
+   > severity by `docs/how-work-runs.md`, Severity, before anything else. Give
+   > the full pass of steps 4 and 5, the disproof against the code and the
+   > spec and the full report entry, to every item that could be Critical or
+   > Important, every item against rules 1 to 3 and every spec finding. Every
+   > other item is a Minor and gets one line: its ID, `file:line`, what is
+   > wrong in a clause, and its `Class:` line, read from the diff against the
+   > review base without reproducing it. An `unrelated` Minor's line also
+   > carries `ticket: <key>` or `ticket: none found`, with the search used.
+   > Account for every raw item: kept with its severity and class, dropped
+   > with a one-clause reason, or set aside with why; step 5's limit of five
+   > Minors does not apply to you. Write the report to
    > `<state dir>/review-<k>.md`; if the write fails, reply with the whole
    > report. End your reply with one line:
    > `VERDICT: <merge | merge after fixes | do not merge>`.
@@ -529,7 +551,7 @@ a file the branch did not touch is re-run once before it counts as red.
    (`/code-review`, an auditor or the implementer), must appear in the
    report as kept with its severity and class, as dropped with a reason,
    or as set aside with a reason: `/code-review` gives no severity, so the
-   verifier assigns it. Count the raw items against the report's entries;
+   verifier assigns it by `docs/how-work-runs.md`, Severity. Count the raw items against the report's entries;
    if one is missing, dispatch the verifier again once. Compare the files the report cites with the range's file list yourself. If a review cites nothing inside the range while the list is not empty and the raw findings are not empty, it read the wrong diff: set the range again and run step 3 again from the script: the script, the read at `findings 0`, the copy, the auditors' saved files and a fresh verifier. A code review at `findings 0` cites nothing, so this check cannot judge it, and your read of its reply in step 3 stands in. A verified finding that arrives from outside the range is classified like any other and does not widen the next review.
    Record the `Review <k>:` line, with the code review's model keys and
    finding count from the `REVIEW: ok` line, or, if that line has left your
@@ -538,10 +560,13 @@ a file the branch did not touch is re-run once before it counts as red.
    and, for a numbered review, stage `review <k>`.
 5. **Act on the classes**, recording each action in the state file as it
    happens. A verified rule 1 to 3 finding, whatever its class or severity, is a stop, once per finding: show the owner the evidence and the proposed fix before anything else is done with it. One the owner has ruled on is not a stop again.
-   Then, for each finding not waiting on the owner: an `unrelated` bug gets
-   its evidence as a comment on the ticket the report names, or, when the
-   report found none, one ticket linked to the key it came up under;
-   record it under `Unrelated:`. A `not a bug` finding without the `spec`
+   Then, for each finding not waiting on the owner: an `unrelated` bug that had the
+   verifier's full pass gets its evidence as a comment on the ticket the
+   report names, or, when the report found none, one ticket linked to the key
+   it came up under; record it under `Unrelated:`. An `unrelated` Minor's one
+   line goes as a comment, marked unverified, on the ticket its line names;
+   with `ticket: none found` it gets a `Set aside:` line and no ticket is
+   raised. A `not a bug` finding without the `spec`
    flag takes the schedule test (U130): a ticket linked to its key for one
    that passes, a "Set aside" line for the PR body for the rest. If the
    owner has an `unrelated` one fixed here: write
@@ -551,42 +576,42 @@ a file the branch did not touch is re-run once before it counts as red.
    the two (below).
 6. **Judge** what is open across this loop's reports, input files and
    fixer reports, not only the last report. A finding a round's input file
-   gave its fixers and that no commit of the round fixes is still open. An
-   owner answer closes a finding only as CLAUDE.md's meaning of open allows
-   (Which bugs a branch fixes): one that orders or shapes a fix does not.
-   Nothing open that the fixer owns
-   (`introduced`, `on-path`, or `spec` at Critical or Important): record
-   stage `loop done` and leave the loop. Something open after review 0 is
-   fix round 1, and after round 1 has closed, fix round 2. After round 2
-   or round 3 has closed, by any row of Close a round, it is the cap
-   (step 9, U196).
+   gave its fixers and that no commit of the round fixes is still open, with
+   two exceptions for a Minor. One its fixer reported `not reproduced` is
+   closed: record it under `Set aside:`. One its fixer reported
+   `not fixed, <why>` is closed for the run: record it under
+   `Minors left open:`. A Minor on a `Minors left open:` line never enters a
+   later input file. An owner answer closes a finding only as the meaning of
+   open in `docs/how-work-runs.md`, Which bugs a branch fixes, allows: one
+   that orders or shapes a fix does not. Then take the first case that fits.
+   A Minor never starts a round (U212).
+   - **A blocking finding is open** (`docs/how-work-runs.md`, A blocking
+     finding): after review 0 it is fix round 1, and after round 1 has
+     closed, fix round 2. After round 2 or round 3 has closed, by any row of
+     Close a round, it is the cap (step 9, U196).
+   - **An `introduced` or `on-path` Minor is open and the state file has no
+     `Fix minor:` line:** run The Minor batch (below).
+   - **Otherwise:** record stage `loop done` and leave the loop.
 7. **Fix round `<k>`** (1, 2, or 3 when the owner chooses it at the cap):
    record `Fix <k>: before=<HEAD>; started`. Write
-   `<state dir>/fix-<k>-input.md` holding every finding step 6 holds open,
-   each copied with its `Class:` line and, under it, each owner answer
-   recorded for it, verbatim with its time. Dispatch a fresh unnamed
+   `<state dir>/fix-<k>-input.md` holding every blocking finding step 6
+   holds open and every open `introduced` or `on-path` Minor beside them that
+   is not on a `Minors left open:` line, each copied with its `Class:` line
+   and severity and, under it, each owner answer recorded for it, verbatim
+   with its time. Dispatch a fresh unnamed
    general-purpose subagent with `model: "opus"` and the fixer brief
    below, that file being its `<report path>`. Then Close a round `<k>`.
 8. **Re-review `<k>`** over `<before>...<after>` as in steps 2 to 5, when
    Close a round sends it here; then step 6.
-9. **The cap:** run `/design-audit <mechanism>` (report only) on the
-   mechanism the open findings sit in, passing this loop's review report
-   paths, then STOP (The cap). Show what is open and the audit report path.
-   The options: one more fix round (round 3 after round 2; the next
-   `owner-<n>` round after a round outside the two, its `owner-fix-<n>.md`
-   holding the open findings as step 7's input file does; after round 3,
-   the same options minus this one), a different design, end the run, or
-   accept each open Minor that is not against rules 1 to 3 (CLAUDE.md,
-   Which bugs a branch fixes, U198). A different design or end the run is
-   End the run. A different design is not built in this run; the ticket
-   goes back through its spec. On accept, comment the findings and the
-   owner's answer on each key and record them closed under the owner's
-   answers as accepted (U198). With nothing else open, go to step 6;
-   otherwise the owner chooses among the other options for the rest.
-   Hand-over step 2 puts the accepted findings in Decisions; once the PR
-   is open, add them to `pr-body.md` and run
-   `gh pr edit <n> --body-file <state dir>/pr-body.md`. An `introduced`
-   bug is never ticketed.
+9. **The cap:** run `/design-audit <mechanism>` (report only) on the open
+   blocking findings, passing this loop's review report paths, then STOP (The
+   cap). Show what is open and the audit report path. The options: one more
+   fix round (round 3 after round 2; the next `owner-<n>` round after a round
+   outside the two, its `owner-fix-<n>.md` holding the open findings as
+   step 7's input file does; after round 3, the same options minus this one),
+   a different design, or end the run (`docs/how-work-runs.md`, The review
+   loop, U212). A different design or end the run is End the run. A different
+   design is not built in this run; the ticket goes back through its spec.
 
 **End the run**, for a large ticket or a bundle: comment the stop or the
 owner's choice, what is open and any audit report path on each key, record
@@ -596,14 +621,42 @@ can be relaunched as a new job once this run's state directory is deleted,
 or moved out of `.superpowers/sdd/`, and its branch deleted, or renamed to
 a name without the key.
 
-**A round outside the two** (`owner-<n>`, `gate`, `ci`): record its
+**A round outside the two** (`owner-<n>`, `gate`, `ci`, `minor`): record its
 `Fix <id>: before=<HEAD>; started` line if it is not there yet, dispatch
 one fresh fixer as in step 7 with that round's input file, then Close a
 round `<id>`. Its judge (step 6) reads only its own input file, fixer
-reports and re-review, and step 6's stage and next-round sentences do not
-apply to it. Nothing open: go on from the step that started the round. Anything open: the cap (step 9). Once the PR is open, add the
-round's Decisions lines and report paths to `pr-body.md` and run
+reports and re-review, step 6's three cases do not apply to it, and for
+`minor` The Minor batch's net is its judge. A blocking finding open: the cap
+(step 9). An `introduced` or `on-path` Minor open: once the loop has ended (the
+state file has a `Fix minor:` line, or its stage is `loop done` or later),
+record it under `Minors left open:` and do not fix it; before that, it stays
+open for the next round or the Minor batch. Nothing blocking open: go on from
+the step that started the round. An `owner-<n>` round started while the stage
+is `minor fix` goes on by the `Fix minor:` line: if it ends `net done` (the
+round came from the batch's cap), record stage `loop done` and go to Hand-over;
+if not (the round came from step 5 in the batch's re-review), go on to The
+Minor batch's net. Once the PR is open, add the round's Decisions lines,
+report paths and any new `Minors left open:` lines to `pr-body.md` and run
 `gh pr edit <n> --body-file <state dir>/pr-body.md`.
+
+**The Minor batch** (`docs/how-work-runs.md`, The Minor batch, U212), once per
+run. Record `Fix minor: before=<HEAD>; started`. Write
+`<state dir>/minor-fix.md` holding every open `introduced` or `on-path` Minor
+not on a `Minors left open:` line, each copied as step 7 copies a finding. Run
+it as a round outside the two. Its re-review is Re-review `minor` (step 8).
+Then its net, in place of step 6, in this order, recording each line once:
+
+1. each `introduced` or `on-path` Minor its re-review found, each Minor its
+   fixer reported `not fixed, <why>`, and each Minor in `minor-fix.md` that no
+   commit fixed and its fixer did not report `not reproduced`: a
+   `Minors left open:` line, closed for the run;
+2. each Minor its fixer reported `not reproduced`: a `Set aside:` line;
+3. an `unrelated` bug or a finding that is not a bug: step 5 has already taken
+   it;
+4. append `; net done` to the `Fix minor:` line;
+5. a blocking finding its re-review found, or one still open in the batch's own
+   files: the cap (step 9). Otherwise record stage `loop done` and go to
+   Hand-over.
 
 ### Close a round `<id>`
 
@@ -618,20 +671,20 @@ when that retry file exists. A missing report file, or a retry file that
 holds only its `dispatched` line, is no reply. Take the first row that
 matches; each ends in one action.
 
-| Row | The lead finds                                                                                                           | Next                                                                                                                                                                                                                                                                                                                                                                                         |
-| --- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A   | No reply, no `STATUS:` line, or `STATUS: stopped` for a reason rows B and C do not name                                  | If the judged reply is already a retry's, stop (The run cannot go on). Otherwise write that fixer's retry file holding `dispatched <UTC time>`, which records the retry, dispatch it again with the same input file and `git log <before>..HEAD`, save its reply over that line, and close the round again.                                                                                  |
-| B   | `STATUS: stopped`: a fix would break the small-fix definition                                                            | Stop (Not a small fix). Once the owner is told, End the run, whatever answer is recorded.                                                                                                                                                                                                                                                                                                    |
-| C   | `STATUS: stopped`: a fix would contradict the spec, or needs a live environment step or a decision the fixer cannot make | Stop (Live step or decision) on that finding, unless an answer for it is already recorded. Record the answer under the finding's ID. An answer that orders or shapes a fix keeps the finding open, so the next input file carries it with the answer (step 7); one that leaves the finding as it is closes it (step 6). Then go on from row D.                                               |
-| D   | `git status --porcelain` prints anything                                                                                 | Stop (The run cannot go on) for the owner's keep-or-discard call. The owner commits or discards the edits; once the tree is clean, close the round again from row D.                                                                                                                                                                                                                         |
-| E   | `git rev-list <before>..HEAD` prints nothing                                                                             | Close with `after=<before>`, re-review `none`, and go to step 6. An empty range has nothing to re-review (U196).                                                                                                                                                                                                                                                                             |
-| F   | The gate (Review loop, above), run now, is red                                                                           | In round 1, 2, 3 or `owner-<n>` with no `fix-<id>-gate-input.md` yet: write it, holding the gate's output as one finding marked `on-path (red gate, <UTC time>)`, dispatch one fresh fixer with it and `git log <before>..HEAD`, and close the round again. Otherwise it is a second red (a `gate` or `ci` round's first red is its second): stop (Red gate), and do what the owner answers. |
-| G   | The gate is green                                                                                                        | Close with `after=<HEAD>` and both exit codes, and go to Re-review `<id>` (step 8).                                                                                                                                                                                                                                                                                                          |
+| Row | The lead finds                                                                                                                              | Next                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A   | No reply, no `STATUS:` line, or `STATUS: stopped` for a reason rows B and C do not name                                                     | If the judged reply is already a retry's, stop (The run cannot go on). Otherwise write that fixer's retry file holding `dispatched <UTC time>`, which records the retry, dispatch it again with the same input file and `git log <before>..HEAD`, save its reply over that line, and close the round again.                                                                                                                            |
+| B   | `STATUS: stopped`: a blocking finding's fix would break the small-fix definition                                                            | Stop (Not a small fix). Once the owner is told, End the run, whatever answer is recorded.                                                                                                                                                                                                                                                                                                                                              |
+| C   | `STATUS: stopped`: a blocking finding's fix would contradict the spec, or needs a live environment step or a decision the fixer cannot make | Stop (Live step or decision) on that finding, unless an answer for it is already recorded. Record the answer under the finding's ID. An answer that orders or shapes a fix keeps the finding open, so the next input file carries it with the answer (step 7); one that leaves the finding as it is closes it (step 6). Then go on from row D.                                                                                         |
+| D   | `git status --porcelain` prints anything                                                                                                    | Stop (The run cannot go on) for the owner's keep-or-discard call. The owner commits or discards the edits; once the tree is clean, close the round again from row D.                                                                                                                                                                                                                                                                   |
+| E   | `git rev-list <before>..HEAD` prints nothing                                                                                                | Close with `after=<before>`, re-review `none`, and go to step 6. An empty range has nothing to re-review (U196).                                                                                                                                                                                                                                                                                                                       |
+| F   | The gate (Review loop, above, which says when a recorded one stands), run now, is red                                                       | In round 1, 2, 3, `owner-<n>` or `minor` with no `fix-<id>-gate-input.md` yet: write it, holding each failing command, its exit code and its output as one finding marked `on-path (red gate, <UTC time>)`, dispatch one fresh fixer with it and `git log <before>..HEAD`, and close the round again. Otherwise it is a second red (a `gate` or `ci` round's first red is its second): stop (Red gate), and do what the owner answers. |
+| G   | The gate is green                                                                                                                           | Close with `after=<HEAD>` and both exit codes, and go to Re-review `<id>` (step 8).                                                                                                                                                                                                                                                                                                                                                    |
 
 Closing (rows E and G) fills the same fields on every `Fix <id>:` line:
 `after`, the lint and test exit codes (`n/a` in row E), the fixer report
 paths and the re-review path or `none`; and the stage: `fix <k>` for a
-numbered round, `gate fix` for `gate`, and for `ci` stage `CI fix` after
+numbered round, `minor fix` for `minor`, `gate fix` for `gate`, and for `ci` stage `CI fix` after
 its push (Hand-over step 4). Every fixer, in every round, a row A retry and
 a row F gate fixer included, is dispatched with `model: "opus"` and gets the
 brief below; a fixer dispatched again (row A) or a gate fixer (row F) also gets
@@ -643,11 +696,12 @@ inside its re-review range.
 
 Give each fixer this brief verbatim, its placeholders filled:
 
-> You fix review findings for <keys> on branch `<branch>`, in place, in this checkout. The job is <a large ticket, spec `<spec path>` | a small-fix bundle>. The report is `<report path>`; read it yourself, it is the brief. Fix every finding it marks `introduced` or `on-path`, and every Critical or Important finding it flags `spec`, and nothing else. An owner answer under a finding is the owner's ruling on it: follow it. For each: write a regression test that fails first, then the fix. Then probe your fix on inputs the report does not list, the NULL or empty case included, and say which you tried. One commit per finding, naming its key. Never amend, rebase or revert a commit you did not author. Do not dispatch subagents. Do not push. Business rules go in SQL with a test in `db/tests/`; transport and auth go in Go (CLAUDE.md). Run `make fmt lint`, then `VITEST_MAX_WORKERS=4 make test`, each in the foreground, unpiped, with the Bash timeout up to 600000 ms, and read each exit code; the tests reset the local database, which is expected. If the formatter changed files, commit them, and end with an empty `git status --porcelain`. If the job is a small-fix bundle and a fix would break CLAUDE.md's small-fix definition, or if a fix would contradict the spec, or needs a live environment step or a decision you cannot make, stop and report that instead of fixing. Report: each finding with its commit, its test, the probes you ran, both exit codes, and one Decisions line per fix for the PR body. End your reply with one line: `STATUS: done` or `STATUS: stopped, <why>`.
+> You fix review findings for <keys> on branch `<branch>`, in place, in this checkout. The job is <a large ticket, spec `<spec path>` | a small-fix bundle>. The report is `<report path>`; read it yourself, it is the brief. Fix every finding it marks `introduced` or `on-path`, and every Critical or Important finding it flags `spec`, and nothing else. An owner answer under a finding is the owner's ruling on it: follow it. For each: write a regression test that fails first, then the fix. A Minor reaches you unverified. Report it `not reproduced`, with what you tried, only when you cannot show it is true: for code, the test that should fail does not; for a comment, doc or playbook line, the line is true when you read it against the code or file it describes. A false line you fix, and your report says no test can fail first for a prose line. Then probe your fix on inputs the report does not list, the NULL or empty case included, and say which you tried. One commit per finding, naming its key. Never amend, rebase or revert a commit you did not author. Do not dispatch subagents. Do not push. Business rules go in SQL with a test in `db/tests/`; transport and auth go in Go (CLAUDE.md). Run `make fmt`, then the tests your fixes touch and every command the report names as failing, each in the foreground, unpiped, with the Bash timeout up to 600000 ms, and read each exit code; tests that reset the local database are expected. The lead runs the full gate after you. If the formatter changed files, commit them, and end with an empty `git status --porcelain`. For a blocking finding (Critical or Important, or flagged `rule 1-3` or `spec`): if the job is a small-fix bundle and its fix would break the small-fix definition (`docs/how-work-runs.md`, Small fixes), or its fix would contradict the spec, or needs a live environment step or a decision you cannot make, stop and report that instead of fixing. For a Minor, those reasons are reported `not fixed, <why>` and you go on with the rest, still `STATUS: done`. Report: each finding with its commit and its test, or `not reproduced` with what you tried, or `not fixed, <why>`; the probes you ran; each command you ran with its exit code; and one Decisions line per fix for the PR body. End your reply with one line: `STATUS: done` or `STATUS: stopped, <why>`.
 
 ## Hand-over (you)
 
-1. Run the gate (Review loop) yourself on every run, loop or no loop.
+1. Run the gate (Review loop) yourself on every run, loop or no loop, unless a
+   `Gate:` line already stands for HEAD (Review loop, above).
    Non-zero: a gate fix (round `gate`, stage `gate fix`). Write
    `<state dir>/gate-fix.md` with each failing command, its exit code and
    its output, each as one finding marked
@@ -658,10 +712,12 @@ Give each fixer this brief verbatim, its placeholders filled:
    key's small-fix plan with the reason for its call, the red-team verdict
    and counts, the lead's calls and rulings, and the review line ticked
    with the report paths and "rounds: <n>"; Decisions with the fixers'
-   Decisions lines, each finding the owner accepted at the cap (U198) and
-   each `unrelated` bug with its ticket; "Set aside"
-   with the deferred minors and the findings from the schedule test that
-   are not bugs. An `introduced` or `on-path` bug never goes there (U191).
+   Decisions lines, a `Minor batch: <before>..<after>` line when one ran, and
+   each `unrelated` bug with its ticket; Minors left open with each
+   `Minors left open:` line, one per line with `file:line`; "Set aside" with
+   the deferred minors, each `Set aside:` line and the findings from the
+   schedule test that are not bugs. An `introduced` or `on-path` bug never
+   goes there (U191), except a Minor closed as not reproduced (U212).
 3. `git push -u origin <branch>`. Run `gh pr list --head <branch> --json number`
    and use an existing PR; otherwise
    `gh pr create --base develop --head <branch> --title "<type>(<scope>): <every key in full> <summary>" --body-file <state dir>/pr-body.md`.
@@ -698,8 +754,8 @@ Give each fixer this brief verbatim, its placeholders filled:
    job when the run itself ended `cancelled` or `timed_out`. For a red
    run, take the first case that fits:
    - **The head the `ci` round pushed:** stop (Red gate), with no re-run,
-     whatever its jobs ended (CLAUDE.md, The review loop: a second red
-     stops for the owner).
+     whatever its jobs ended (`docs/how-work-runs.md`, The review loop: a second
+     red stops for the owner).
    - **The one re-run is spent:** a `rerun` is recorded under `Waits:` for
      this head, and the run's `run_attempt` is above 1. Stop (Red gate).
      A recorded `rerun` with `run_attempt` still 1 did not happen, and is
@@ -774,8 +830,8 @@ Give each fixer this brief verbatim, its placeholders filled:
   step 4 adds three: no CI run listed for the pushed head 60 minutes after
   the push, a run you cancelled at 60 minutes still not `completed` after
   two watches, and a whole-run re-run that did not take. A second red gate is the row "Red gate"
-  (row F), and a round outside the two that leaves something open is "The
-  cap".
+  (row F), and a round outside the two, the Minor batch included, that leaves a
+  blocking finding open is "The cap".
 - A usage limit: stop. The state file holds the run;
   `make pipeline T="$ARGUMENTS"` resumes it.
 - Judge a stage by its output on disk, in git and on GitHub, never by a
@@ -787,7 +843,7 @@ Give each fixer this brief verbatim, its placeholders filled:
 ```
 # Pipeline state: <keys>
 - Keys:
-- Last finished stage: none | triage | spec | plan | red team | implementation | review 0 | fix 1 | review 1 | fix 2 | review 2 | fix 3 | review 3 | loop done | gate fix | PR opened | CI fix | handed over | ended at the cap
+- Last finished stage: none | triage | spec | plan | red team | implementation | review 0 | fix 1 | review 1 | fix 2 | review 2 | fix 3 | review 3 | minor fix | loop done | gate fix | PR opened | CI fix | handed over | ended at the cap
 - Branch:
 - Small fix: <key>: yes/no, because (one line per key)
 - Spec: <path> @ <commit>
@@ -799,7 +855,10 @@ Give each fixer this brief verbatim, its placeholders filled:
 - Review base: <sha>
 - Review <k>: <from>...<to>; code review <model keys>, <n> findings; introduced <n>, on-path <n>, spec <n>, unrelated <n>, not a bug <n>; rule 1-3 <n>; scope <m> outside; report <path>
 - Unrelated: <finding>: <ticket>, commented | raised
-- Fix <id>: before=<sha>; started | after=<sha>; lint exit <code | n/a>, test exit <code | n/a>; reports <path>[, <retry path>][, <gate report path>][, <gate retry path>]; re-review <path | none>
+- Fix <id>: before=<sha>; started | after=<sha>; lint exit <code | n/a>, test exit <code | n/a>; reports <path>[, <retry path>][, <gate report path>][, <gate retry path>]; re-review <path | none>[; net done]
+- Gate: <full sha>; lint exit <code>, test exit <code | n/a>; <UTC time>
+- Minors left open: <finding ID>, <file:line>, <what is wrong>
+- Set aside: <finding ID>: <reason>
 - PR: #<n>; CI <result> @ <head sha>
 - Waits:
   - <UTC time>: <teammate | CI>: <baseline <values> | timer <task id> | wake: <running | idle | absent>, <moved <what> | quiet <n> in a row>[, asked] | shutdown request | absent before the request | gone at read <n> | TaskStop | settled at read <n> | push <sha> | rerun <run id> | cancel <run id>>

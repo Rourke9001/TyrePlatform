@@ -149,6 +149,7 @@ if [ -z "$written" ] || [[ "$written" == *$'\r'* ]]; then
 canned .
 passes "a re-review id" gate "models claude-opus-5-5, findings 2"
 passes "an owner round id" owner-2 "models claude-opus-5-5, findings 2"
+passes "the Minor batch's id" minor "models claude-opus-5-5, findings 2"
 
 canned .
 failed "a non-zero exit" 0 exit STUB_EXIT=1
@@ -296,6 +297,7 @@ refused "no arguments" bash "$script"
 refused "one argument" bash "$script" "state dir"
 refused "a review id that is a path" bash "$script" "state dir" ../x
 refused "a review id that is not a round" bash "$script" "state dir" 4
+refused "a review id that only starts with minor" bash "$script" "state dir" minor-1
 refused "a missing state directory" bash "$script" nowhere 0
 refused "a time bound that is not a number" PIPELINE_REVIEW_TIMEOUT=soon bash "$script" "state dir" 0
 
