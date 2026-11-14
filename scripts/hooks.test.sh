@@ -66,7 +66,7 @@ token_case() {
   local label=$1 want=$2 rc
   shift 2
   local json='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh pr view 1"}}'
-  env -u GH_TOKEN "$@" bash "$root/.claude/hooks/gh-token-required.sh" <<<"$json" >"$work/tok.out" 2>"$work/tok.err"
+  env -u GH_TOKEN -u CLAUDE_CODE_REMOTE "$@" bash "$root/.claude/hooks/gh-token-required.sh" <<<"$json" >"$work/tok.out" 2>"$work/tok.err"
   rc=$?
   if [ "$rc" -ne "$want" ]; then
     echo "FAIL: $label exited $rc, not $want"; fails=$((fails + 1)); return
@@ -81,12 +81,20 @@ token_case() {
   echo "PASS: $label"
 }
 token_case "T1 gh hook refuses an unset token" 2
+if grep -q 'step 4' "$work/tok.err"; then
+  echo "FAIL: T1 names step 4"; fails=$((fails + 1))
+else echo "PASS: T1 names no step 4"; fi
 token_case "T2 gh hook refuses an empty token" 2 GH_TOKEN=
 token_case "T3 gh hook refuses a classic token" 2 GH_TOKEN=ghp_tyre473classic
 if grep -q 'ghp_tyre473classic' "$work/tok.err"; then
   echo "FAIL: T3 echoed the token's value"; fails=$((fails + 1))
 else echo "PASS: T3 never echoes the token's value"; fi
 token_case "T4 gh hook passes a github_pat_ token" 0 GH_TOKEN=github_pat_tyre473test
+token_case "T5 gh hook passes a cloud session with no token" 0 CLAUDE_CODE_REMOTE=true
+token_case "T6 gh hook passes a cloud session whatever the token" 0 CLAUDE_CODE_REMOTE=true GH_TOKEN=ghp_tyre481classic
+token_case "T7 gh hook refuses an empty CLAUDE_CODE_REMOTE" 2 CLAUDE_CODE_REMOTE=
+token_case "T8 gh hook refuses CLAUDE_CODE_REMOTE=false" 2 CLAUDE_CODE_REMOTE=false
+token_case "T9 gh hook refuses CLAUDE_CODE_REMOTE=1" 2 CLAUDE_CODE_REMOTE=1
 
 # Real pushes to a bare remote through .githooks/pre-push, installed the way
 # make hooks-install installs it (TYRE-473). The hook judges the remote ref git
