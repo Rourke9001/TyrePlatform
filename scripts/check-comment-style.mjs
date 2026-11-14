@@ -8,16 +8,19 @@
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { argv, exit } from 'node:process';
-import { basename, extname } from 'node:path';
+import { basename, dirname, extname } from 'node:path';
 
 const SLASH = new Set(['.go', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.bicep', '.bicepparam']);
 const BLOCK_ONLY = new Set(['.css']);
 // markersFor lower-cases the extension, so '.dockerfile' also matches a
 // suffixed name such as bicep.Dockerfile (TYRE-401).
 const HASH = new Set(['.py', '.sh', '.bash', '.yml', '.yaml', '.toml', '.dockerfile']);
-// A bare dotfile has no extension as far as extname() is concerned, and a git
-// hook has none at all, so these are keyed by name.
-const HASH_NAMES = new Set(['Makefile', 'Dockerfile', '.gitignore', '.gitattributes', '.dockerignore', '.editorconfig', '.npmrc', 'pre-push']);
+// A bare dotfile has no extension as far as extname() is concerned, so these
+// are keyed by name.
+const HASH_NAMES = new Set(['Makefile', 'Dockerfile', '.gitignore', '.gitattributes', '.dockerignore', '.editorconfig', '.npmrc']);
+// A git hook has no extension and any of git's hook names, so it is known by
+// its directory (TYRE-482).
+const HOOKS_DIR = '.githooks';
 const DASH = new Set(['.sql']);
 
 // docs/ and markdown are prose: comparing alternatives and recording history
@@ -98,7 +101,7 @@ function markersFor(path) {
   if (SLASH.has(ext)) return { line: '//', block: true };
   if (BLOCK_ONLY.has(ext)) return { line: null, block: true };
   if (DASH.has(ext)) return { line: '--', block: true };
-  if (HASH.has(ext) || HASH_NAMES.has(basename(path))) return { line: '#', block: false };
+  if (HASH.has(ext) || HASH_NAMES.has(basename(path)) || basename(dirname(path)) === HOOKS_DIR) return { line: '#', block: false };
   return null;
 }
 
