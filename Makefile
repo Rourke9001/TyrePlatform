@@ -26,7 +26,8 @@ PG_DB        ?= tyre
 # psql runs inside the container (no host psql on Windows); override
 # PSQL_SUPER/PSQL_APP for a host client. The suite MUST run as app_login:
 # superusers bypass RLS (000001_init.up.sql DEPLOYMENT NOTE). The one
-# exception is db-test-privileged, which stages rather than tests.
+# exception is db-test-privileged, which stages as postgres and probes as
+# app_login or app_writer (db/CLAUDE.md).
 PSQL_SUPER ?= docker exec -i $(PG_CONTAINER) psql -U postgres -d $(PG_DB)
 PSQL_APP   ?= docker exec -i $(PG_CONTAINER) psql -U app_login -d $(PG_DB)
 
@@ -131,9 +132,10 @@ db-explain: ## EXPLAIN (ANALYZE, BUFFERS) the dashboard read path over the volum
 db-test: ## Run the verification suite as a NON-SUPERUSER (the only valid way)
 	set -o pipefail; cat db/tests/helpers.sql db/tests/004_tests.sql | $(PSQL_APP) -v ON_ERROR_STOP=1
 
-# The one target that runs as postgres. It proves nothing about RLS and is
-# never a substitute for db-test; what it stages and why is the header of
-# db/tests/005_privileged.sql (TYRE-38, B7 spec U12).
+# The one target that runs as postgres, and never a substitute for db-test.
+# What runs as postgres proves nothing about RLS, and its probes after SET
+# LOCAL ROLE to app_login or app_writer do (db/CLAUDE.md). What it stages and
+# why is the header of db/tests/005_privileged.sql (TYRE-38, B7 spec U12).
 .PHONY: db-test-privileged
 db-test-privileged: ## Negative controls that need a superuser to STAGE (db/tests/005_privileged.sql)
 	set -o pipefail; cat db/tests/helpers.sql db/tests/005_privileged.sql | $(PSQL_SUPER) -v ON_ERROR_STOP=1

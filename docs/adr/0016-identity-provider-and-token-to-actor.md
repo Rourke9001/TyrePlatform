@@ -33,7 +33,11 @@ Four constraints make the bootstrap non-obvious:
   allowlist at one entry, check 67a refuses any definer the application role
   can execute, and the policy-shape check refuses a second policy on a table.
   The suite's sweeps look only at schema `app`, so an object placed outside it
-  would escape them, and nothing would prove it isolated.
+  would escape them, and nothing would prove it isolated. 16 Nov 2026
+  (TYRE-472, ADR-0024): check 8c now holds two lists, the one definer that
+  runs with RLS off and the three write-list definers owned by `app_writer`,
+  a role RLS binds, and check 67a refuses any definer the application role
+  can execute that returns a trigger or is off the write list.
 - **The capture bundle.** The entry chunk had about five bytes of budget
   headroom on 30 Sep 2026, and the capture target makes every byte and every
   redirect a cost.

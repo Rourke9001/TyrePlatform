@@ -94,9 +94,10 @@ jobs:
             -c "ALTER ROLE app_login PASSWORD 'ci'"
           PGPASSWORD=ci psql "$PGURL" -v ON_ERROR_STOP=1 -f db/tests/helpers.sql -f db/tests/004_tests.sql
 
-      # A step of its own, after the suite, because it runs as postgres and so
-      # proves nothing about RLS. What it stages and why is the header of
-      # db/tests/005_privileged.sql (TYRE-38, B7 spec U12).
+      # A step of its own, after the suite, because it stages as postgres,
+      # which proves nothing about RLS; its probes after SET LOCAL ROLE to
+      # app_login or app_writer do (db/CLAUDE.md). What it stages and why is
+      # the header of db/tests/005_privileged.sql (TYRE-38, B7 spec U12).
       - name: Privileged negative controls (as postgres)
         run: |
           psql "postgres://postgres:postgres@localhost:5433/tyre" -v ON_ERROR_STOP=1 -f db/tests/helpers.sql -f db/tests/005_privileged.sql

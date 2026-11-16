@@ -70,3 +70,7 @@ treads go NULL there, and TYRE-305's role query is how to tell.
 **Revisit when:** a second SECURITY DEFINER routine is proposed, TYRE-347
 is picked up after the pilot, a deployed owner reads rolbypassrls false, or
 TYRE-437's follow-up narrows the admin role.
+
+16 Nov 2026 (TYRE-472): the second-definer clause fired. ADR-0024 answered
+it with three definers owned by `app_writer`, a role RLS binds; this
+record's decision stands.

@@ -20,7 +20,10 @@ For the change under review, check every one of these and report per item:
    it the view evaluates RLS as its owner and returns every tenant's rows to
    any caller. This is the single most likely way this product leaks.
 4. **`SECURITY DEFINER` functions.** Any new one is a hole unless it pins
-   `search_path` and re-checks the tenant itself.
+   `search_path` and re-checks the tenant itself. A write-list definer
+   (`app.start_trip`, `app.end_trip`, `app.nominate_for_task`) is owned by
+   `app_writer`; confirm that role is NOSUPERUSER and NOBYPASSRLS and owns no
+   relation (suite 8e, ADR-0024).
 5. **Tenant context binding.** Is it `SET LOCAL` inside a transaction, never
    plain `SET`? With a pooled connection, a plain `SET` carries one tenant's
    context into the next request. This is the Go-side equivalent of #3.

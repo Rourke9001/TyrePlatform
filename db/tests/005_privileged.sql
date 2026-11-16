@@ -1,7 +1,9 @@
 -- ============================================================================
 -- Privileged negative controls, run as postgres via make db-test-privileged.
--- Proves nothing about RLS on its own (B7 spec U12); see db/CLAUDE.md.
--- Every block ends in ROLLBACK (TYRE-38).
+-- What runs as postgres proves nothing about RLS (B7 spec U12), and a probe
+-- after SET LOCAL ROLE to app_login or app_writer does; see db/CLAUDE.md.
+-- Every block ends in ROLLBACK (TYRE-38). db/tests/helpers.sql loads first,
+-- the pg_temp prelude of the helpers this file shares with 004.
 --
 -- P3 to P5 probe a tenant with no threshold policy in force. Policy rows are
 -- written once (U69), so a configured tenant cannot reach that state as

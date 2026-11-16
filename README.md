@@ -19,9 +19,11 @@ isolation, append-only grants, `security_invoker` on every view, all fifteen
 reference valuations to the cent, and the golden fixture's exceptions through
 `app.v_exception`: **19 exceptions, 11 urgent, 9 running positions below the
 removal threshold** (check 59), with the position sets per rule in check 8.
-`make db-test-privileged` then runs one file as `postgres` to watch a
-definer-chain backstop refuse a cross-tenant row it has to stage itself; it
-is not the suite and proves nothing about RLS.
+`make db-test-privileged` then runs one file that stages as `postgres` what
+`app_login` cannot reach, such as a definer-chain backstop refusing a
+cross-tenant row. It is not the suite: what runs as `postgres` proves nothing
+about RLS, and its probes after `SET LOCAL ROLE` to `app_login` or
+`app_writer` do (`db/CLAUDE.md`).
 
 If it passes as `postgres` rather than `app_login`, it has proved nothing —
 superusers bypass row-level security. Check 0 inside the suite catches this.

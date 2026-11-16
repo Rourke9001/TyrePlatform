@@ -440,22 +440,25 @@ more than writing the assumption down first.
   gone, and the generator names no assignee. `refuseNonCapturer` guards
   the trip start's driver, the nominee of a schedule and a nomination, and
   `listDrivers` offers only a role that holds `CaptureInspection`.
-- **A raw app-role INSERT of a trip or a nomination can back-date it and
-  skips the rules only its function holds: accepted by U152 and U153
-  (TYRE-326, 22 and 26 Oct 2026).** No function can back-date one:
-  `app.start_trip` and `app.nominate_for_task` stamp `now()`. But `app_rw`
-  holds INSERT on `app.trip` and `app.inspection_task_nomination`, and
-  nothing bounds `started_at` or `nominated_at` below. A bound would refuse
-  what 000060's data step and the seed fixture write, both past instants,
-  and the suite's back-dated plants, about 70 of them. The shape rules sit
-  in the INSERT triggers instead, in each function's words and order:
-  `trip_well_formed` takes an active driver on a motive that is not
-  retired (TY028), and `nomination_well_formed` an open task and an active
-  nominee (TY018). Each trigger also bounds its instants at now, in words
-  of its own: a trip starts and ends no later than now, and a nomination is
-  dated no later than now. A raw trip INSERT also skips `app.start_trip`'s
-  U148 gate and its race check, and a raw nomination skips
-  `app.nominate_for_task`'s covered-unit rule and its lost-race refusal;
-  U153 (TYRE-326 comment 14079, 26 Oct 2026) rules that U152's gap covers
-  these function-level rules. A rig takes a dated start by design (U8 of
-  the rig setup), so the trip is not the only history a caller can date.
+- **A raw app-role INSERT of a trip or a nomination could back-date it and
+  skipped the rules only its function holds: closed by 000061 (TYRE-472,
+  U202, 16 Nov 2026).** U152 and U153 had accepted it (TYRE-326, 22 and 26
+  Oct 2026). No function could back-date one: `app.start_trip` and
+  `app.nominate_for_task` stamp `now()`. But `app_rw` held INSERT on
+  `app.trip` and `app.inspection_task_nomination`, and nothing bounded
+  `started_at` or `nominated_at` below. A bound would have refused what
+  000060's data step and the seed fixture write, both past instants, and
+  the suite's back-dated plants, about 70 of them. The shape rules sat in
+  the INSERT triggers instead, in each function's words and order:
+  `trip_well_formed` took an active driver on a motive that is not retired
+  (TY028), and `nomination_well_formed` an open task and an active nominee
+  (TY018). Each trigger also bounded its instants at now, in words of its
+  own. A raw trip INSERT also skipped `app.start_trip`'s U148 gate and its
+  race check, and a raw nomination skipped `app.nominate_for_task`'s
+  covered-unit rule and its lost-race refusal; U153 (TYRE-326 comment
+  14079, 26 Oct 2026) ruled that U152's gap covered these function-level
+  rules. A rig takes a dated start by design (U8 of the rig setup), so the
+  trip was not the only history a caller could date. `app_rw` now holds
+  neither INSERT, so every trip and nomination comes from its function,
+  dated `now()` and judged by all its rules, and `trip_well_formed` and
+  `nomination_well_formed` are gone (ADR-0024).
