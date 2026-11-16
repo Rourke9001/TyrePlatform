@@ -77,10 +77,11 @@ make pipeline T=TYRE-123  # one job (a ticket, or T="TYRE-1 TYRE-2" for a small-
 `make db-test` is the important one. It asserts tenant isolation, append-only
 grants, `security_invoker` on every view, all 15 Appendix E valuations to the
 cent, and the Appendix J exception set. **If it fails, nothing else matters.**
-`make db-test-privileged` runs the one file that runs as `postgres`, and `make
-test` and CI both run it after the suite; it is not the suite and proves
-nothing about isolation, for the reason its own header gives
-(`db/tests/005_privileged.sql`).
+`make db-test-privileged` runs the one file that stages as `postgres`, and
+`make test` and CI both run it after the suite. It is not the suite: a block
+there that runs as `postgres` proves nothing about isolation, and a probe
+after `SET LOCAL ROLE` to `app_login` or `app_writer` does, which is where
+three rule 1 proofs live since 000061 (`db/CLAUDE.md`).
 
 ## Architecture
 

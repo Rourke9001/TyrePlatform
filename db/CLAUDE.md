@@ -15,10 +15,23 @@ backstop fire, a tenant with no threshold policy in force, which rows
 written once leave no `app_login` route to, or a policy row dated days before
 the transaction that writes it, which no role may write (TYRE-299). P11 and
 P12 stage a role that bypasses RLS, as the Azure admin may, and a platform
-catalogue entry, which only a migration's role writes (TYRE-369). It is not the
-suite and proves nothing about isolation: the
-isolation proofs are `db/tests/004_tests.sql`, run in CI on every build
-(NFR-SEC-005).
+catalogue entry, which only a migration's role writes (TYRE-369). P20 to P27
+are TYRE-472's: P20 holds section 34's trip overlap probes, P21 a trip's end
+rules on trips planted an hour back, and P22 the CHECK, NOT NULL and composite
+FK refusals on both tables, each probed as `app_writer`. P23 to P25 hold the
+cases of sections 76e, 76h and 76i that need a past trip or nomination,
+probed as `app_login`. P26 shows the `app_writer` shape check fails on each
+fault it looks for, and P27 that row security binds `app_writer`, beside a
+BYPASSRLS control. Both files load `db/tests/helpers.sql` first, a pg_temp
+prelude of the helpers they share, so a section cut from either needs it too.
+
+What 005 proves: a block that runs as `postgres` proves nothing about
+isolation, and a probe run after `SET LOCAL ROLE` to `app_login` or
+`app_writer`, which asserts `current_user` first, does. Three rule 1 proofs
+live only there, because no `app_login` route reaches them since 000061: the
+WITH CHECK of `trip` and of `inspection_task_nomination` (P27) and section
+34's cross-tenant EXCLUDE probe (P20). `make db-test` stays the suite, and
+`make test` and CI run both on every build (NFR-SEC-005).
 
 ## Schema changes are migrations
 
@@ -90,12 +103,30 @@ this is merely a footgun rather than a breach.
 
 ## Adding a function
 
-Invoker rights, always; the one definer is `app.refresh_governing_tread`
-(000004, body since 000050), and a new definer needs a review and a suite
-section before it lands (check 8c). A new function is executable by
-PUBLIC by default, so a definer's migration revokes EXECUTE from PUBLIC and
-app_rw: a caller who can execute it can attach it as a trigger to a table
-of its own (section 67, TYRE-346). Every plpgsql routine pins `SET
+Invoker rights, always, with two named exceptions, and a new definer needs a
+review and a suite section before it lands (check 8c). The first is
+`app.refresh_governing_tread` (000004, body since 000050, ADR-0021), which
+runs with RLS off. A new function is executable by PUBLIC by default, so its
+migration revokes EXECUTE from PUBLIC and app_rw: a caller who can execute it
+can attach it as a trigger to a table of its own (section 67, TYRE-346). The
+second is the write list, `app.start_trip`, `app.end_trip` and
+`app.nominate_for_task`, owned by `app_writer`, a NOLOGIN role RLS binds
+(000061, ADR-0024). A new write-list definer:
+
+- is owned by `app_writer`, handed over with `GRANT CREATE ON SCHEMA app TO
+  app_writer` before the `OWNER TO` and `REVOKE CREATE` after it, in the same
+  migration, since `OWNER TO` needs the new owner to hold CREATE on the
+  schema;
+- has EXECUTE revoked from PUBLIC and granted to app_rw;
+- is not a trigger function (section 67a);
+- goes on check 8c's write list and on 8e's literal list in
+  `db/tests/helpers.sql`;
+- comes with a migration that grants `app_writer` what its call tree needs,
+  each grant naming the statement that needs it.
+
+A migration that replaces one restates SECURITY DEFINER and the pin.
+
+Every plpgsql routine pins `SET
 search_path = app, pg_temp`, because plpgsql resolves unqualified names
 when it runs and would otherwise follow the caller's path (TYRE-181). A
 `LANGUAGE sql` table function that a view is built over carries no pin:
@@ -109,7 +140,7 @@ keeps its name, because a rename is a migration and breaks a caller that
 names the argument (TYRE-213). Cite this section from a migration; do not
 restate it.
 
-Everything the definer reaches, including the snapshot reconcile and
+Everything the governing-tread definer reaches, including the snapshot reconcile and
 `app.tyre_valuation_asof`, runs with RLS off. A lookup there that finds its
 rows through a tenant-leading index must name the tenant in its text, or
 the planner cannot use the index and one tenant's submit grows with every
@@ -164,10 +195,13 @@ receipt's own functions are the way to move one. `tyre.receipt_id` is held
 fixed by the `tyre_receipt_fixed` trigger, since `app_rw` holds `UPDATE` on
 `app.tyre` at table level.
 
-A trip ends once (000060): `app_rw` holds `INSERT` and `UPDATE (ended_at,
-ended_by)` only, and `trip_ended_once` refuses any other change, a second
-end, or an end at any instant but the transaction's `now()` (`TY028`). It
-records the bound actor as `ended_by`, whoever the caller names.
+A trip ends once (000060). `app_rw` holds neither `INSERT` nor `UPDATE` on
+`app.trip` and no `INSERT` on `app.inspection_task_nomination` (000061), so
+`app.start_trip`, `app.end_trip` and `app.nominate_for_task` are the
+writers, running as `app_writer` (ADR-0024). `trip_ended_once` still holds an
+end's shape for every role: it refuses any other change, a second end, or an
+end at any instant but the transaction's `now()` (`TY028`), and records the
+bound actor as `ended_by`, whoever the caller names.
 `inspection_task_nomination` is insert-only: a new nomination supersedes the
 last, and `UPDATE` and `DELETE` are revoked. A closed task keeps its state,
 completing inspection and reason: `inspection_task_closes_once` refuses a
@@ -257,8 +291,9 @@ exactly the catalogue its generator writes.
 `provision_tenant.py` writes one real tenant from a provisioning file kept
 out of the repository, and its SQL calls `app.seed_tenant_catalogue()`
 (`docs/runbooks/provision-a-tenant.md`, TYRE-374). `make db-provision-test`
-proves it, with activation and the demonstration load, on two databases of
-its own, never `tyre`.
+proves it, with activation and the demonstration load, on databases of its
+own, never `tyre`, and migrates one of them as a stand-in for `tyreadmin` to
+prove 000061 up, down and up again (TYRE-472).
 
 `gen_seed_volume.py` is the odd one out among the fixture generators: it
 writes Sandbox Fleet's volume tenant for the dashboard read-path measurement

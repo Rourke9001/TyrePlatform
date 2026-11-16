@@ -34,6 +34,10 @@ every request; client-side controls shall be treated as presentation only."*
 **The verification suite treats `SECURITY DEFINER` as precious.** Check 8c
 fails the build for any definer function not on an explicit allowlist. Exactly
 one is on it. Anything that adds a second is spending something scarce.
+16 Nov 2026 (TYRE-472, ADR-0024): check 8c now holds two lists, the one
+definer that runs with RLS off and the three write-list definers owned by
+`app_writer`, a role RLS binds, and check 67a refuses any definer the
+application role can execute that returns a trigger or is off the write list.
 
 There is also a vocabulary mismatch worth recording, because it will otherwise
 be rediscovered. The operator describes four jobs — a driver, a fleet

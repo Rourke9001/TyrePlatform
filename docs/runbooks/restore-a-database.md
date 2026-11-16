@@ -53,7 +53,7 @@ restored counts with what the tenant expects instead.
 ```bash
 cat > counts.sql <<'EOF'
 SELECT 'schema_migrations', version::text || ' dirty=' || dirty::text FROM public.schema_migrations;
-SELECT 'role ' || rolname, 'super=' || rolsuper || ' bypassrls=' || rolbypassrls FROM pg_roles WHERE rolname IN ('app_login','app_rw','tyreadmin') ORDER BY rolname;
+SELECT 'role ' || rolname, 'super=' || rolsuper || ' bypassrls=' || rolbypassrls FROM pg_roles WHERE rolname IN ('app_login','app_rw','app_writer','tyreadmin') ORDER BY rolname;
 SELECT format('SELECT %L, count(*)::text FROM app.%I', c.relname, c.relname)
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
  WHERE n.nspname = 'app' AND c.relkind = 'r' ORDER BY c.relname \gexec
@@ -130,8 +130,9 @@ unset pw
 diff source.txt restored.txt && echo identical
 ```
 
-Expect `identical`: the same schema version, not dirty; `app_login` and
-`app_rw` neither superuser nor bypassing RLS (CLAUDE.md rule 1); every table
+Expect `identical`: the same schema version, not dirty; `app_login`,
+`app_rw` and `app_writer` neither superuser nor bypassing RLS (CLAUDE.md
+rule 1, ADR-0024); every table
 count equal. On 3 Nov all 50 tables matched (679 rows) at schema 60.
 
 ## 5. Clean up
