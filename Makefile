@@ -138,8 +138,8 @@ db-test: ## Run the verification suite as a NON-SUPERUSER (the only valid way)
 db-test-privileged: ## Negative controls that need a superuser to STAGE (db/tests/005_privileged.sql)
 	set -o pipefail; cat db/tests/helpers.sql db/tests/005_privileged.sql | $(PSQL_SUPER) -v ON_ERROR_STOP=1
 
-# Two databases of its own, never tyre, so the suite's pins and its
-# tenant sweep stay defined on the fixture (TYRE-374).
+# Databases of its own, never tyre, so the suite's pins and its tenant
+# sweep stay defined on the fixture (TYRE-374).
 .PHONY: db-provision-test
 db-provision-test: db-up ## Tenant provisioning, activation and the demonstration load on fresh databases (TYRE-374)
 	PSQL="docker exec -i $(PG_CONTAINER) psql -U postgres" \

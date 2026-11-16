@@ -130,6 +130,33 @@ SET search_path = app, pg_temp AS $fn$
   RETURNING id;
 $fn$;
 
+-- Every privilege app_writer holds in schema app, as 'kind object privilege',
+-- functions it owns aside. app_writer_faults compares it with its list, and
+-- db/tests/migration/000061_catalogue.sql prints it.
+CREATE FUNCTION pg_temp.app_writer_held() RETURNS SETOF text
+LANGUAGE sql
+SET search_path = app, pg_temp AS $fn$
+  WITH w AS (SELECT r.oid FROM pg_roles r WHERE r.rolname = 'app_writer')
+  SELECT format('schema %s %s', n.nspname, a.privilege_type)
+    FROM w, pg_namespace n, aclexplode(n.nspacl) a
+   WHERE n.nspname = 'app' AND a.grantee = w.oid
+  UNION
+  SELECT format('%s app.%s %s', CASE c.relkind WHEN 'v' THEN 'view' WHEN 'S' THEN 'sequence' ELSE 'table' END,
+                c.relname, a.privilege_type)
+    FROM w, pg_class c, aclexplode(c.relacl) a
+   WHERE c.relnamespace = 'app'::regnamespace AND c.relkind IN ('r', 'p', 'v', 'S') AND a.grantee = w.oid
+  UNION
+  SELECT format('column app.%s.%s %s', c.relname, t.attname, a.privilege_type)
+    FROM w, pg_attribute t JOIN pg_class c ON c.oid = t.attrelid, aclexplode(t.attacl) a
+   WHERE c.relnamespace = 'app'::regnamespace AND NOT t.attisdropped AND a.grantee = w.oid
+  UNION
+  SELECT format('function app.%s(%s) %s', p.proname, replace(oidvectortypes(p.proargtypes), ', ', ','),
+                a.privilege_type)
+    FROM w, pg_proc p, aclexplode(p.proacl) a
+   WHERE p.pronamespace = 'app'::regnamespace AND p.proowner <> w.oid AND a.grantee = w.oid
+  ORDER BY 1
+$fn$;
+
 -- What suite check 8e holds of app_writer, the owner of the three write-list
 -- definers (ADR-0024): NULL when every property holds, else each fault,
 -- '; '-joined. P26 in 005 shows each fault can fire. p_login is the app
@@ -227,24 +254,7 @@ BEGIN
       FROM pg_default_acl d, aclexplode(d.defaclacl) a
      WHERE a.grantee = w ORDER BY 1);
 
-  held := ARRAY(
-    SELECT format('schema %s %s', n.nspname, a.privilege_type)
-      FROM pg_namespace n, aclexplode(n.nspacl) a
-     WHERE n.nspname = 'app' AND a.grantee = w
-    UNION
-    SELECT format('%s app.%s %s', CASE c.relkind WHEN 'v' THEN 'view' WHEN 'S' THEN 'sequence' ELSE 'table' END,
-                  c.relname, a.privilege_type)
-      FROM pg_class c, aclexplode(c.relacl) a
-     WHERE c.relnamespace = 'app'::regnamespace AND c.relkind IN ('r', 'p', 'v', 'S') AND a.grantee = w
-    UNION
-    SELECT format('column app.%s.%s %s', c.relname, t.attname, a.privilege_type)
-      FROM pg_attribute t JOIN pg_class c ON c.oid = t.attrelid, aclexplode(t.attacl) a
-     WHERE c.relnamespace = 'app'::regnamespace AND NOT t.attisdropped AND a.grantee = w
-    UNION
-    SELECT format('function app.%s(%s) %s', p.proname, replace(oidvectortypes(p.proargtypes), ', ', ','),
-                  a.privilege_type)
-      FROM pg_proc p, aclexplode(p.proacl) a
-     WHERE p.pronamespace = 'app'::regnamespace AND p.proowner <> w AND a.grantee = w);
+  held := ARRAY(SELECT pg_temp.app_writer_held());
   faults := faults
     || ARRAY(SELECT 'extra: ' || h FROM unnest(held) h WHERE h <> ALL (want) ORDER BY 1)
     || ARRAY(SELECT 'missing: ' || x FROM unnest(want) x WHERE x <> ALL (held) ORDER BY 1);
