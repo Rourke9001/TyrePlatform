@@ -332,3 +332,4 @@ on (U186).
 | [0021](adr/0021-governing-tread-definer-owner.md) | The governing-tread definer runs as the migrating role | Accepted |
 | [0022](adr/0022-frontend-layers.md) | The web app is held to four layers: data, transform, domain, presentation | Accepted |
 | [0023](adr/0023-review-loop-inside-the-run.md) | The lead runs the review and fix loop inside the run | Accepted |
+| [0024](adr/0024-trip-writes-run-as-a-definer-rls-binds.md) | Trip and nomination writes run as a definer that row security binds | Proposed |
