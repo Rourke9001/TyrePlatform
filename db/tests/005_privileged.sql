@@ -61,9 +61,8 @@
 -- P26 stages each fault suite check 8e looks for, a table app_writer owns,
 -- BYPASSRLS, a grant off its list or missing from it, the app login as a
 -- member, and shows the shared check names it. P27 is where the WITH CHECK
--- on trip and inspection_task_nomination lives, since no app_login route
--- reaches it, with a control that shows it would catch an owner that
--- bypasses RLS (ADR-0024, Option C).
+-- on trip and inspection_task_nomination lives, with a control that shows
+-- it would catch an owner that bypasses RLS (ADR-0024, Option C).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -1196,8 +1195,6 @@ BEGIN
     RAISE EXCEPTION 'FAIL P20 (34): the probe runs as %, so RLS is not on trial', current_user;
   END IF;
   PERFORM set_config('app.tenant_id', t_id::text, true);
-  -- Each probe writes as app_writer, the one role besides the owner that
-  -- may write a trip (000061).
   SET LOCAL ROLE app_writer;
   IF current_user <> 'app_writer' THEN RAISE EXCEPTION 'FAIL P20 (34): the probe runs as %, not app_writer', current_user; END IF;
 
@@ -1320,8 +1317,6 @@ BEGIN
   VALUES (bac, md5('t76h1')::uuid, md5('t76d1')::uuid, now() - interval '1 hour') RETURNING id INTO tr1;
   INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
   VALUES (bac, md5('t76h2')::uuid, md5('t76d2')::uuid, now() - interval '1 hour') RETURNING id INTO tr2;
-  -- Each probe writes as app_writer, the one role besides the owner that
-  -- may end a trip (000061).
   SET LOCAL ROLE app_writer;
   IF current_user <> 'app_writer' THEN RAISE EXCEPTION 'FAIL P21 (76c): the probe runs as %, not app_writer', current_user; END IF;
 
@@ -1409,8 +1404,6 @@ BEGIN
   PERFORM pg_temp.t76_units();
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
   VALUES (bac, md5('t76h3')::uuid, now() + interval '3 days') RETURNING id INTO kn;
-  -- Each probe writes as app_writer, the one role besides the owner that
-  -- may write either table (000061).
   SET LOCAL ROLE app_writer;
   IF current_user <> 'app_writer' THEN RAISE EXCEPTION 'FAIL P22 (76c): the probe runs as %, not app_writer', current_user; END IF;
   FOR st, msg IN
