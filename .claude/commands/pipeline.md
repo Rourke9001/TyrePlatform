@@ -347,12 +347,12 @@ For round r = 1, 2, 3:
    (with what changed), ruled (with the owner ruling's U-number) or
    "lead's ruling (<source>)". A ruled finding is not a finding again
    unless the agent shows the ruling itself is wrong. A dispatch that
-   returns nothing, says the request was declined, or does not end with a
-   verdict (`EXECUTE`, `EXECUTE AFTER FIXES` or `REPLAN`) is dispatched
-   again once with `model: "opus"`, which outranks the agent file's model
-   for that dispatch. The agent runs on Fable, whose safety classifiers
-   can decline a request, and a declined request is retried on another
-   model, since the same model declines it again
+   returns nothing, says the request was declined, or gives no verdict
+   (`EXECUTE`, `EXECUTE AFTER FIXES` or `REPLAN`) anywhere in its reply is
+   dispatched again once with `model: "opus"`, which outranks the agent
+   file's model for that dispatch. The agent runs on Fable, whose safety
+   classifiers can decline a request, and a declined request is retried
+   on another model
    (https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-2,
    Safeguard refusals; TYRE-484, U215). A second dispatch that fails the
    same way stops for the owner (The run cannot go on).

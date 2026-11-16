@@ -216,18 +216,6 @@ where much code is read or a mistake costs a fix round, Sonnet for
 implementing a checked plan, and Haiku only for file searches. The lead
 writes the spec and orchestrates, and never implements or reviews code.
 
-**Amended 2026-11-16 (TYRE-484, U215):** the red team's agent file pins its
-effort at high, since on Fable the effort level sets how much the model
-thinks and how many tool calls it makes, and the line outranks the level of
-the session that starts the agent (https://code.claude.com/docs/en/sub-agents,
-Frontmatter reference). A red team dispatch that returns nothing, is
-declined or ends without a verdict is dispatched again once on Opus: Fable's
-safety classifiers can decline a request, and Anthropic's guide says to
-retry a declined request on another model
-(https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-2,
-Calibrate effort and Safeguard refusals). A model passed on the dispatch
-outranks the agent file's (the sub-agents page, Choose a model).
-
 The Decision's `/code-review` fork is replaced, because a fork runs on the
 lead's model. The lead runs `scripts/pipeline-review.sh`, which starts
 `/code-review high` in a separate `claude -p --model opus` process in the
@@ -253,3 +241,15 @@ tier. The auditors those files trigger are then the independent check for
 that work.
 
 **Amended 2026-11-14 (TYRE-481, U212):** the loop's rules live in `docs/how-work-runs.md`, which took CLAUDE.md's process sections, so the line above that says each lives in CLAUDE.md now reads that file, under the same section names. U212 amends U191, U192 and U198. Only a blocking finding (a Critical or Important `introduced` or `on-path` bug, a rule 1 to 3 finding or a spec finding) starts a fix round or reaches the cap. A Minor rides in a round that runs anyway, or in one Minor batch after the loop, whose re-review fixes nothing and lists its Minors in the PR for close-out to file. Accepting a Minor at the cap goes. The verifier gives the full pass only to an item that could block, and the lead gates each head once.
+
+**Amended 2026-11-16 (TYRE-484, U215):** the red team's agent file pins its
+effort at high, since on Fable the effort level sets how much the model
+thinks and how many tool calls it makes, and the line outranks the level of
+the session that starts the agent (https://code.claude.com/docs/en/sub-agents,
+Frontmatter reference). A red team dispatch that returns nothing, is
+declined or gives no verdict is dispatched again once on Opus: Fable's
+safety classifiers can decline a request, and Anthropic's guide says to
+retry a declined request on another model
+(https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-2,
+Calibrate effort and Safeguard refusals). A model passed on the dispatch
+outranks the agent file's (the sub-agents page, Choose a model).
