@@ -112,6 +112,13 @@ UTC time, and with the ID of the finding it rules on, if any. A question a teamm
 teammate's stop-and-ask": put it to the owner, and never answer it
 yourself.
 
+Write a stop, and the hand-over message (Hand-over step 5), for a reader
+who has not seen the run and may be coming from other work. Say first, in
+plain words, what happened and what needs deciding. Then give the options,
+with the one you recommend and why. The row's name comes last. A label
+this playbook or the run made up, such as a row letter, a round id or a
+finding ID, is said in words the first time it appears (TYRE-484).
+
 ## Teammates
 
 Wait for each teammate's explicit report before acting on its stage. A
@@ -339,8 +346,18 @@ For round r = 1, 2, 3:
    on, add every earlier Critical and Important finding, each marked fixed
    (with what changed), ruled (with the owner ruling's U-number) or
    "lead's ruling (<source>)". A ruled finding is not a finding again
-   unless the agent shows the ruling itself is wrong.
-2. Record its verdict and its findings by severity in the state file.
+   unless the agent shows the ruling itself is wrong. A dispatch that
+   returns nothing, says the request was declined, or does not end with a
+   verdict (`EXECUTE`, `EXECUTE AFTER FIXES` or `REPLAN`) is dispatched
+   again once with `model: "opus"`, which outranks the agent file's model
+   for that dispatch. The agent runs on Fable, whose safety classifiers
+   can decline a request, and a declined request is retried on another
+   model, since the same model declines it again
+   (https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-2,
+   Safeguard refusals; TYRE-484, U215). A second dispatch that fails the
+   same way stops for the owner (The run cannot go on).
+2. Record its verdict and its findings by severity in the state file, with
+   `on opus` after the round number when the second dispatch gave them.
 3. Send every Critical and Important finding to `planner`, and wait for its
    reply (Waiting for a teammate's message). Sort each one
    the planner disputes or cannot close as product or engineering, as in
@@ -718,6 +735,11 @@ Give each fixer this brief verbatim, its placeholders filled:
    the deferred minors, each `Set aside:` line and the findings from the
    schedule test that are not bugs. An `introduced` or `on-path` bug never
    goes there (U191), except a Minor closed as not reproduced (U212).
+   Then list the branch's commits with
+   `git log --oneline <Review base>..HEAD` and check each against the
+   body. A commit that no key's own work, small-fix plan or Decisions line
+   covers gets a Decisions line, because a summary written from what the
+   lead remembers leaves small changes out (TYRE-484).
 3. `git push -u origin <branch>`. Run `gh pr list --head <branch> --json number`
    and use an existing PR; otherwise
    `gh pr create --base develop --head <branch> --title "<type>(<scope>): <every key in full> <summary>" --body-file <state dir>/pr-body.md`.
@@ -786,8 +808,9 @@ Give each fixer this brief verbatim, its placeholders filled:
    Record `CI <result> @ <head sha>` on the `PR:` line.
 5. Move every key to In Review, comment the PR link on each, delete
    `pipeline-review-base` (`git branch -D pipeline-review-base`), set
-   stage `handed over`, and tell the owner: the PR, the rounds, what was
-   fixed, the tickets touched, and the lead's calls. The owner merges, and
+   stage `handed over`, and tell the owner, written as Owner stops says:
+   the PR, the rounds, what was fixed, the tickets touched, and the lead's
+   calls. The owner merges, and
    close-out runs by itself from the merge. `/review-pr <n>` in a separate
    session and `/code-review ultra` are optional; a finding from either is
    fixed outside the run, as on the manual path (`/ticket` step 12). Until
@@ -813,7 +836,8 @@ Give each fixer this brief verbatim, its placeholders filled:
   `STATUS:` for a fixer, and exit 0 with a last line `REVIEW: ok` for the
   review script, whose reply at `findings 0` must also have reviewed, by
   Review loop step 3), is dispatched again once, on the same model, then
-  the owner. Gate
+  the owner. The red team alone changes model for its second dispatch (Red
+  team step 1). Gate
   on that line, never on a file existing (docs/lessons.md, 2026-09-03 and
   2026-11-09). A verifier whose line is there but whose `review-<k>.md` is
   missing: write its hand-back to that path yourself before going on.
@@ -823,7 +847,8 @@ Give each fixer this brief verbatim, its placeholders filled:
   that still misses a raw finding after its second dispatch, or a review
   that reads the wrong diff twice (step 4); a dirty tree after a fixer
   (Close a round, row D); a finder (the review script included), verifier
-  or fixer that returns nothing twice (above, and row A). Shutting a
+  or fixer that returns nothing twice (above, and row A); a red team whose
+  second dispatch fails as its first did (Red team step 1). Shutting a
   teammate down adds three: a teammate still listed after `TaskStop`, a
   failed teammate's checkout that has not settled in six reads, and an
   implementer whose HEAD moved or tree went dirty while it shut down. Hand-over
@@ -849,7 +874,7 @@ Give each fixer this brief verbatim, its placeholders filled:
 - Spec: <path> @ <commit>
 - Lead's calls: <question>: <choice> (<source>)
 - Plan: <path>
-- Red team: round <r>: <verdict>, C<n> I<n> M<n>; fixed <n>, ruled <n> (U<n>, ...); lead's rulings: <finding>: <ruling> (<source>)
+- Red team: round <r>[ on opus]: <verdict>, C<n> I<n> M<n>; fixed <n>, ruled <n> (U<n>, ...); lead's rulings: <finding>: <ruling> (<source>)
 - Implementer model: <sonnet | opus>, because <the files that met a trigger | no trigger met>
 - Implementer report: <state dir>/implementer-report.md; make check exit <code>
 - Review base: <sha>

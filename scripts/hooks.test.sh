@@ -63,6 +63,12 @@ want_tools="tools: Read, Grep, Glob, Bash, mcp__claude_ai_Atlassian_MCP__getJira
 got_tools=$(grep -m1 '^tools: ' "$root/.claude/agents/plan-red-team.md" | tr -d '\r')
 if [ "$got_tools" = "$want_tools" ]; then echo "PASS: plan-red-team names the connector's four tools"; else
   echo "FAIL: plan-red-team's tools line is '$got_tools'"; fails=$((fails + 1)); fi
+# The agent runs on Fable, where effort sets how much it thinks and how many
+# tool calls it makes. The line outranks the level of the session that
+# starts the agent, so the level does not depend on the caller (TYRE-484).
+got_effort=$(grep -m1 '^effort: ' "$root/.claude/agents/plan-red-team.md" | tr -d '\r')
+if [ "$got_effort" = "effort: high" ]; then echo "PASS: plan-red-team pins its effort at high"; else
+  echo "FAIL: plan-red-team's effort line is '$got_effort'"; fails=$((fails + 1)); fi
 
 # make hooks-install points git at .githooks, and pipeline runs it first
 # (TYRE-473). Make prints CRs on Windows, so strip them.
