@@ -42,10 +42,9 @@
 --
 -- P17 and P18 need a nomination and a trip dated after the caller's now,
 -- as one written by a later transaction is while the caller waits on its
--- row locks. nomination_well_formed and trip_well_formed refuse a future
--- instant to every role, and one session cannot hold two transactions open,
--- so postgres disables the trigger for the one INSERT and enables it again
--- before the probe runs as app_login, as P8 does (TYRE-326).
+-- row locks. No function writes a future instant, and one session cannot
+-- hold two transactions open, so postgres writes the row before the probe
+-- runs as app_login (TYRE-326, TYRE-472).
 --
 -- P19 needs open tasks carrying a cancellation reason and a citation, as
 -- history from before 000060 may hold them. inspection_task_closes_once
@@ -54,7 +53,8 @@
 --
 -- P20 to P25 are suite cases that write a trip or a nomination at an instant
 -- or in a shape no function writes (TYRE-472). postgres stages them, and the
--- probe runs as app_login.
+-- probe runs as app_login. P20 to P22 probe as app_writer, the one role
+-- besides the owner that may write either table (000061).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -1024,10 +1024,8 @@ SELECT md5('p17-horse')::uuid, x.tenant_id, 'P17-H', 'P17H GP', x.configuration_
   FROM app.vehicle x WHERE x.id = md5('veh1')::uuid;
 INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at)
 VALUES (md5('p17-task')::uuid, '11111111-1111-1111-1111-111111111111', md5('p17-horse')::uuid, now() + interval '1 day');
-ALTER TABLE app.inspection_task_nomination DISABLE TRIGGER nomination_well_formed;
 INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
 VALUES ('11111111-1111-1111-1111-111111111111', md5('p17-task')::uuid, md5('driver1')::uuid, now() + interval '1 second');
-ALTER TABLE app.inspection_task_nomination ENABLE TRIGGER nomination_well_formed;
 SET LOCAL ROLE app_login;
 DO $$
 DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
@@ -1035,11 +1033,6 @@ DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
 BEGIN
   IF current_user <> 'app_login' THEN
     RAISE EXCEPTION 'FAIL P17: the probe runs as %, so RLS is not on trial', current_user;
-  END IF;
-  IF (SELECT t.tgenabled FROM pg_trigger t
-       WHERE t.tgrelid = 'app.inspection_task_nomination'::regclass
-         AND t.tgname = 'nomination_well_formed') IS DISTINCT FROM 'O' THEN
-    RAISE EXCEPTION 'FAIL P17: nomination_well_formed did not come back enabled';
   END IF;
   PERFORM set_config('app.tenant_id', bac::text, true);
   BEGIN
@@ -1062,11 +1055,9 @@ SELECT md5('p18-horse')::uuid, x.tenant_id, 'P18-H', 'P18H GP', x.configuration_
   FROM app.vehicle x WHERE x.id = md5('veh1')::uuid;
 INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
 VALUES (md5('p18-driver')::uuid, '11111111-1111-1111-1111-111111111111', 'p18-driver@example.invalid', 'P18 Driver', 'DRIVER');
-ALTER TABLE app.trip DISABLE TRIGGER trip_well_formed;
 INSERT INTO app.trip (id, tenant_id, vehicle_id, user_id, started_at)
 VALUES (md5('p18-trip')::uuid, '11111111-1111-1111-1111-111111111111', md5('p18-horse')::uuid,
         md5('p18-driver')::uuid, now() + interval '1 second');
-ALTER TABLE app.trip ENABLE TRIGGER trip_well_formed;
 SET LOCAL ROLE app_login;
 DO $$
 DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
@@ -1074,10 +1065,6 @@ DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
 BEGIN
   IF current_user <> 'app_login' THEN
     RAISE EXCEPTION 'FAIL P18: the probe runs as %, so RLS is not on trial', current_user;
-  END IF;
-  IF (SELECT t.tgenabled FROM pg_trigger t
-       WHERE t.tgrelid = 'app.trip'::regclass AND t.tgname = 'trip_well_formed') IS DISTINCT FROM 'O' THEN
-    RAISE EXCEPTION 'FAIL P18: trip_well_formed did not come back enabled';
   END IF;
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', md5('controller1')::uuid::text, true);
@@ -1200,6 +1187,10 @@ BEGIN
     RAISE EXCEPTION 'FAIL P20 (34): the probe runs as %, so RLS is not on trial', current_user;
   END IF;
   PERFORM set_config('app.tenant_id', t_id::text, true);
+  -- Each probe writes as app_writer, the one role besides the owner that
+  -- may write a trip (000061).
+  SET LOCAL ROLE app_writer;
+  IF current_user <> 'app_writer' THEN RAISE EXCEPTION 'FAIL P20 (34): the probe runs as %, not app_writer', current_user; END IF;
 
   -- (b) A second open trip on a unit or for a driver multiplies the unit
   -- through every coverage read. Melusi's fixture trip on HORSE is open, so
@@ -1231,9 +1222,13 @@ BEGIN
       COALESCE(got, 'an accepted row');
   END IF;
 
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P20 (34): the probe runs as %, so RLS is not on trial', current_user; END IF;
   SELECT configuration_id INTO cfg FROM app.vehicle WHERE id = md5('veh1')::uuid;
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
   VALUES (h, t_id, 'T34-H', 'T34 GP', cfg, 'HORSE', 'ACTIVE');
+  SET LOCAL ROLE app_writer;
+  IF current_user <> 'app_writer' THEN RAISE EXCEPTION 'FAIL P20 (34): the probe runs as %, not app_writer', current_user; END IF;
   got := NULL;
   BEGIN
     INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
@@ -1254,10 +1249,9 @@ BEGIN
        VALUES (t_id, h, md5('driver3')::uuid, now() - interval '1 hour');
 
   -- (e) A probe of another tenant's trip answers the same inside it and
-  -- outside it. trip_is_well_formed refuses both with the user FK's 23503
-  -- before the EXCLUDEs are reached; that the keys lead with tenant_id, so
-  -- they could not answer "is that driver on that unit then?", is section
-  -- 37's sweep. The uuids are hard-coded since the probe cannot see what it
+  -- outside it. The composite FK refuses both probes with 23503, and the
+  -- EXCLUDE keys lead with tenant_id, so neither answers first (suite
+  -- section 37). The uuids are hard-coded since the probe cannot see what it
   -- probes for, so the precondition is checked rather than trusted: a quiet
   -- seed change would otherwise leave case (e) discriminating on nothing
   -- while still printing PASS.
@@ -1317,8 +1311,10 @@ BEGIN
   VALUES (bac, md5('t76h1')::uuid, md5('t76d1')::uuid, now() - interval '1 hour') RETURNING id INTO tr1;
   INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
   VALUES (bac, md5('t76h2')::uuid, md5('t76d2')::uuid, now() - interval '1 hour') RETURNING id INTO tr2;
-  SET LOCAL ROLE app_login;
-  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P21 (76c): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  -- Each probe writes as app_writer, the one role besides the owner that
+  -- may end a trip (000061).
+  SET LOCAL ROLE app_writer;
+  IF current_user <> 'app_writer' THEN RAISE EXCEPTION 'FAIL P21 (76c): the probe runs as %, not app_writer', current_user; END IF;
 
   UPDATE app.trip SET ended_at = now(), ended_by = ctl WHERE id = tr1;
   SELECT * INTO row_ FROM app.trip WHERE id = tr1;
@@ -1327,11 +1323,17 @@ BEGIN
     RAISE EXCEPTION 'FAIL P21 (76c): the end read back ended_at %, ended_by %, updated_by %',
       row_.ended_at, row_.ended_by, row_.updated_by;
   END IF;
+  -- app_writer files audit entries and reads none.
+  RESET ROLE;
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P21 (76c): the probe runs as %, so RLS is not on trial', current_user; END IF;
   SELECT count(*) INTO n FROM app.audit_log
    WHERE entity_type = 'trip' AND entity_id = tr1 AND action = 'UPDATE' AND actor_id = ctl;
   IF n <> 1 THEN
     RAISE EXCEPTION 'FAIL P21 (76c): the end filed % UPDATE audit entries under the controller, not one', n;
   END IF;
+  SET LOCAL ROLE app_writer;
+  IF current_user <> 'app_writer' THEN RAISE EXCEPTION 'FAIL P21 (76c): the probe runs as %, not app_writer', current_user; END IF;
 
   FOR st, msg IN
     SELECT * FROM (VALUES
@@ -1396,6 +1398,12 @@ BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', ctl::text, true);
   PERFORM pg_temp.t76_units();
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, md5('t76h3')::uuid, now() + interval '3 days') RETURNING id INTO kn;
+  -- Each probe writes as app_writer, the one role besides the owner that
+  -- may write either table (000061).
+  SET LOCAL ROLE app_writer;
+  IF current_user <> 'app_writer' THEN RAISE EXCEPTION 'FAIL P22 (76c): the probe runs as %, not app_writer', current_user; END IF;
   FOR st, msg IN
     SELECT * FROM (VALUES
       (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at) VALUES (%L, %L, %L, now(), now() - interval ''1 minute'')',
@@ -1431,8 +1439,6 @@ BEGIN
     END;
   END LOOP;
 
-  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
-  VALUES (bac, md5('t76h3')::uuid, now() + interval '3 days') RETURNING id INTO kn;
   FOR st, msg IN
     SELECT * FROM (VALUES
       -- Another fleet's nominee answers with the FK's name, and no FK
