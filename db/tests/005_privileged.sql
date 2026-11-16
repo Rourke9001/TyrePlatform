@@ -51,6 +51,10 @@
 -- history from before 000060 may hold them. inspection_task_closes_once
 -- refuses either plant to every role, so postgres disables it for the plants
 -- and enables it again before a capture as app_login closes both (TYRE-326).
+--
+-- P20 to P25 are suite cases that write a trip or a nomination at an instant
+-- or in a shape no function writes (TYRE-472). postgres stages them, and the
+-- probe runs as app_login.
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -1178,6 +1182,750 @@ BEGIN
     RAISE EXCEPTION 'FAIL P19: the named and swept tasks read %, not COMPLETED:true,COMPLETED:true', got;
   END IF;
   RAISE NOTICE 'PASS  P19 a stale citation is not re-judged by an edit of neither state nor citation and refuses a cancel, and a capture closes tasks carrying a stale reason or citation, by name and by the sweep';
+END $$;
+ROLLBACK;
+
+\echo '== P20. TYRE-472, suite 34 (b) to (e): a trip overlaps no other on its unit or its driver, one driver per motive (U143), back to back is accepted, and a probe of another tenant''s trip answers the same inside it and outside it (staged here: its trips overlap or are dated in the past)'
+BEGIN;
+DO $$
+DECLARE
+  t_id constant uuid := '11111111-1111-1111-1111-111111111111';
+  h     constant uuid := md5('t34h')::uuid;
+  cfg   uuid;
+  got   text;
+  n2    int;
+BEGIN
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN
+    RAISE EXCEPTION 'FAIL P20 (34): the probe runs as %, so RLS is not on trial', current_user;
+  END IF;
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+
+  -- (b) A second open trip on a unit or for a driver multiplies the unit
+  -- through every coverage read. Melusi's fixture trip on HORSE is open, so
+  -- either EXCLUDE may answer first.
+  got := NULL;
+  BEGIN
+    INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+         VALUES (t_id, md5('veh1')::uuid, md5('driver1')::uuid, now());
+  EXCEPTION WHEN exclusion_violation THEN
+    GET STACKED DIAGNOSTICS got = CONSTRAINT_NAME;
+  END;
+  IF got IS NULL OR got NOT IN ('trip_vehicle_no_overlap', 'trip_driver_no_overlap') THEN
+    RAISE EXCEPTION 'FAIL P20 (34b): a duplicate open trip was answered by %, not a trip EXCLUDE',
+      COALESCE(got, 'an accepted row');
+  END IF;
+
+  -- (c) One driver per motive at an instant (U143 closed OI-32), and one
+  -- motive per driver. Sipho's fixture trip on HORSE ended in 2025, so only
+  -- the unit's key can refuse him.
+  got := NULL;
+  BEGIN
+    INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+         VALUES (t_id, md5('veh1')::uuid, md5('driver3')::uuid, now());
+  EXCEPTION WHEN exclusion_violation THEN
+    GET STACKED DIAGNOSTICS got = CONSTRAINT_NAME;
+  END;
+  IF got IS DISTINCT FROM 'trip_vehicle_no_overlap' THEN
+    RAISE EXCEPTION 'FAIL P20 (34c): a second driver on HORSE was answered by %, not trip_vehicle_no_overlap',
+      COALESCE(got, 'an accepted row');
+  END IF;
+
+  SELECT configuration_id INTO cfg FROM app.vehicle WHERE id = md5('veh1')::uuid;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  VALUES (h, t_id, 'T34-H', 'T34 GP', cfg, 'HORSE', 'ACTIVE');
+  got := NULL;
+  BEGIN
+    INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+         VALUES (t_id, h, md5('driver1')::uuid, now());
+  EXCEPTION WHEN exclusion_violation THEN
+    GET STACKED DIAGNOSTICS got = CONSTRAINT_NAME;
+  END;
+  IF got IS DISTINCT FROM 'trip_driver_no_overlap' THEN
+    RAISE EXCEPTION 'FAIL P20 (34c): Melusi on a second motive was answered by %, not trip_driver_no_overlap',
+      COALESCE(got, 'an accepted row');
+  END IF;
+
+  -- (d) Back to back is not an overlap: '[)' lets one trip end at the instant
+  -- the next starts.
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+       VALUES (t_id, h, md5('driver3')::uuid, now() - interval '2 hours', now() - interval '1 hour');
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+       VALUES (t_id, h, md5('driver3')::uuid, now() - interval '1 hour');
+
+  -- (e) A probe of another tenant's trip answers the same inside it and
+  -- outside it. trip_is_well_formed refuses both with the user FK's 23503
+  -- before the EXCLUDEs are reached; that the keys lead with tenant_id, so
+  -- they could not answer "is that driver on that unit then?", is section
+  -- 37's sweep. The uuids are hard-coded since the probe cannot see what it
+  -- probes for, so the precondition is checked rather than trusted: a quiet
+  -- seed change would otherwise leave case (e) discriminating on nothing
+  -- while still printing PASS.
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  SELECT count(*) INTO n2 FROM app.trip tr JOIN app.tenant tn ON tn.id = tr.tenant_id
+   WHERE tr.id = md5('t2trip1')::uuid
+     AND tr.vehicle_id = md5('t2veh1')::uuid
+     AND tr.user_id = md5('driver2')::uuid
+     AND tr.started_at = ('2026-01-01'::timestamp AT TIME ZONE tn.timezone)
+     AND tr.ended_at IS NULL;
+  IF n2 <> 1 THEN
+    RAISE EXCEPTION 'FAIL P20 (34e): the tenant-2 trip case (e) probes for is absent or moved; the probes below would pass vacuously';
+  END IF;
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+
+  got := NULL;
+  BEGIN
+    INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+         VALUES (t_id, md5('t2veh1')::uuid, md5('driver2')::uuid, '2026-06-01T00:00:00Z', '2026-06-02T00:00:00Z');
+  EXCEPTION WHEN OTHERS THEN got := SQLSTATE;
+  END;
+  IF got IS DISTINCT FROM '23503' THEN
+    RAISE EXCEPTION 'FAIL P20 (34e): a probe inside another tenant''s trip answered % (expected 23503, as outside it), so a probe tells inside from outside', COALESCE(got, 'success');
+  END IF;
+
+  got := NULL;
+  BEGIN
+    INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+         VALUES (t_id, md5('t2veh1')::uuid, md5('driver2')::uuid, '2025-01-01T00:00:00Z', '2025-01-02T00:00:00Z');
+  EXCEPTION WHEN OTHERS THEN got := SQLSTATE;
+  END;
+  IF got IS DISTINCT FROM '23503' THEN
+    RAISE EXCEPTION 'FAIL P20 (34e): a probe outside another tenant''s trip answered % (expected 23503)', COALESCE(got, 'success');
+  END IF;
+
+  RAISE NOTICE 'PASS  P20 (34) trips overlap neither on a unit nor for a driver, one driver per motive (U143), back to back is accepted, and a probe of another tenant''s trip answers the same inside it and outside it';
+END $$;
+ROLLBACK;
+
+\echo '== P21. TYRE-472, suite 76c: a trip ends once, by its end columns, at the server''s now and by the bound actor, and an ended trip never changes (staged here: its trips started an hour back, which no function writes) (FR-VEH-007, rule 3, TY028)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  tr1 uuid; tr2 uuid;
+  row_ app.trip;
+  n int; st text; msg text;
+BEGIN
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P21 (76c): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  RESET ROLE;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, md5('t76h1')::uuid, md5('t76d1')::uuid, now() - interval '1 hour') RETURNING id INTO tr1;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, md5('t76h2')::uuid, md5('t76d2')::uuid, now() - interval '1 hour') RETURNING id INTO tr2;
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P21 (76c): the probe runs as %, so RLS is not on trial', current_user; END IF;
+
+  UPDATE app.trip SET ended_at = now(), ended_by = ctl WHERE id = tr1;
+  SELECT * INTO row_ FROM app.trip WHERE id = tr1;
+  IF row_.ended_at IS DISTINCT FROM now() OR row_.ended_by IS DISTINCT FROM ctl
+     OR row_.updated_by IS DISTINCT FROM ctl THEN
+    RAISE EXCEPTION 'FAIL P21 (76c): the end read back ended_at %, ended_by %, updated_by %',
+      row_.ended_at, row_.ended_by, row_.updated_by;
+  END IF;
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE entity_type = 'trip' AND entity_id = tr1 AND action = 'UPDATE' AND actor_id = ctl;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL P21 (76c): the end filed % UPDATE audit entries under the controller, not one', n;
+  END IF;
+
+  FOR st, msg IN
+    SELECT * FROM (VALUES
+      (format('UPDATE app.trip SET ended_at = now() WHERE id = %L', tr1),
+       'TY028 an ended trip is never changed'),
+      (format('UPDATE app.trip SET ended_at = NULL WHERE id = %L', tr1),
+       'TY028 an ended trip is never changed'),
+      (format('UPDATE app.trip SET ended_by = %L WHERE id = %L', ctl, tr2),
+       'TY028 an open trip can only be ended, never edited'),
+      (format('UPDATE app.trip SET ended_at = now() - interval ''1 minute'' WHERE id = %L', tr2),
+       'TY028 a trip ends at the server''s now, never earlier or later'),
+      (format('UPDATE app.trip SET ended_at = started_at WHERE id = %L', tr2),
+       'TY028 a trip ends at the server''s now, never earlier or later'),
+      (format('UPDATE app.trip SET ended_at = started_at - interval ''1 minute'' WHERE id = %L', tr2),
+       'TY028 a trip ends at the server''s now, never earlier or later'),
+      (format('UPDATE app.trip SET ended_at = now() + interval ''1 minute'' WHERE id = %L', tr2),
+       'TY028 a trip ends at the server''s now, never earlier or later')
+    ) v(s, m)
+  LOOP
+    DECLARE got_st text; got_msg text; got_con text;
+    BEGIN
+      BEGIN
+        EXECUTE st;
+        RAISE EXCEPTION 'FAIL P21 (76c): % was accepted', st;
+      EXCEPTION WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS got_st = RETURNED_SQLSTATE, got_msg = MESSAGE_TEXT, got_con = CONSTRAINT_NAME;
+      END;
+      IF got_msg LIKE 'FAIL P21 (76c):%' THEN
+        RAISE EXCEPTION '%', got_msg;
+      END IF;
+      IF (got_st || ' ' || CASE WHEN got_st IN ('23514', '23503') THEN got_con ELSE got_msg END) IS DISTINCT FROM msg THEN
+        RAISE EXCEPTION 'FAIL P21 (76c): % answered % %, not %', st, got_st, got_msg, msg;
+      END IF;
+    END;
+  END LOOP;
+  SELECT * INTO row_ FROM app.trip WHERE id = tr2;
+  IF row_.ended_at IS NOT NULL OR row_.ended_by IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL P21 (76c): a refused edit left the open trip ended at % by %', row_.ended_at, row_.ended_by;
+  END IF;
+  -- The ender is the bound actor, whoever the caller names.
+  UPDATE app.trip SET ended_at = now(), ended_by = md5('t76d1')::uuid WHERE id = tr2;
+  SELECT * INTO row_ FROM app.trip WHERE id = tr2;
+  IF row_.ended_at IS DISTINCT FROM now() OR row_.ended_by IS DISTINCT FROM ctl THEN
+    RAISE EXCEPTION 'FAIL P21 (76c): an end naming another ender read back ended_at %, ended_by %, not now by the controller',
+      row_.ended_at, row_.ended_by;
+  END IF;
+  RAISE NOTICE 'PASS  P21 (76c) a trip ends once by its end columns, at the server''s now and by the bound actor, and an ended trip is frozen';
+END $$;
+ROLLBACK;
+
+\echo '== P22. TYRE-472, suite 76c: a trip or a nomination that breaks the CHECK, a NOT NULL, or a composite FK by naming another fleet''s user is refused by that constraint, by its code and name (staged here: no function writes such a row) (rule 1, FR-TEN-004)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  kn uuid;
+  st text; msg text;
+BEGIN
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P22 (76c): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  FOR st, msg IN
+    SELECT * FROM (VALUES
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at) VALUES (%L, %L, %L, now(), now() - interval ''1 minute'')',
+              bac, md5('t76h3')::uuid, md5('t76d3')::uuid),
+       '23514 trip_ends_after_start'),
+      -- Another fleet's driver answers with the FK's name.
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
+              bac, md5('t76h3')::uuid, md5('driver2')::uuid),
+       '23503 trip_tenant_id_user_id_fkey'),
+      -- No FK refuses a NULL key; NOT NULL does.
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, NULL, now())',
+              bac, md5('t76h3')::uuid),
+       '23502 null value in column "user_id" of relation "trip" violates not-null constraint'),
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, NULL, %L, now())',
+              bac, md5('t76d3')::uuid),
+       '23502 null value in column "vehicle_id" of relation "trip" violates not-null constraint')
+    ) v(s, m)
+  LOOP
+    DECLARE got_st text; got_msg text; got_con text;
+    BEGIN
+      BEGIN
+        EXECUTE st;
+        RAISE EXCEPTION 'FAIL P22 (76c): % was accepted', st;
+      EXCEPTION WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS got_st = RETURNED_SQLSTATE, got_msg = MESSAGE_TEXT, got_con = CONSTRAINT_NAME;
+      END;
+      IF got_msg LIKE 'FAIL P22 (76c):%' THEN
+        RAISE EXCEPTION '%', got_msg;
+      END IF;
+      IF (got_st || ' ' || CASE WHEN got_st IN ('23514', '23503') THEN got_con ELSE got_msg END) IS DISTINCT FROM msg THEN
+        RAISE EXCEPTION 'FAIL P22 (76c): % answered % %, not %', st, got_st, got_msg, msg;
+      END IF;
+    END;
+  END LOOP;
+
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, md5('t76h3')::uuid, now() + interval '3 days') RETURNING id INTO kn;
+  FOR st, msg IN
+    SELECT * FROM (VALUES
+      -- Another fleet's nominee answers with the FK's name, and no FK
+      -- refuses a NULL key; NOT NULL does. kn holds no nomination at now, so
+      -- the one-per-instant key cannot answer first.
+      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, %L)',
+              bac, kn, md5('driver2')::uuid),
+       '23503 inspection_task_nomination_tenant_id_user_id_fkey'),
+      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, NULL, %L)',
+              bac, md5('t76d3')::uuid),
+       '23502 null value in column "task_id" of relation "inspection_task_nomination" violates not-null constraint'),
+      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, NULL)',
+              bac, kn),
+       '23502 null value in column "user_id" of relation "inspection_task_nomination" violates not-null constraint')
+    ) v(s, m)
+  LOOP
+    DECLARE got_st text; got_msg text; got_con text;
+    BEGIN
+      BEGIN
+        EXECUTE st;
+        RAISE EXCEPTION 'FAIL P22 (76c): % was accepted', st;
+      EXCEPTION WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS got_st = RETURNED_SQLSTATE, got_msg = MESSAGE_TEXT, got_con = CONSTRAINT_NAME;
+      END;
+      IF got_msg LIKE 'FAIL P22 (76c):%' THEN
+        RAISE EXCEPTION '%', got_msg;
+      END IF;
+      IF (got_st || ' ' || CASE WHEN got_st = '23503' THEN got_con ELSE got_msg END) IS DISTINCT FROM msg THEN
+        RAISE EXCEPTION 'FAIL P22 (76c): % answered % %, not %', st, got_st, got_msg, msg;
+      END IF;
+    END;
+  END LOOP;
+  RAISE NOTICE 'PASS  P22 (76c) a trip or nomination that breaks the CHECK, a NOT NULL or a composite FK is refused by that constraint';
+END $$;
+ROLLBACK;
+
+\echo '== P23. TYRE-472, suite 76e: the responsible driver: the trip that covers the unit, else the task''s live nominee, else the motive''s for a coupled trailer, else nobody; a nomination lapses at the first covered instant after it and stays lapsed; only while the task is outstanding (FR-INS-053 as amended; as BAC, rolled back) (staged here: its trips and nominations are dated in the past)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; h2 constant uuid := md5('t76h2')::uuid;
+  h3 constant uuid := md5('t76h3')::uuid; h4 constant uuid := md5('t76h4')::uuid;
+  h5 constant uuid := md5('t76h5')::uuid; h6 constant uuid := md5('t76h6')::uuid;
+  t1 constant uuid := md5('t76t1')::uuid; t2 constant uuid := md5('t76t2')::uuid;
+  t3 constant uuid := md5('t76t3')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid; d2 constant uuid := md5('t76d2')::uuid;
+  d3 constant uuid := md5('t76d3')::uuid; d4 constant uuid := md5('t76d4')::uuid;
+  one constant text := 'T76 Driver One'; two constant text := 'T76 Driver Two';
+  three constant text := 'T76 Driver Three'; four constant text := 'T76 Driver Four';
+  rig uuid;
+  k_h1 uuid; k_t1 uuid; k_h2 uuid; k_h3 uuid; k_t2 uuid; k_t3 uuid; k_h4 uuid; k_h4b uuid;
+  k_h5 uuid; k_h1d uuid; k_h6 uuid; k_h2c uuid; k_now uuid;
+  due timestamptz;
+BEGIN
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P23 (76e): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+
+  -- Rule 1: H1 tows T1 from ten hours ago, and D1's trip on H1 opened five
+  -- hours ago.
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '10 hours') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2);
+  RESET ROLE;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h1, d1, now() - interval '5 hours');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P23 (76e): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h1, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_h1;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, t1, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_t1;
+  PERFORM pg_temp.t76_expect('P23 (76e) rule 1', k_h1, now(), one || '/TRIP');
+  PERFORM pg_temp.t76_expect('P23 (76e) rule 1', k_t1, now(), one || '/TRIP');
+  PERFORM pg_temp.t76_expect('P23 (76e) rule 1', k_h1, now() - interval '6 hours', 'nobody/-');
+  PERFORM pg_temp.t76_expect('P23 (76e) rule 1', k_t1, now() - interval '6 hours', 'nobody/-');
+
+  -- Rule 2, and a re-nomination: the newest nomination made by then.
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h2, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_h2;
+  RESET ROLE;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_h2, d2, now() - interval '2 hours'), (bac, k_h2, d3, now() - interval '1 hour');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P23 (76e): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM pg_temp.t76_expect('P23 (76e) rule 2', k_h2, now() - interval '3 hours', 'nobody/-');
+  PERFORM pg_temp.t76_expect('P23 (76e) rule 2', k_h2, now() - interval '90 minutes', two || '/NOMINATION');
+  PERFORM pg_temp.t76_expect('P23 (76e) rule 2', k_h2, now(), three || '/NOMINATION');
+
+  -- A trip that starts after a nomination takes it over, and the nomination
+  -- does not come back when the trip ends (spec, decision 6).
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h3, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_h3;
+  RESET ROLE;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_h3, d2, now() - interval '4 hours');
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+  VALUES (bac, h3, d3, now() - interval '3 hours', now() - interval '2 hours');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P23 (76e): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM pg_temp.t76_expect('P23 (76e) lapse by a trip', k_h3, now() - interval '210 minutes', two || '/NOMINATION');
+  PERFORM pg_temp.t76_expect('P23 (76e) lapse by a trip', k_h3, now() - interval '150 minutes', three || '/TRIP');
+  PERFORM pg_temp.t76_expect('P23 (76e) lapse by a trip', k_h3, now(), 'nobody/-');
+
+  -- Coupling to a motive on a trip is the same takeover seen from the
+  -- trailer: T2 joins H1's rig for an hour and leaves it again. Each rig is
+  -- planted open, given its members, then ended, since an ended rig takes
+  -- none (000037).
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, t2, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_t2;
+  RESET ROLE;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_t2, d2, now() - interval '4 hours');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P23 (76e): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  UPDATE app.combination SET effective_to = now() - interval '3 hours' WHERE id = rig;
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '3 hours') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2), (bac, rig, t2, 3);
+  UPDATE app.combination SET effective_to = now() - interval '2 hours' WHERE id = rig;
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '2 hours') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2);
+  PERFORM pg_temp.t76_expect('P23 (76e) lapse by a coupling', k_t2, now() - interval '210 minutes', two || '/NOMINATION');
+  PERFORM pg_temp.t76_expect('P23 (76e) lapse by a coupling', k_t2, now() - interval '150 minutes', one || '/TRIP');
+  PERFORM pg_temp.t76_expect('P23 (76e) lapse by a coupling', k_t2, now(), 'nobody/-');
+  PERFORM pg_temp.t76_expect('P23 (76e) lapse by a coupling', k_t1, now(), one || '/TRIP');
+
+  -- Rule 3: T3 is coupled to H4, which is on no trip, so T3's task goes to
+  -- the newest live nomination across H4's outstanding tasks.
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h4, now() - interval '10 hours') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h4, 1), (bac, rig, t3, 2);
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, t3, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_t3;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h4, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_h4;
+  RESET ROLE;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_h4, d2, now() - interval '1 hour');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P23 (76e): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM pg_temp.t76_expect('P23 (76e) rule 3', k_t3, now(), two || '/MOTIVE_NOMINATION');
+  -- The active flag keeps no history, so reading it would rewrite past
+  -- attribution (spec, Nominations).
+  UPDATE app.app_user SET active = false WHERE id = d2;
+  PERFORM pg_temp.t76_expect('P23 (76e) rule 3 ignores the active flag', k_t3, now(), two || '/MOTIVE_NOMINATION');
+  UPDATE app.app_user SET active = true WHERE id = d2;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h4, now() + interval '2 days', now() - interval '12 hours') RETURNING id INTO k_h4b;
+  RESET ROLE;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_h4b, d3, now() - interval '30 minutes');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P23 (76e): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM pg_temp.t76_expect('P23 (76e) rule 3 takes the newest across the motive''s tasks', k_t3, now(), three || '/MOTIVE_NOMINATION');
+
+  -- Rule 2 before rule 3: the trailer's own nominee wins.
+  RESET ROLE;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_t3, d1, now() - interval '20 minutes');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P23 (76e): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM pg_temp.t76_expect('P23 (76e) rule 2 before rule 3', k_t3, now(), one || '/NOMINATION');
+
+  -- At the due instant, which the amended criterion 4 reads.
+  due := now() - interval '1 hour';
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h5, due, now() - interval '12 hours') RETURNING id INTO k_h5;
+  RESET ROLE;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_h5, d2, now() - interval '11 hours');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P23 (76e): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h1, due, now() - interval '12 hours') RETURNING id INTO k_h1d;
+  PERFORM pg_temp.t76_expect('P23 (76e) at the due instant', k_h5, due, two || '/NOMINATION');
+  PERFORM pg_temp.t76_expect('P23 (76e) at the due instant', k_h1d, due, one || '/TRIP');
+
+  -- Nobody.
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h6, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_h6;
+  PERFORM pg_temp.t76_expect('P23 (76e) nobody', k_h6, now(), 'nobody/-');
+
+  -- Not outstanding: each would answer a driver but for the bound, as the
+  -- control instants show.
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h2, now() + interval '3 days', now() - interval '12 hours') RETURNING id INTO k_h2c;
+  RESET ROLE;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_h2c, d4, now() - interval '2 hours');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P23 (76e): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = '76e' WHERE id = k_h2c;
+  PERFORM pg_temp.t76_expect('P23 (76e) a cancelled task', k_h2c, now(), 'nobody/-');
+  PERFORM pg_temp.t76_expect('P23 (76e) a cancelled task, before its close', k_h2c, now() - interval '1 hour', four || '/NOMINATION');
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, h1, now() + interval '3 days') RETURNING id INTO k_now;
+  PERFORM pg_temp.t76_expect('P23 (76e) a task created now', k_now, now() - interval '1 minute', 'nobody/-');
+  PERFORM pg_temp.t76_expect('P23 (76e) a task created now, at now', k_now, now(), one || '/TRIP');
+  RAISE NOTICE 'PASS  P23 (76e) each rule answers in order, a nomination lapses at the first covered instant after it by a trip or a coupling and stays lapsed, rule 3 ignores the active flag, and nothing answers outside the task''s outstanding span';
+END $$;
+ROLLBACK;
+\echo '== P24. TYRE-472, suite 76h: a trip or task closed mid-capture still passes, a unit never held does not, a nominee reaches the motive''s rig until a trip takes the task over, and every unit the payload attributes is checked (FR-OFF-015 as amended, FR-AUT-005; as BAC, each case rolled back) (staged here: its trips and nominations are dated in the past)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+BEGIN
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P24 (76h): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  RESET ROLE;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+  VALUES (bac, h1, d1, now() - interval '2 hours', now() - interval '30 minutes');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P24 (76h): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  IF NOT pg_temp.t76_could(pg_temp.t76_capture(ARRAY[h1], now() - interval '40 minutes', now() - interval '10 minutes'), d1) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): a trip closed between start and submit refused the capture';
+  END IF;
+  IF app.user_could_capture(d1, h1, now() - interval '20 minutes', now() - interval '10 minutes') THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): the control window after the trip ended passed';
+  END IF;
+  RAISE NOTICE 'PASS  P24 (76h) a trip closed between start and submit passes; a window wholly after it does not';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h2 constant uuid := md5('t76h2')::uuid; d2 constant uuid := md5('t76d2')::uuid;
+  d3 constant uuid := md5('t76d3')::uuid;
+  k uuid; p jsonb; r record;
+BEGIN
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P24 (76h): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h2, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k;
+  RESET ROLE;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k, d2, now() - interval '2 hours');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P24 (76h): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = '76h' WHERE id = k;
+  p := pg_temp.t76_capture(ARRAY[h2], now() - interval '40 minutes', now()) || jsonb_build_object('task_id', k);
+  IF NOT pg_temp.t76_could(p, d2) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): a task cancelled between start and submit refused its nominee';
+  END IF;
+  IF app.user_could_capture(d2, h2, now(), now()) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): the nominee of a cancelled task can capture after the cancel';
+  END IF;
+  -- Never held: D3 had no trip and no nomination on H2.
+  IF app.user_could_capture(d3, h2, now() - interval '1 hour', now()) OR pg_temp.t76_could(p, d3) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): a driver who never held the unit passes';
+  END IF;
+  PERFORM set_config('app.actor_id', d2::text, true);
+  SELECT * INTO r FROM app.submit_inspection(p);
+  IF NOT r.created THEN RAISE EXCEPTION 'FAIL P24 (76h): the nominee''s submit did not land'; END IF;
+  SELECT t.state::text AS state, t.completed_inspection_id INTO r FROM app.inspection_task t WHERE t.id = k;
+  IF r.state <> 'CANCELLED' OR r.completed_inspection_id IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): the cancelled task reads % citing % after the submit', r.state, r.completed_inspection_id;
+  END IF;
+  RAISE NOTICE 'PASS  P24 (76h) a task cancelled mid-capture passes its nominee and stays cancelled; a driver who never held the unit does not pass';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; h4 constant uuid := md5('t76h4')::uuid;
+  t3 constant uuid := md5('t76t3')::uuid;
+  d2 constant uuid := md5('t76d2')::uuid; d3 constant uuid := md5('t76d3')::uuid;
+  rig uuid; k uuid;
+BEGIN
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P24 (76h): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h4, now() - interval '10 hours') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h4, 1), (bac, rig, t3, 2);
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h4, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k;
+  RESET ROLE;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k, d2, now() - interval '1 hour');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P24 (76h): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  IF NOT app.user_could_capture(d2, h4, now(), now()) OR NOT app.user_could_capture(d2, t3, now(), now())
+     OR app.user_could_capture(d2, h1, now(), now()) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): a motive''s nominee does not reach exactly the motive and its coupled trailer';
+  END IF;
+  -- A trip then takes the nomination over (spec, decision 6).
+  RESET ROLE;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h4, d3, now() - interval '30 minutes');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P24 (76h): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  IF app.user_could_capture(d2, h4, now() - interval '20 minutes', now()) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): the nominee passes a window wholly after a trip took the task over';
+  END IF;
+  IF NOT app.user_could_capture(d2, h4, now() - interval '50 minutes', now()) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): the nominee fails a window that began before the trip took over';
+  END IF;
+  RAISE NOTICE 'PASS  P24 (76h) a motive''s nominee captures it and its coupled trailers until a trip takes the task over';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; h2 constant uuid := md5('t76h2')::uuid;
+  h4 constant uuid := md5('t76h4')::uuid;
+  t1 constant uuid := md5('t76t1')::uuid; t2 constant uuid := md5('t76t2')::uuid;
+  t3 constant uuid := md5('t76t3')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid;
+  rig uuid; old_rig uuid; h4_rig uuid; p jsonb;
+BEGIN
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P24 (76h): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  RESET ROLE;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h1, d1, now() - interval '5 hours');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P24 (76h): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  -- A partial window across an uncouple: T2 was towed from three hours ago
+  -- to two hours ago.
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '3 hours') RETURNING id INTO old_rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, old_rig, h1, 1), (bac, old_rig, t2, 2);
+  UPDATE app.combination SET effective_to = now() - interval '2 hours' WHERE id = old_rig;
+  IF NOT app.user_could_capture(d1, t2, now() - interval '150 minutes', now() - interval '60 minutes') THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): a window spanning the uncouple refused the trailer held for part of it';
+  END IF;
+  IF app.user_could_capture(d1, t2, now() - interval '90 minutes', now() - interval '60 minutes') THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): a window wholly after the uncouple passed the trailer';
+  END IF;
+
+  -- Every unit the payload attributes is checked (spec, Capture).
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '90 minutes') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2);
+  p := pg_temp.t76_capture(ARRAY[h1, t1], now() - interval '30 minutes', now());
+  IF NOT pg_temp.t76_could(p, d1) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): a capture of the trip''s motive and its trailer was refused';
+  END IF;
+  IF pg_temp.t76_could(pg_temp.t76_capture(ARRAY[h1, t1, h2], now() - interval '30 minutes', now()), d1) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): a reading on a unit the driver never held passed';
+  END IF;
+  IF pg_temp.t76_could(p || jsonb_build_object('absent_spares', jsonb_build_array(
+         jsonb_build_object('vehicle_id', h2, 'position_id', gen_random_uuid()))), d1) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): an absent spare on a unit the driver never held passed';
+  END IF;
+
+  -- combination_id names a rig of the payload's unit, at any time: a tab's
+  -- cached context can name a rig a trip start has since re-formed.
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h4, now() - interval '10 hours') RETURNING id INTO h4_rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, h4_rig, h4, 1), (bac, h4_rig, t3, 2);
+  IF NOT pg_temp.t76_could(p || jsonb_build_object('combination_id', rig), d1) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): the payload unit''s open rig was refused';
+  END IF;
+  IF NOT pg_temp.t76_could(p || jsonb_build_object('combination_id', old_rig), d1) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): the payload unit''s rig ended before the capture was refused';
+  END IF;
+  IF pg_temp.t76_could(p || jsonb_build_object('combination_id', h4_rig), d1) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): a rig headed by another unit passed';
+  END IF;
+  IF pg_temp.t76_could(p || jsonb_build_object('combination_id', gen_random_uuid()), d1) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): an unknown rig passed';
+  END IF;
+  IF NOT pg_temp.t76_could(p || '{"combination_id": null}'::jsonb, d1) THEN
+    RAISE EXCEPTION 'FAIL P24 (76h): an explicit null combination_id, which every solo capture sends, was refused';
+  END IF;
+  RAISE NOTICE 'PASS  P24 (76h) a window across an uncouple passes the trailer, every attributed unit is checked, and combination_id names a rig of the payload''s unit';
+END $$;
+ROLLBACK;
+
+\echo '== P25. TYRE-472, suite 76i: a capture longer than the setting is accepted on its last part, a driver who held the unit only before the judged window is refused, and a started_at after submitted_at is judged at submitted_at, beside its control (U148, rule 5, FR-OFF-013; as BAC, each case rolled back) (staged here: its trips are dated in the past)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+BEGIN
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P25 (76i): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  -- The trip covers the capture's last five hours only.
+  RESET ROLE;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h1, d1, now() - interval '5 hours');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P25 (76i): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  IF NOT pg_temp.t76_could(pg_temp.t76_capture(ARRAY[h1], now() - interval '14 hours', now()), d1) THEN
+    RAISE EXCEPTION 'FAIL P25 (76i): a capture longer than the setting was refused though the driver held the unit at its end';
+  END IF;
+  RAISE NOTICE 'PASS  P25 (76i) a capture longer than the setting is accepted on its last part';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+BEGIN
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P25 (76i): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  RESET ROLE;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+  VALUES (bac, h1, d1, now() - interval '14 hours', now() - interval '13 hours');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P25 (76i): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  IF pg_temp.t76_could(pg_temp.t76_capture(ARRAY[h1], now() - interval '14 hours', now()), d1) THEN
+    RAISE EXCEPTION 'FAIL P25 (76i): a driver who held the unit only before the judged window passed';
+  END IF;
+  RAISE NOTICE 'PASS  P25 (76i) a driver who held the unit only before the judged window is refused';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+BEGIN
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P25 (76i): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  RESET ROLE;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+  VALUES (bac, h1, d1, now() - interval '1 hour', now() - interval '10 minutes');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P25 (76i): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  IF pg_temp.t76_could(pg_temp.t76_capture(ARRAY[h1], now() - interval '2 minutes', now() - interval '5 minutes'), d1) THEN
+    RAISE EXCEPTION 'FAIL P25 (76i): a started_at after submitted_at was judged at started_at, not at submitted_at';
+  END IF;
+  RAISE NOTICE 'PASS  P25 (76i) a started_at after submitted_at is judged at submitted_at, after the trip ended';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+BEGIN
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P25 (76i): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  RESET ROLE;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h1, d1, now() - interval '1 hour');
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P25 (76i): the probe runs as %, so RLS is not on trial', current_user; END IF;
+  IF NOT pg_temp.t76_could(pg_temp.t76_capture(ARRAY[h1], now() - interval '2 minutes', now() - interval '5 minutes'), d1) THEN
+    RAISE EXCEPTION 'FAIL P25 (76i): the control, the same capture with the trip open, was refused';
+  END IF;
+  RAISE NOTICE 'PASS  P25 (76i) the control: the same capture passes with the trip open at submitted_at';
 END $$;
 ROLLBACK;
 
