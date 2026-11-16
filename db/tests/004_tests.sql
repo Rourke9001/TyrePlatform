@@ -705,9 +705,7 @@ DO $$
 DECLARE got text; n int;
 BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
-  UPDATE app.trip SET ended_at = now() WHERE id = md5('trip1')::uuid;
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES ('11111111-1111-1111-1111-111111111111', md5('veh1')::uuid, md5('driver3')::uuid, now());
+  PERFORM app.start_trip(md5('veh1')::uuid, md5('driver3')::uuid);
   PERFORM set_config('app.actor_id', md5('driver3')::uuid::text, true);
   SELECT string_agg(DISTINCT fleet_number, ',' ORDER BY fleet_number) INTO got FROM app.v_driver_vehicle;
   IF got IS DISTINCT FROM 'HORSE,LINK12,LINK6' THEN
@@ -2736,8 +2734,7 @@ BEGIN
   VALUES ('11111111-1111-1111-1111-111111111111', h, now() + interval '1 day', 'OPEN',
           now() - interval '2 days')
   RETURNING id INTO t2;
-  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
-  VALUES ('11111111-1111-1111-1111-111111111111', t2, md5('driver3')::uuid, now() - interval '1 hour');
+  PERFORM app.nominate_for_task(t2, md5('driver3')::uuid);
 
   -- FR-DSH-012: a driver's own work, and only their own.
   PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, true);
@@ -6075,9 +6072,8 @@ BEGIN
   INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
   VALUES (drv, bac, 't45drv@example.invalid', 'T45 Driver', 'DRIVER'),
          (ctl, bac, 't45ctl@example.invalid', 'T45 Controller', 'CONTROLLER');
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (bac, h, drv, now() - interval '1 minute');
   PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM app.start_trip(h, drv);
 
   -- (a) Create. The motive is member 1 (U7), the towed follow in the order
   -- given, effective_from is now() for today (U8), and the driver assigned
@@ -6385,9 +6381,9 @@ BEGIN
          (drv2, bac, 't46drv2@example.invalid', 'T46 Driver Two', 'DRIVER'),
          (drv3, bac, 't46drv3@example.invalid', 'T46 Driver Three', 'DRIVER'),
          (ctl,  bac, 't46ctl@example.invalid',  'T46 Controller', 'CONTROLLER');
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (bac, h, drv, now() - interval '1 minute'), (bac, hx, drv3, now() - interval '1 minute');
   PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM app.start_trip(h, drv);
+  PERFORM app.start_trip(hx, drv3);
   rig := app.create_combination(h, jsonb_build_array(jsonb_build_object('vehicle_id', ta)));
 
   -- (a) The predicate, asked about someone else (U4, FR-AUT-005 as amended
@@ -8557,8 +8553,7 @@ BEGIN
     (t15, t_id, 'T58-T15', cfg, 'TRAILER', 'ACTIVE'),
     (h9, t_id, 'T58-H9', cfg, 'HORSE', 'ACTIVE'), (t16, t_id, 'T58-T16', cfg, 'TRAILER', 'ACTIVE'),
     (t17, t_id, 'T58-T17', cfg, 'TRAILER', 'ACTIVE');
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (t_id, h1, drv, now() - interval '1 day');
+  PERFORM app.start_trip(h1, drv);
   SELECT p.id INTO p_run FROM app.position p
    WHERE p.configuration_id = cfg AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
 
@@ -13851,19 +13846,18 @@ BEGIN
   END IF;
 
   -- Thabo holds Second Fleet's open trip, so a driver of its own is planted:
-  -- trip_driver_no_overlap would refuse him a second one.
+  -- a start for Thabo would end that trip. The nomination goes first, since
+  -- a nomination on a unit a trip covers is refused.
   PERFORM set_config('app.tenant_id', t2::text, true);
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
   VALUES (xh, t2, 'T76-XH', 'T76XH GP',
           (SELECT configuration_id FROM app.vehicle WHERE id = md5('t2veh1')::uuid), 'HORSE', 'ACTIVE');
   INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
   VALUES (xd, t2, 't76xd@example.invalid', 'T76 Foreign Driver', 'DRIVER');
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (t2, xh, xd, now() - interval '1 hour') RETURNING id INTO xtr;
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
   VALUES (t2, xh, now() + interval '1 day') RETURNING id INTO xk;
-  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id)
-  VALUES (t2, xk, xd) RETURNING id INTO xn;
+  xn := app.nominate_for_task(xk, xd);
+  xtr := app.start_trip(xh, xd);
 
   PERFORM set_config('app.tenant_id', bac::text, true);
   IF EXISTS (SELECT 1 FROM app.trip WHERE id = xtr)
@@ -14026,8 +14020,7 @@ BEGIN
 
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
   VALUES (bac, md5('t76h3')::uuid, now() + interval '1 day') RETURNING id INTO k;
-  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id)
-  VALUES (bac, k, md5('t76d3')::uuid) RETURNING id INTO nm;
+  nm := app.nominate_for_task(k, md5('t76d3')::uuid);
   FOR st IN SELECT * FROM (VALUES
       (format('UPDATE app.inspection_task_nomination SET user_id = %L WHERE id = %L', md5('t76d4')::uuid, nm)),
       (format('DELETE FROM app.inspection_task_nomination WHERE id = %L', nm))) v(s)
@@ -14581,8 +14574,7 @@ BEGIN
   -- A driver on a trip elsewhere may be nominated (spec, decision 5). A
   -- second task, since a second nomination of the first in one transaction
   -- would share its instant (nomination_one_per_instant).
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (bac, h1, d1, now() - interval '1 hour');
+  PERFORM app.start_trip(h1, d1);
   PERFORM app.nominate_for_task(k2, d1);
   PERFORM pg_temp.t76_expect('76f', k2, now(), 'T76 Driver One/NOMINATION');
 
@@ -14673,8 +14665,7 @@ BEGIN
       n, r.responsible_user_id, r.responsible_via, r.escalated;
   END IF;
 
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (bac, h1, d1, now() - interval '1 hour');
+  PERFORM app.start_trip(h1, d1);
   INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
   VALUES (bac, h1, now() - interval '1 hour') RETURNING id INTO rig;
   INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
@@ -14941,8 +14932,7 @@ BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', '', true);
   PERFORM pg_temp.t76_units();
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (bac, h1, d1, now() - interval '1 hour');
+  PERFORM app.start_trip(h1, d1);
   INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
   VALUES (bac, h1, now() - interval '1 hour') RETURNING id INTO rig;
   INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
@@ -15183,10 +15173,8 @@ BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', ctl::text, true);
   PERFORM pg_temp.t76_units();
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (bac, h2, d2, now() - interval '1 hour') RETURNING id INTO old2;
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (bac, h3, d3, now() - interval '1 hour') RETURNING id INTO old3;
+  old2 := app.start_trip(h2, d2);
+  old3 := app.start_trip(h3, d3);
   tr := app.start_trip(h2, d3);
   SELECT string_agg(CASE WHEN t.ended_at = now() AND t.ended_by = ctl THEN 'ended now'
                          WHEN t.ended_at IS NULL THEN 'open' ELSE 'ended ' || t.ended_at END, ',' ORDER BY o.ord) INTO got
@@ -15569,10 +15557,8 @@ BEGIN
   VALUES (bac, h6, now() - interval '1 day') RETURNING id INTO rig;
   INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
   VALUES (bac, rig, h6, 1), (bac, rig, t4, 2);
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (bac, h6, d2, now() - interval '1 hour') RETURNING id INTO a;
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (bac, h8, d1, now() - interval '1 hour') RETURNING id INTO b;
+  a := app.start_trip(h6, d2);
+  b := app.start_trip(h8, d1);
   PERFORM pg_temp.t76_due(h6, (today::timestamp AT TIME ZONE tz) - interval '1 microsecond');
   before_ := (SELECT string_agg(t.id || ':' || (t.ended_at IS NULL), ',' ORDER BY t.id) FROM app.trip t)
              || '|' || (SELECT string_agg(c.id || ':' || (c.effective_to IS NULL), ',' ORDER BY c.id) FROM app.combination c)
@@ -15638,8 +15624,6 @@ BEGIN
   VALUES (bac, h6, now() - interval '1 day') RETURNING id INTO rig;
   INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
   VALUES (bac, rig, h6, 1), (bac, rig, t4, 2);
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
-  VALUES (bac, h6, d1, now() - interval '2 hours', now() - interval '5 minutes');
   kh := pg_temp.t76_due(h6, ((today + 1)::timestamp AT TIME ZONE tz) - interval '1 microsecond');
   PERFORM pg_temp.t76_due(t4, ((today + 1)::timestamp AT TIME ZONE tz) - interval '1 microsecond');
   got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h6, d2));
@@ -15659,8 +15643,7 @@ BEGIN
 
   -- The rule lives only in the start: a task falling due on a unit already
   -- on a trip leaves that trip open, and blocks a handover onto it.
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (bac, h1, md5('t76d3')::uuid, now() - interval '1 hour') RETURNING id INTO running;
+  running := app.start_trip(h1, md5('t76d3')::uuid);
   PERFORM pg_temp.t76_due(h1, (today::timestamp AT TIME ZONE tz) - interval '1 microsecond');
   got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h1, md5('t76d4')::uuid));
   IF got NOT LIKE 'TY028 a trip cannot start before its due inspections are done: T76-H1 due %'
@@ -15673,8 +15656,8 @@ END $$;
 ROLLBACK;
 
 \echo '== 76m. an inspection covers the configuration as a whole: a submit closes the task it names on any unit it read, and every open task due by its day on each unit it read and created before it; a later day, an unread unit and a cancelled task are left alone, and a replay closes nothing more (U150, FR-INS-052, FR-INS-062, criterion 4; as BAC, each case rolled back)'
--- The configuration every case below starts from: D1's trip on H6 from two
--- days back, towing T4 and T5 (FR-INS-062).
+-- The configuration every case below starts from: D1's trip on H6, started
+-- now, towing T4 and T5 (FR-INS-062).
 CREATE FUNCTION pg_temp.t76_rig6() RETURNS void
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $fn$
@@ -15686,8 +15669,7 @@ BEGIN
   VALUES ('11111111-1111-1111-1111-111111111111', rig, md5('t76h6')::uuid, 1),
          ('11111111-1111-1111-1111-111111111111', rig, md5('t76t4')::uuid, 2),
          ('11111111-1111-1111-1111-111111111111', rig, md5('t76t5')::uuid, 3);
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES ('11111111-1111-1111-1111-111111111111', md5('t76h6')::uuid, md5('t76d1')::uuid, now() - interval '2 days');
+  PERFORM app.start_trip(md5('t76h6')::uuid, md5('t76d1')::uuid);
 END $fn$;
 
 -- One OPEN task on p_unit due at the tenant-local end of the tenant's today
@@ -15871,8 +15853,7 @@ BEGIN
   INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
   VALUES (bac, rig, h8, 1), (bac, rig, t7, 2);
   k_t7 := pg_temp.t76_task(t7, 1);
-  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
-  VALUES (bac, k_t7, d3, now() - interval '1 hour');
+  PERFORM app.nominate_for_task(k_t7, d3);
   PERFORM set_config('app.actor_id', d1::text, true);
   SELECT string_agg(v.fleet_number || '>' || c.fleet_number, ',' ORDER BY v.fleet_number) INTO got
     FROM app.v_my_inspection_task m
@@ -15903,8 +15884,7 @@ BEGIN
   PERFORM set_config('app.actor_id', '', true);
   PERFORM pg_temp.t76_units();
   ks := ARRAY[pg_temp.t76_task(h7, 0), pg_temp.t76_task(t6, 0), pg_temp.t76_task(t7, 0)];
-  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
-  SELECT bac, k, d2, now() - interval '1 hour' FROM unnest(ks) k;
+  PERFORM app.nominate_for_task(k, d2) FROM unnest(ks) k;
   PERFORM set_config('app.actor_id', d2::text, true);
   i := 0;
   FOREACH u IN ARRAY ARRAY[h7, t6, t7] LOOP
