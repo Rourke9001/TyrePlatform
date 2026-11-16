@@ -129,14 +129,14 @@ db-explain: ## EXPLAIN (ANALYZE, BUFFERS) the dashboard read path over the volum
 
 .PHONY: db-test
 db-test: ## Run the verification suite as a NON-SUPERUSER (the only valid way)
-	$(PSQL_APP) -v ON_ERROR_STOP=1 < db/tests/004_tests.sql
+	set -o pipefail; cat db/tests/helpers.sql db/tests/004_tests.sql | $(PSQL_APP) -v ON_ERROR_STOP=1
 
 # The one target that runs as postgres. It proves nothing about RLS and is
 # never a substitute for db-test; what it stages and why is the header of
 # db/tests/005_privileged.sql (TYRE-38, B7 spec U12).
 .PHONY: db-test-privileged
 db-test-privileged: ## Negative controls that need a superuser to STAGE (db/tests/005_privileged.sql)
-	$(PSQL_SUPER) -v ON_ERROR_STOP=1 < db/tests/005_privileged.sql
+	set -o pipefail; cat db/tests/helpers.sql db/tests/005_privileged.sql | $(PSQL_SUPER) -v ON_ERROR_STOP=1
 
 # Two databases of its own, never tyre, so the suite's pins and its
 # tenant sweep stay defined on the fixture (TYRE-374).
