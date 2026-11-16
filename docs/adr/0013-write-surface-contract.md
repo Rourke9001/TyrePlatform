@@ -443,10 +443,11 @@ more than writing the assumption down first.
 - **A raw app-role INSERT of a trip or a nomination could back-date it and
   skipped the rules only its function holds: closed by 000061 (TYRE-472,
   U202, 16 Nov 2026).** U152 and U153 had accepted it (TYRE-326, 22 and 26
-  Oct 2026). No function could back-date one: `app.start_trip` and
-  `app.nominate_for_task` stamp `now()`. But `app_rw` held INSERT on
-  `app.trip` and `app.inspection_task_nomination`, and nothing bounded
-  `started_at` or `nominated_at` below. A bound would have refused what
+  Oct 2026). No function could date one earlier than the start of the
+  caller's transaction: `app.start_trip` and `app.nominate_for_task`
+  stamp `now()`. But `app_rw` held INSERT on `app.trip` and
+  `app.inspection_task_nomination`, and nothing bounded `started_at` or
+  `nominated_at` below. A bound would have refused what
   000060's data step and the seed fixture write, both past instants, and
   the suite's back-dated plants, about 70 of them. The shape rules sat in
   the INSERT triggers instead, in each function's words and order:
@@ -461,4 +462,8 @@ more than writing the assumption down first.
   trip was not the only history a caller could date. `app_rw` now holds
   neither INSERT, so every trip and nomination comes from its function,
   dated `now()` and judged by all its rules, and `trip_well_formed` and
-  `nomination_well_formed` are gone (ADR-0024).
+  `nomination_well_formed` are gone (ADR-0024). `now()` is the start of
+  the caller's transaction, so the app role dates a start, an end or a
+  nomination no earlier than that, and a caller that holds its
+  transaction open dates it before the call. The owner accepted that
+  window (U218, 16 Nov 2026, `db/CLAUDE.md`, Append-only).

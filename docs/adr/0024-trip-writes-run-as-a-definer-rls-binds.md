@@ -117,13 +117,18 @@ U202).
 
 ## Consequences
 
-**Good:** a trip or nomination rule lives in one place. A back-dated
-trip, a trip that skips the due-inspection gate and a nomination on a
-covered unit are no longer reachable as the app role, so U152's and
-U153's gaps close and ADR-0013's entry with them. `trip_well_formed` and
+**Good:** a trip or nomination rule lives in one place. A trip dated
+earlier than the start of the caller's transaction, a trip that skips
+the due-inspection gate and a nomination on a covered unit are no longer
+reachable as the app role, so U152's and U153's gaps close and
+ADR-0013's entry with them. `trip_well_formed` and
 `nomination_well_formed` are deleted. Rule 1 holds by the same policies
-as before, and rule 3 gets stronger: the app role can no longer write
-trip history at an instant it chooses.
+as before, and rule 3 gets stronger. A raw INSERT could name any past
+instant, and the app role can now date trip and nomination history no
+earlier than the start of the caller's transaction. A caller that holds
+its transaction open still starts, ends or nominates at its own `BEGIN`,
+earlier than the call. The owner accepted that window (U218, 16 Nov
+2026), and `db/CLAUDE.md` (Append-only) records it.
 
 **Bad:** there are now two kinds of definer, and the rule for a new one
 is no longer one line. The suite's checks 8c and 67a must tell them
