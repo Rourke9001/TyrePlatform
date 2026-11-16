@@ -30,6 +30,9 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+An entry whose cause is gone is deleted, not kept as history: git holds the
+old text (CLAUDE.md, Working with me; TYRE-484).
+
 ## 2026-11-14 - A routine kept the connector it was created with, so its Jira steps had no tool once the connector was re-added (TYRE-481, #217)
 
 **What happened:** on 14 Nov the owner removed the claude.ai Atlassian

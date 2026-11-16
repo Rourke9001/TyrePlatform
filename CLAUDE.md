@@ -247,6 +247,10 @@ vehicle centreline (CHG-010), and pre-convention captures carry
   (dated, with the imperative rule) in the same session. Before retrying
   anything that feels like it may have been tried before, check the register —
   an entry there means **do not try it again**; do what the rule says instead.
+  An entry holds only while its cause does. When you can show that the tool,
+  version or code it names has changed so the failure cannot recur, delete
+  the entry in that session, with the evidence in the commit message
+  (TYRE-484, U215).
   It is curated, not a diary: only failures that change how the next attempt
   should behave, never one-off typos or transient errors.
 - **Do not force code to work.** A change has to own its place. If a fix
