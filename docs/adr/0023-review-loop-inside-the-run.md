@@ -202,7 +202,7 @@ variable.
 | Lead: triage, spec, orchestration | Fable, effort high | `scripts/pipeline.sh` |
 | Spec builder check | Opus | `.claude/commands/pipeline.md`, its dispatch |
 | Planner teammate | Opus | `pipeline.md`, its spawn line |
-| Red team of the plan | Fable, effort high; Opus for its one second dispatch | `.claude/agents/plan-red-team.md` frontmatter; `pipeline.md`, Red team step 1 |
+| Red team of the plan | Fable, effort high; Opus for the one retry of each dispatch | `.claude/agents/plan-red-team.md` frontmatter; `pipeline.md`, Red team step 1 |
 | Implementer teammate | Sonnet, or Opus when the plan's files meet an auditor's trigger | `pipeline.md`, Implementation |
 | Code review | Opus | `scripts/pipeline-review.sh` |
 | Auditors | Opus | their frontmatter |
