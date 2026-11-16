@@ -120,7 +120,11 @@ BEGIN
       ('platform_tyre_brand','INSERT'),
       ('platform_tyre_pattern','INSERT'),
       ('tenant','INSERT'),
-      ('vehicle_driver','INSERT')
+      ('vehicle_driver','INSERT'),
+      -- Written only by their three functions, which run as app_writer
+      -- (000061, ADR-0024).
+      ('trip','INSERT'),
+      ('inspection_task_nomination','INSERT')
     ) AS revoked(t, v)
    WHERE has_any_column_privilege(current_user, 'app.' || t, v);
   IF bad IS NOT NULL THEN
@@ -149,9 +153,6 @@ BEGIN
        -- tyre_receipt's grant is (price_state, invoice_number) alone, and
        -- tyre_receipt_moves_once holds its moves (000059, section 75h).
        'tyre_receipt',
-       -- trip's grant is (ended_at, ended_by) alone, and trip_is_ended_once
-       -- holds its one move (000060, section 76c).
-       'trip',
        -- inspection_task's grant is (state, cancelled_reason,
        -- completed_inspection_id) alone, and inspection_task_closes_once
        -- holds its close (000060, section 76d).
@@ -376,21 +377,51 @@ END $$;
 -- entirely (FR-TEN-004) and merge green. Each allowlisted routine carries
 -- its own tenant backstop, documented at the function.
 DO $$
-DECLARE offenders text;
+DECLARE
+  -- The write list: definers owned by app_writer, which RLS binds, so the
+  -- caller's tenant still bounds them (ADR-0024).
+  sigs text[] := ARRAY['app.start_trip(uuid,uuid,uuid[])', 'app.end_trip(uuid)',
+                       'app.nominate_for_task(uuid,uuid)'];
+  writes oid[];
+  offenders text;
 BEGIN
+  SELECT string_agg(s, ', ') INTO offenders FROM unnest(sigs) s WHERE to_regprocedure(s) IS NULL;
+  IF offenders IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 8c: write-list function(s) % do not exist; point this section at whatever replaced them', offenders;
+  END IF;
+  writes := ARRAY(SELECT to_regprocedure(s)::oid FROM unnest(sigs) s);
   SELECT string_agg(p.proname, ', ' ORDER BY p.proname) INTO offenders
     FROM pg_proc p
    WHERE p.pronamespace = 'app'::regnamespace
      AND p.prokind IN ('f','p')
      AND p.prosecdef
-     -- refresh_governing_tread materialises the MIN across a reading's
-     -- measurements (CR-011) for rows the writer may not see; 000004 documents
-     -- the same-tenant backstop it carries in place of RLS (body since 000050).
-     AND p.proname <> ALL (ARRAY['refresh_governing_tread']);
+     -- Row security off: refresh_governing_tread materialises the MIN across
+     -- a reading's measurements (CR-011) for rows the writer may not see;
+     -- 000004 documents the same-tenant backstop it carries in place of RLS
+     -- (body since 000050, ADR-0021).
+     AND p.proname <> ALL (ARRAY['refresh_governing_tread'])
+     AND p.oid <> ALL (writes);
   IF offenders IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: SECURITY DEFINER routine(s) outside the allowlist, RLS does not bind them: %', offenders;
   END IF;
-  RAISE NOTICE 'PASS  no unreviewed routine runs with RLS bypassed';
+  SELECT string_agg(format('%s (owner %s, definer %s, returns %s, config %s, acl %s)', s, p.proowner::regrole,
+                           p.prosecdef, p.prorettype::regtype, p.proconfig, x.acl), '; ' ORDER BY s) INTO offenders
+    FROM unnest(sigs) s
+    JOIN pg_proc p ON p.oid = to_regprocedure(s)
+    CROSS JOIN LATERAL (
+      SELECT string_agg(CASE a.grantee WHEN 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END || ':' || a.privilege_type,
+                        ',' ORDER BY CASE a.grantee WHEN 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END,
+                        a.privilege_type) AS acl
+        FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a) x
+   WHERE NOT p.prosecdef
+      OR p.proowner IS DISTINCT FROM (SELECT r.oid FROM pg_roles r WHERE r.rolname = 'app_writer')
+      OR p.prorettype = 'trigger'::regtype
+      OR p.proconfig IS DISTINCT FROM ARRAY['search_path=app, pg_temp']
+      OR x.acl IS DISTINCT FROM 'app_rw:EXECUTE,app_writer:EXECUTE';
+  IF offenders IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 8c: a write-list function is not a definer owned by app_writer with its search_path pinned, returning no trigger, executable by app_rw alone: %', offenders;
+  END IF;
+  RAISE NOTICE 'PASS  no unreviewed routine runs with RLS bypassed, and the three write-list definers run as app_writer';
 END $$;
 
 \echo '== 8d. search_path is pinned where names resolve at run time and left open where the planner inlines (TYRE-181)'
@@ -424,6 +455,16 @@ BEGIN
     RAISE EXCEPTION 'FAIL: sql table function(s) a view is built over carry a SET clause, which blocks inlining (000036): %', pinned_tf;
   END IF;
   RAISE NOTICE 'PASS  every plpgsql routine pins search_path; every inlined table function leaves it open';
+END $$;
+
+\echo '== 8e. app_writer, which owns the write-list definers, is bound by RLS and holds exactly what their call trees need (TYRE-472, ADR-0024)'
+DO $$
+DECLARE faults text := pg_temp.app_writer_faults(current_user);
+BEGIN
+  IF faults IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 8e: %', faults;
+  END IF;
+  RAISE NOTICE 'PASS  8e app_writer bypasses no row security, owns the three write-list functions and nothing else, and holds exactly their call trees'' grants';
 END $$;
 
 \echo '== 9. Combination numbering resolves to constituent units (BR-VEH-003, CFL-006)'
@@ -10225,24 +10266,52 @@ END $$;
 -- the trigger fires, so reading_measurement_governs keeps working without the
 -- grant: section 31's submit and 60b still read the MIN it writes.
 
-\echo '== 67a. no SECURITY DEFINER routine in app is executable by the app login'
+\echo '== 67a. the only definers the app login can execute are the three write-list functions, and none returns a trigger'
+-- CREATE TRIGGER takes only a function returning trigger, so an executable
+-- trigger definer could be attached and run with RLS off (TYRE-346); the
+-- three write-list functions cannot be, and run as app_writer, which RLS
+-- binds (ADR-0024).
 DO $$
-DECLARE offenders text;
+DECLARE
+  sigs text[] := ARRAY['app.start_trip(uuid,uuid,uuid[])', 'app.end_trip(uuid)',
+                       'app.nominate_for_task(uuid,uuid)'];
+  writes oid[];
+  offenders text;
 BEGIN
   IF to_regprocedure('app.refresh_governing_tread()') IS NULL THEN
     RAISE EXCEPTION 'FAIL 67a: app.refresh_governing_tread() is gone; point this section at whatever definer replaced it';
   END IF;
+  SELECT string_agg(s, ', ') INTO offenders FROM unnest(sigs) s WHERE to_regprocedure(s) IS NULL;
+  IF offenders IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 67a: write-list function(s) % do not exist; point this section at whatever replaced them', offenders;
+  END IF;
+  writes := ARRAY(SELECT to_regprocedure(s)::oid FROM unnest(sigs) s);
   -- has_function_privilege counts PUBLIC and app_rw, the two grants 000001 left.
   SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.proname) INTO offenders
     FROM pg_proc p
    WHERE p.pronamespace = 'app'::regnamespace
      AND p.prosecdef
+     AND p.prorettype = 'trigger'::regtype
      AND has_function_privilege(current_user, p.oid, 'EXECUTE');
   IF offenders IS NOT NULL THEN
-    RAISE EXCEPTION 'FAIL 67a: % may execute %, so it can attach it as a trigger and run it with RLS off',
+    RAISE EXCEPTION 'FAIL 67a: % may execute the trigger definer(s) %, so it can attach one as a trigger and run it with RLS off',
       current_user, offenders;
   END IF;
-  RAISE NOTICE 'PASS  67a no definer in app is executable by %', current_user;
+  SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.proname) INTO offenders
+    FROM pg_proc p
+   WHERE p.pronamespace = 'app'::regnamespace
+     AND p.prosecdef
+     AND p.oid <> ALL (writes)
+     AND has_function_privilege(current_user, p.oid, 'EXECUTE');
+  IF offenders IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 67a: % may execute the definer(s) %, off the write list', current_user, offenders;
+  END IF;
+  SELECT string_agg(s, ', ') INTO offenders FROM unnest(sigs) s
+   WHERE NOT has_function_privilege(current_user, to_regprocedure(s), 'EXECUTE');
+  IF offenders IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 67a: % may not execute the write-list function(s) %', current_user, offenders;
+  END IF;
+  RAISE NOTICE 'PASS  67a % executes the three write-list definers and no other, and none returns a trigger', current_user;
 END $$;
 
 \echo '== 67b. attaching the definer to the login''s own temp table is refused'
@@ -11802,7 +11871,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 72c. an INSERT naming another tenant is refused by the audited table''s own policy (FR-TEN-004, docs/lessons.md 2026-09-08; as BAC, rolled back)'
+\echo '== 72c. an INSERT naming another tenant is refused by the audited table''s own policy, and by privilege on the two tables only their functions write (FR-TEN-004, docs/lessons.md 2026-09-08, ADR-0024; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
@@ -11832,37 +11901,37 @@ BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
 
   FOR r IN SELECT * FROM (VALUES
-      ('tyre', format(
+      ('tyre', 'policy', format(
         'INSERT INTO app.tyre (tenant_id, display_code, state) VALUES (%L, %L, %L)',
         t2, 'T72CFORGE', 'IN_STOCK')),
-      ('fitment', format(
+      ('fitment', 'policy', format(
         'INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer, fitted_tread_mm) VALUES (%L, %L, %L, %L, now(), 100000, 14.0)',
         t2, ty2, veh2, pos2)),
-      ('retread_job', format(
+      ('retread_job', 'policy', format(
         'INSERT INTO app.retread_job (tenant_id, tyre_id, sent_at) VALUES (%L, %L, current_date)',
         t2, ty2)),
-      ('app_user', format(
+      ('app_user', 'policy', format(
         'INSERT INTO app.app_user (tenant_id, email, display_name, role) VALUES (%L, %L, %L, %L)',
         t2, 't72c@example.invalid', 'T72C Forged', 'DRIVER')),
-      ('trip', format(
+      ('trip', 'privilege', format(
         'INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
         t2, veh2, drv2)),
-      ('inspection_task_nomination', format(
+      ('inspection_task_nomination', 'privilege', format(
         'INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, %L)',
         t2, task2, drv2)),
-      ('threshold_policy', format(
+      ('threshold_policy', 'policy', format(
         'INSERT INTO app.threshold_policy (tenant_id, axle_class, retread_threshold_mm, max_retreads, effective_from) VALUES (%L, %L, 4.0, 2, now() + interval %L)',
         t2, 'DRIVE', '1 day')),
-      ('configuration', format(
+      ('configuration', 'policy', format(
         'INSERT INTO app.configuration (tenant_id, key, value) VALUES (%L, %L, %L)',
         t2, 't72c_probe', '"forged"')),
-      ('vehicle_tag', format(
+      ('vehicle_tag', 'policy', format(
         'INSERT INTO app.vehicle_tag (tenant_id, name) VALUES (%L, %L)',
         t2, 'T72C Forged')),
-      ('vehicle_tag_map', format(
+      ('vehicle_tag_map', 'policy', format(
         'INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id) VALUES (%L, %L, %L)',
         t2, veh2, tag2))
-    ) v(tbl, stmt)
+    ) v(tbl, how, stmt)
   LOOP
     msg := NULL;
     BEGIN
@@ -11871,13 +11940,20 @@ BEGIN
       GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
     END;
     -- The table's own policy, by name: audit_log's policy would answer a row
-    -- that got past it with the same 42501.
-    IF msg IS NULL OR msg NOT LIKE format('%%row-level security policy for table "%s"%%', r.tbl) THEN
+    -- that got past it with the same 42501. The app role holds no INSERT on
+    -- the two tables only their functions write (000061), so privilege
+    -- answers first there, and P27 in db/tests/005_privileged.sql holds
+    -- their WITH CHECK.
+    IF r.how = 'privilege' AND msg IS DISTINCT FROM format('permission denied for table %s', r.tbl) THEN
+      RAISE EXCEPTION 'FAIL 72c: a % row aimed at Second Fleet was answered %, not for privilege',
+        r.tbl, COALESCE(msg, 'by an accepted row');
+    END IF;
+    IF r.how = 'policy' AND (msg IS NULL OR msg NOT LIKE format('%%row-level security policy for table "%s"%%', r.tbl)) THEN
       RAISE EXCEPTION 'FAIL 72c: a % row aimed at Second Fleet was answered %',
         r.tbl, COALESCE(msg, 'by an accepted row');
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS  72c a row aimed at another tenant is refused by each audited table''s own policy';
+  RAISE NOTICE 'PASS  72c a row aimed at another tenant is refused by each audited table''s own policy, and by privilege on the two tables only their functions write';
 END $$;
 ROLLBACK;
 
@@ -13721,7 +13797,7 @@ DROP FUNCTION pg_temp.t75_try(text);
 
 \echo '== 76. TYRE-326: trips, nominations, the responsible driver and the capture window (FR-VEH-007, FR-INS-050 to 053, FR-AUT-005, FR-OFF-015)'
 
-\echo '== 76a. a trip and a nomination are tenant rows under forced RLS; the app role inserts both, ends a trip by its two end columns alone, and edits or deletes neither otherwise (rule 1, rule 3; as BAC, rolled back)'
+\echo '== 76a. a trip and a nomination are tenant rows under forced RLS; the app role writes neither table raw and executes the three functions that write them (rule 1, rule 3, ADR-0024; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE
@@ -13729,7 +13805,7 @@ DECLARE
   t2  constant uuid := '22222222-2222-2222-2222-222222222222';
   xh  constant uuid := md5('t76xh')::uuid;
   xd  constant uuid := md5('t76xd')::uuid;
-  xtr uuid; xk uuid; xn uuid;
+  xtr uuid; xk uuid; xn uuid; bk uuid;
   n int; got text;
 BEGIN
   PERFORM set_config('app.actor_id', '', true);
@@ -13739,18 +13815,20 @@ BEGIN
   IF n <> 2 THEN
     RAISE EXCEPTION 'FAIL 76a: % of the two new tables have RLS enabled and forced', n;
   END IF;
-  IF NOT has_table_privilege(current_user, 'app.trip', 'INSERT')
-     OR has_table_privilege(current_user, 'app.trip', 'DELETE')
-     OR NOT has_column_privilege(current_user, 'app.trip', 'ended_at', 'UPDATE')
-     OR NOT has_column_privilege(current_user, 'app.trip', 'ended_by', 'UPDATE')
-     OR has_column_privilege(current_user, 'app.trip', 'started_at', 'UPDATE')
-     OR has_column_privilege(current_user, 'app.trip', 'vehicle_id', 'UPDATE') THEN
-    RAISE EXCEPTION 'FAIL 76a: the app role''s trip grants are not INSERT and UPDATE (ended_at, ended_by) alone';
+  SELECT string_agg(t || ' ' || v, ', ') INTO got
+    FROM (VALUES ('app.trip'), ('app.inspection_task_nomination')) x(t)
+    CROSS JOIN (VALUES ('INSERT'), ('UPDATE'), ('DELETE')) y(v)
+   WHERE CASE v WHEN 'DELETE' THEN has_table_privilege(current_user, t, v)
+                ELSE has_any_column_privilege(current_user, t, v) END;
+  IF got IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 76a: the app role may write raw: %', got;
   END IF;
-  IF NOT has_table_privilege(current_user, 'app.inspection_task_nomination', 'INSERT')
-     OR has_any_column_privilege(current_user, 'app.inspection_task_nomination', 'UPDATE')
-     OR has_table_privilege(current_user, 'app.inspection_task_nomination', 'DELETE') THEN
-    RAISE EXCEPTION 'FAIL 76a: the app role''s nomination grants are not INSERT alone';
+  SELECT string_agg(f, ', ') INTO got
+    FROM unnest(ARRAY['app.start_trip(uuid,uuid,uuid[])', 'app.end_trip(uuid)',
+                      'app.nominate_for_task(uuid,uuid)']) f
+   WHERE NOT has_function_privilege(current_user, f, 'EXECUTE');
+  IF got IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 76a: the app role may not execute %', got;
   END IF;
 
   -- Thabo holds Second Fleet's open trip, so a driver of its own is planted:
@@ -13772,39 +13850,45 @@ BEGIN
      OR EXISTS (SELECT 1 FROM app.inspection_task_nomination WHERE id = xn) THEN
     RAISE EXCEPTION 'FAIL 76a: BAC reads Second Fleet''s trip or nomination';
   END IF;
+  -- Same-fleet rows valid in every way, so privilege is the only thing left
+  -- to refuse them. The WITH CHECK of both tables is P27 in
+  -- db/tests/005_privileged.sql, since no app_login route reaches it.
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, md5('t76h3')::uuid, now() + interval '1 day') RETURNING id INTO bk;
   got := NULL;
   BEGIN
     INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-    VALUES (t2, xh, xd, now());
+    VALUES (bac, md5('t76h1')::uuid, md5('t76d1')::uuid, now());
   EXCEPTION WHEN insufficient_privilege THEN
     GET STACKED DIAGNOSTICS got = MESSAGE_TEXT;
   END;
-  IF got IS NULL OR got NOT LIKE '%row-level security policy for table "trip"%' THEN
-    RAISE EXCEPTION 'FAIL 76a: a trip naming Second Fleet was answered %, not by trip''s own policy',
+  IF got IS DISTINCT FROM 'permission denied for table trip' THEN
+    RAISE EXCEPTION 'FAIL 76a: a raw trip on T76-H1 was answered %, not for privilege',
       COALESCE(got, 'by an accepted row');
   END IF;
   got := NULL;
   BEGIN
     INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id)
-    VALUES (t2, xk, xd);
+    VALUES (bac, bk, md5('t76d3')::uuid);
   EXCEPTION WHEN insufficient_privilege THEN
     GET STACKED DIAGNOSTICS got = MESSAGE_TEXT;
   END;
-  IF got IS NULL OR got NOT LIKE '%row-level security policy for table "inspection_task_nomination"%' THEN
-    RAISE EXCEPTION 'FAIL 76a: a nomination naming Second Fleet was answered %, not by the nomination table''s own policy',
+  IF got IS DISTINCT FROM 'permission denied for table inspection_task_nomination' THEN
+    RAISE EXCEPTION 'FAIL 76a: a raw nomination of T76 Driver Three was answered %, not for privilege',
       COALESCE(got, 'by an accepted row');
   END IF;
-  RAISE NOTICE 'PASS  76a trips and nominations are isolated per tenant under forced RLS; INSERT for both, UPDATE (ended_at, ended_by) on a trip, nothing else';
+  RAISE NOTICE 'PASS  76a trips and nominations are isolated per tenant under forced RLS; the app role writes neither table raw and executes the three functions that write them';
 END $$;
 ROLLBACK;
 
-\echo '== 76c. a trip ends once, by its end columns, at the server''s now and by the bound actor, and an ended trip never changes; a raw trip takes an active driver on a motive not retired, starting and ending no later than now; a nomination is never updated or deleted, and a raw one takes an open task, an active nominee and an instant no later than now (FR-VEH-007, FR-INS-051, rule 3, U152, TY028, TY018; as BAC, rolled back)'
+\echo '== 76c. the app role writes neither table raw: a trip''s end or start, and a nomination''s UPDATE or DELETE, are refused for privilege; the end''s own rules are P21 and the constraints P22 in db/tests/005_privileged.sql (rule 3, ADR-0024; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE
   bac constant uuid := '11111111-1111-1111-1111-111111111111';
   ctl constant uuid := md5('t76c')::uuid;
-  tr uuid; k uuid; kc uuid; nm uuid;
+  tr uuid; k uuid; nm uuid;
   row_ app.trip;
   st text; msg text;
 BEGIN
@@ -13812,68 +13896,24 @@ BEGIN
   PERFORM set_config('app.actor_id', ctl::text, true);
   PERFORM pg_temp.t76_units();
   tr := app.start_trip(md5('t76h2')::uuid, md5('t76d2')::uuid);
-
-  FOR st, msg IN
-    SELECT * FROM (VALUES
-      (format('UPDATE app.trip SET started_at = now() WHERE id = %L', tr),
-       '42501 permission denied for table trip'),
-      -- A raw insert meets app.start_trip's shape rules in its words, and in
-      -- its order: an inactive driver on a trailer is refused for the driver.
-      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
-              bac, md5('t76t1')::uuid, md5('t76d3')::uuid),
-       'TY028 a trip is driven on a horse, rigid or light vehicle; T76-T1 is a trailer'),
-      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
-              bac, md5('t76hd')::uuid, md5('t76d3')::uuid),
-       'TY028 T76-HD is disposed; a retired unit does not go on a trip'),
-      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
-              bac, md5('t76hi')::uuid, md5('t76d3')::uuid),
-       'TY028 T76-HI is inactive; a retired unit does not go on a trip'),
-      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
-              bac, md5('t76h3')::uuid, md5('t76di')::uuid),
-       'TY028 T76 Driver Inactive is no longer active'),
-      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
-              bac, md5('t76t1')::uuid, md5('t76di')::uuid),
-       'TY028 T76 Driver Inactive is no longer active'),
-      -- The bounds at now are the trigger's own words.
-      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at) VALUES (%L, %L, %L, now() - interval ''1 hour'', now() + interval ''1 minute'')',
-              bac, md5('t76h3')::uuid, md5('t76d3')::uuid),
-       'TY028 a trip ends now or earlier, never in the future'),
-      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now() + interval ''1 minute'')',
-              bac, md5('t76h3')::uuid, md5('t76d3')::uuid),
-       'TY028 a trip starts now or earlier, never in the future'),
-      -- A trailer an unreferenced CTE plants in the same statement is unseen
-      -- by the trigger, and the FK would pass it at the statement's end.
-      (format('WITH nv AS (INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status) SELECT %L, tenant_id, ''T76-CTE'', ''T76CTE GP'', configuration_id, unit_kind, status FROM app.vehicle WHERE id = %L) INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
-              md5('t76c-cte-v')::uuid, md5('t76t1')::uuid, bac, md5('t76c-cte-v')::uuid, md5('t76d3')::uuid),
-       '23503 trip_tenant_id_vehicle_id_fkey')
-    ) v(s, m)
+  FOR st IN SELECT * FROM (VALUES
+      (format('UPDATE app.trip SET ended_at = now() WHERE id = %L', tr)),
+      (format('UPDATE app.trip SET started_at = now() WHERE id = %L', tr))) v(s)
   LOOP
-    DECLARE got_st text; got_msg text; got_con text;
+    msg := NULL;
     BEGIN
-      BEGIN
-        EXECUTE st;
-        RAISE EXCEPTION 'FAIL 76c: % was accepted', st;
-      EXCEPTION WHEN OTHERS THEN
-        GET STACKED DIAGNOSTICS got_st = RETURNED_SQLSTATE, got_msg = MESSAGE_TEXT, got_con = CONSTRAINT_NAME;
-      END;
-      IF got_msg LIKE 'FAIL 76c:%' THEN
-        RAISE EXCEPTION '%', got_msg;
-      END IF;
-      IF (got_st || ' ' || CASE WHEN got_st IN ('23514', '23503') THEN got_con ELSE got_msg END) IS DISTINCT FROM msg THEN
-        RAISE EXCEPTION 'FAIL 76c: % answered % %, not %', st, got_st, got_msg, msg;
-      END IF;
+      EXECUTE st;
+    EXCEPTION WHEN insufficient_privilege THEN
+      GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
     END;
+    IF msg IS DISTINCT FROM 'permission denied for table trip' THEN
+      RAISE EXCEPTION 'FAIL 76c: % was answered %, not the revoked grant', st, COALESCE(msg, 'by success');
+    END IF;
   END LOOP;
   SELECT * INTO row_ FROM app.trip WHERE id = tr;
   IF row_.ended_at IS NOT NULL OR row_.ended_by IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 76c: a refused edit left the open trip ended at % by %', row_.ended_at, row_.ended_by;
   END IF;
-  -- The controls: a past start is ADR-0013's accepted gap (U152), an end at
-  -- now is no later than now, and a PARKED motive and a rigid one go on a
-  -- trip, as app.start_trip allows.
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
-  VALUES (bac, md5('t76hp')::uuid, md5('t76d3')::uuid, now() - interval '3 hours', now()),
-         (bac, md5('t76r1')::uuid, md5('t76d4')::uuid, now() - interval '400 days', NULL);
 
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
   VALUES (bac, md5('t76h3')::uuid, now() + interval '1 day') RETURNING id INTO k;
@@ -13892,53 +13932,7 @@ BEGIN
       RAISE EXCEPTION 'FAIL 76c: % was answered %, not the revoked grant', st, COALESCE(msg, 'by success');
     END IF;
   END LOOP;
-
-  -- A raw nomination meets app.nominate_for_task's rules in its words and
-  -- its order; the bound at now is the trigger's, in its own words.
-  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
-  VALUES (bac, md5('t76h3')::uuid, now() + interval '2 days') RETURNING id INTO kc;
-  UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = '76c' WHERE id = kc;
-  FOR st, msg IN
-    SELECT * FROM (VALUES
-      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, %L)',
-              bac, kc, md5('t76d3')::uuid),
-       'TY018 this inspection is cancelled; only an open one takes a driver'),
-      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, %L)',
-              bac, kc, md5('t76di')::uuid),
-       'TY018 this inspection is cancelled; only an open one takes a driver'),
-      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at) VALUES (%L, %L, %L, now() - interval ''1 minute'')',
-              bac, k, md5('t76di')::uuid),
-       'TY018 T76 Driver Inactive is no longer active'),
-      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at) VALUES (%L, %L, %L, now() + interval ''1 second'')',
-              bac, k, md5('t76d4')::uuid),
-       'TY018 a nomination is dated now or earlier, never in the future'),
-      -- A cancelled task an unreferenced CTE plants in the same statement is
-      -- unseen by the trigger, and the FK would pass it at the statement's end.
-      (format('WITH nk AS (INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at, state, cancelled_reason) VALUES (%L, %L, %L, now(), ''CANCELLED'', ''76c'')) INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, %L)',
-              md5('t76c-cte-k')::uuid, bac, md5('t76h3')::uuid, bac, md5('t76c-cte-k')::uuid, md5('t76d3')::uuid),
-       '23503 inspection_task_nomination_tenant_id_task_id_fkey')
-    ) v(s, m)
-  LOOP
-    DECLARE got_st text; got_msg text; got_con text;
-    BEGIN
-      BEGIN
-        EXECUTE st;
-        RAISE EXCEPTION 'FAIL 76c: % was accepted', st;
-      EXCEPTION WHEN OTHERS THEN
-        GET STACKED DIAGNOSTICS got_st = RETURNED_SQLSTATE, got_msg = MESSAGE_TEXT, got_con = CONSTRAINT_NAME;
-      END;
-      IF got_msg LIKE 'FAIL 76c:%' THEN
-        RAISE EXCEPTION '%', got_msg;
-      END IF;
-      IF (got_st || ' ' || CASE WHEN got_st = '23503' THEN got_con ELSE got_msg END) IS DISTINCT FROM msg THEN
-        RAISE EXCEPTION 'FAIL 76c: % answered % %, not %', st, got_st, got_msg, msg;
-      END IF;
-    END;
-  END LOOP;
-  -- The control: a past instant is ADR-0013's accepted gap (U152).
-  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
-  VALUES (bac, k, md5('t76d4')::uuid, now() - interval '400 days');
-  RAISE NOTICE 'PASS  76c a trip ends once by its end columns, at the server''s now and by the bound actor, an ended trip is frozen, a raw trip or nomination meets its function''s shape rules, and a nomination is insert-only';
+  RAISE NOTICE 'PASS  76c the app role ends, edits, updates and deletes neither a trip nor a nomination raw: each is refused for privilege';
 END $$;
 ROLLBACK;
 
@@ -14289,6 +14283,10 @@ BEGIN
 
   FOR st, msg IN SELECT * FROM (VALUES
       (format('SELECT app.nominate_for_task(%L, %L)', k_done, d2),
+       'TY018 this inspection is completed; only an open one takes a driver'),
+      -- The task is read before the nominee, so a closed task with an
+      -- inactive nominee is refused for the task.
+      (format('SELECT app.nominate_for_task(%L, %L)', k_done, md5('t76di')::uuid),
        'TY018 this inspection is completed; only an open one takes a driver'),
       (format('SELECT app.nominate_for_task(%L, %L)', k_h1, d2),
        'TY018 T76-H1 is on T76 Driver One''s trip; the inspection already goes to them'),
@@ -14725,6 +14723,10 @@ BEGIN
       (format('SELECT app.start_trip(%L, %L)', md5('t76hi')::uuid, d1),
        'TY028 T76-HI is inactive; a retired unit does not go on a trip'),
       (format('SELECT app.start_trip(%L, %L)', h5, md5('t76di')::uuid),
+       'TY028 T76 Driver Inactive is no longer active'),
+      -- The driver is read first, so an inactive driver on a trailer is
+      -- refused for the driver.
+      (format('SELECT app.start_trip(%L, %L)', md5('t76t5')::uuid, md5('t76di')::uuid),
        'TY028 T76 Driver Inactive is no longer active'),
       (format('SELECT app.start_trip(%L, %L, ARRAY[NULL]::uuid[])', h5, d1),
        'TY028 every added trailer names a unit'),

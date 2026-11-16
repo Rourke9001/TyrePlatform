@@ -129,3 +129,124 @@ SET search_path = app, pg_temp AS $fn$
   VALUES ('11111111-1111-1111-1111-111111111111', p_unit, p_due, now() - interval '12 hours')
   RETURNING id;
 $fn$;
+
+-- What suite check 8e holds of app_writer, the owner of the three write-list
+-- definers (ADR-0024): NULL when every property holds, else each fault,
+-- '; '-joined. P26 in 005 shows each fault can fire. p_login is the app
+-- login whose membership is checked. Catalogues only: information_schema
+-- hides another role's grants from app_login.
+CREATE FUNCTION pg_temp.app_writer_faults(p_login name) RETURNS text
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE
+  w      oid := (SELECT r.oid FROM pg_roles r WHERE r.rolname = 'app_writer');
+  sigs   text[] := ARRAY['app.start_trip(uuid,uuid,uuid[])', 'app.end_trip(uuid)',
+                         'app.nominate_for_task(uuid,uuid)'];
+  writes oid[];
+  -- The three call trees' needs, each read from the statement that needs
+  -- it (000061). A lock-only table holds UPDATE on updated_at alone.
+  want   text[] := ARRAY[
+    'schema app USAGE',
+    'table app.trip SELECT',
+    'table app.trip INSERT',
+    'column app.trip.ended_at UPDATE',
+    'column app.trip.ended_by UPDATE',
+    'table app.inspection_task_nomination SELECT',
+    'table app.inspection_task_nomination INSERT',
+    'table app.inspection_task SELECT',
+    'column app.inspection_task.updated_at UPDATE',
+    'table app.app_user SELECT',
+    'column app.app_user.updated_at UPDATE',
+    'table app.vehicle SELECT',
+    'column app.vehicle.updated_at UPDATE',
+    'table app.combination SELECT',
+    'table app.combination INSERT',
+    'column app.combination.effective_to UPDATE',
+    'table app.combination_member SELECT',
+    'table app.combination_member INSERT',
+    'table app.tenant SELECT',
+    'table app.configuration SELECT',
+    'table app.audit_log INSERT',
+    'sequence app.audit_log_id_seq USAGE',
+    'view app.v_unit_coverage SELECT',
+    'function app.end_combination_at(uuid,timestamp with time zone) EXECUTE',
+    'function app.create_combination_at(uuid,jsonb,timestamp with time zone) EXECUTE'];
+  held   text[];
+  faults text[] := '{}';
+BEGIN
+  IF w IS NULL THEN
+    RETURN 'no role app_writer';
+  END IF;
+  -- A write-list function that does not resolve is a fault by name, and is
+  -- left out of every comparison below: a NULL in an ALL list never matches.
+  faults := faults || ARRAY(SELECT format('%s does not exist', s) FROM unnest(sigs) s
+                             WHERE to_regprocedure(s) IS NULL);
+  writes := ARRAY(SELECT to_regprocedure(s)::oid FROM unnest(sigs) s WHERE to_regprocedure(s) IS NOT NULL);
+
+  faults := faults || ARRAY(
+    SELECT format('app_writer has %s', a.attr)
+      FROM pg_roles r,
+           LATERAL (VALUES ('rolsuper', r.rolsuper), ('rolbypassrls', r.rolbypassrls),
+                           ('rolcanlogin', r.rolcanlogin), ('rolcreaterole', r.rolcreaterole),
+                           ('rolcreatedb', r.rolcreatedb), ('rolreplication', r.rolreplication)) a(attr, is_on)
+     WHERE r.oid = w AND a.is_on
+     ORDER BY a.attr);
+
+  faults := faults || ARRAY(
+    SELECT format('app_writer owns %s', o.name)
+      FROM (SELECT format('relation %s.%s', n.nspname, c.relname) AS name
+              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE c.relowner = w
+            UNION ALL
+            SELECT format('schema %s', n.nspname) FROM pg_namespace n WHERE n.nspowner = w
+            UNION ALL
+            SELECT format('function %s.%s(%s)', n.nspname, p.proname, replace(oidvectortypes(p.proargtypes), ', ', ','))
+              FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE p.proowner = w AND p.oid <> ALL (writes)) o
+     ORDER BY o.name);
+  faults := faults || ARRAY(
+    SELECT format('app_writer does not own %s', s) FROM unnest(sigs) s
+     WHERE to_regprocedure(s) IS NOT NULL
+       AND (SELECT p.proowner FROM pg_proc p WHERE p.oid = to_regprocedure(s)) <> w);
+
+  faults := faults || ARRAY(
+    SELECT format('app_writer is a member of %s', m.roleid::regrole) FROM pg_auth_members m
+     WHERE m.member = w ORDER BY 1);
+  IF pg_has_role(p_login, w, 'MEMBER') THEN
+    faults := faults || format('%s is a member of app_writer', p_login);
+  END IF;
+  -- Membership gives nobody a power they lacked only while every member
+  -- already bypasses row security (spec section 6).
+  faults := faults || ARRAY(
+    SELECT format('%s is a member of app_writer and bypasses no row security', r.rolname)
+      FROM pg_roles r
+     WHERE r.oid <> w AND pg_has_role(r.oid, w, 'MEMBER') AND NOT r.rolsuper AND NOT r.rolbypassrls
+     ORDER BY 1);
+  faults := faults || ARRAY(
+    SELECT format('a default privilege grants app_writer %s on new objects of type %s', a.privilege_type, d.defaclobjtype)
+      FROM pg_default_acl d, aclexplode(d.defaclacl) a
+     WHERE a.grantee = w ORDER BY 1);
+
+  held := ARRAY(
+    SELECT format('schema %s %s', n.nspname, a.privilege_type)
+      FROM pg_namespace n, aclexplode(n.nspacl) a
+     WHERE n.nspname = 'app' AND a.grantee = w
+    UNION
+    SELECT format('%s app.%s %s', CASE c.relkind WHEN 'v' THEN 'view' WHEN 'S' THEN 'sequence' ELSE 'table' END,
+                  c.relname, a.privilege_type)
+      FROM pg_class c, aclexplode(c.relacl) a
+     WHERE c.relnamespace = 'app'::regnamespace AND c.relkind IN ('r', 'p', 'v', 'S') AND a.grantee = w
+    UNION
+    SELECT format('column app.%s.%s %s', c.relname, t.attname, a.privilege_type)
+      FROM pg_attribute t JOIN pg_class c ON c.oid = t.attrelid, aclexplode(t.attacl) a
+     WHERE c.relnamespace = 'app'::regnamespace AND NOT t.attisdropped AND a.grantee = w
+    UNION
+    SELECT format('function app.%s(%s) %s', p.proname, replace(oidvectortypes(p.proargtypes), ', ', ','),
+                  a.privilege_type)
+      FROM pg_proc p, aclexplode(p.proacl) a
+     WHERE p.pronamespace = 'app'::regnamespace AND p.proowner <> w AND a.grantee = w);
+  faults := faults
+    || ARRAY(SELECT 'extra: ' || h FROM unnest(held) h WHERE h <> ALL (want) ORDER BY 1)
+    || ARRAY(SELECT 'missing: ' || x FROM unnest(want) x WHERE x <> ALL (held) ORDER BY 1);
+  RETURN NULLIF(array_to_string(faults, '; '), '');
+END $fn$;
