@@ -31,7 +31,15 @@ one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
 An entry whose cause is gone is deleted, not kept as history: git holds the
-old text (CLAUDE.md, Working with me; TYRE-484).
+old text (CLAUDE.md, Working with me; TYRE-484). Before deleting one, run
+`git grep -n "<date>"` for each date its heading names and read every hit,
+because one date can head several entries and a citation can wrap its date
+onto the next line. In the same commit, update or remove each line that
+cites the entry, and drop a rule in another file that rests only on it. A
+citation in a file that cannot change, a migration already on
+`origin/develop`, stays as it is. A citation that matches no entry here
+points at a deleted one, and `git log -p -S "<date>" -- docs/lessons.md`
+shows its text in the newest commit listed.
 
 ## 2026-11-14 - A routine kept the connector it was created with, so its Jira steps had no tool once the connector was re-added (TYRE-481, #217)
 

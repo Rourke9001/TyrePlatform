@@ -250,7 +250,9 @@ vehicle centreline (CHG-010), and pre-convention captures carry
   An entry holds only while its cause does. When you can show that the tool,
   version or code it names has changed so the failure cannot recur, delete
   the entry in that session, with the evidence in the commit message
-  (TYRE-484, U215).
+  (TYRE-484, U215). In the same commit, update or remove each line that
+  cites it. The register's header gives the search, and what to do with a
+  citation in a file that cannot change.
   It is curated, not a diary: only failures that change how the next attempt
   should behave, never one-off typos or transient errors.
 - **Do not force code to work.** A change has to own its place. If a fix
