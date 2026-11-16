@@ -2,11 +2,11 @@
 
 - **Status:** Accepted (owner, 9 Nov 2026, with U191 to U195). Its PR is
   #208. It supersedes ADR-0018's stage 5
-  decision and its push stop. Amended 10 Nov 2026 (TYRE-476, U205) and 14 Nov 2026 (TYRE-481, U212).
+  decision and its push stop. Amended 10 Nov 2026 (TYRE-476, U205), 14 Nov 2026 (TYRE-481, U212) and 16 Nov 2026 (TYRE-484, U215).
 - **Date:** 2026-11-09
 - **Deciders:** Rourke (owner)
-- **Related:** ADR-0018 · TYRE-470, TYRE-395, TYRE-476 · U123, U124, U125, U146,
-  U191 to U195, U205 · spec `docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`
+- **Related:** ADR-0018 · TYRE-470, TYRE-395, TYRE-476, TYRE-484 · U123, U124, U125, U146,
+  U191 to U195, U205, U215 · spec `docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`
 
 ## Context
 
@@ -202,7 +202,7 @@ variable.
 | Lead: triage, spec, orchestration | Fable, effort high | `scripts/pipeline.sh` |
 | Spec builder check | Opus | `.claude/commands/pipeline.md`, its dispatch |
 | Planner teammate | Opus | `pipeline.md`, its spawn line |
-| Red team of the plan | Fable | `.claude/agents/plan-red-team.md` frontmatter |
+| Red team of the plan | Fable, effort high; Opus for its one second dispatch | `.claude/agents/plan-red-team.md` frontmatter; `pipeline.md`, Red team step 1 |
 | Implementer teammate | Sonnet, or Opus when the plan's files meet an auditor's trigger | `pipeline.md`, Implementation |
 | Code review | Opus | `scripts/pipeline-review.sh` |
 | Auditors | Opus | their frontmatter |
@@ -215,6 +215,18 @@ U205's reasons: Fable where the text is short and the decision is big, Opus
 where much code is read or a mistake costs a fix round, Sonnet for
 implementing a checked plan, and Haiku only for file searches. The lead
 writes the spec and orchestrates, and never implements or reviews code.
+
+**Amended 2026-11-16 (TYRE-484, U215):** the red team's agent file pins its
+effort at high, since on Fable the effort level sets how much the model
+thinks and how many tool calls it makes, and the line outranks the level of
+the session that starts the agent (https://code.claude.com/docs/en/sub-agents,
+Frontmatter reference). A red team dispatch that returns nothing, is
+declined or ends without a verdict is dispatched again once on Opus: Fable's
+safety classifiers can decline a request, and Anthropic's guide says to
+retry a declined request on another model
+(https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-2,
+Calibrate effort and Safeguard refusals). A model passed on the dispatch
+outranks the agent file's (the sub-agents page, Choose a model).
 
 The Decision's `/code-review` fork is replaced, because a fork runs on the
 lead's model. The lead runs `scripts/pipeline-review.sh`, which starts
