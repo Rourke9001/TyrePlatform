@@ -33,8 +33,9 @@ repeat it. Your subject is the rest of the rule: every other way an edit gets in
    edit with extra steps. Check any new trigger on those tables for what it does
    on `UPDATE` and `DELETE`, not only on `INSERT`.
 5. **`SECURITY DEFINER`.** `app.refresh_governing_tread` runs as its owner,
-   which is `postgres`, so the revokes do not bind it. The three write-list
-   definers run as `app_writer`, which row security binds and which holds
+   the migrating role (`postgres` locally and in CI, `tyreadmin` on staging
+   and production, ADR-0021), so the revokes do not bind it. The three
+   write-list definers run as `app_writer`, which row security binds and which holds
    INSERT on trips and nominations and UPDATE of a trip's end (ADR-0024).
    Any new one that touches a history table must be read line by line.
 6. **The down file.** A down migration that drops a revoke, or recreates a table
