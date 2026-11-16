@@ -45,7 +45,7 @@ backup`, `earliestRestoreDate`).
 ## 1. Before: the restore point and the source's counts
 
 The source's exact row count per `app` table, its schema version and dirty
-flag, and the three roles, as `tyreadmin`. `tyreadmin` bypasses RLS, so the
+flag, and the four roles, as `tyreadmin`. `tyreadmin` bypasses RLS, so the
 counts cover every tenant; `pg_stat_user_tables` estimates are not evidence.
 On a real recovery the source may be gone; skip this step and compare the
 restored counts with what the tenant expects instead.
