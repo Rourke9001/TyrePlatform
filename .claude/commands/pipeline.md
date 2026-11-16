@@ -356,8 +356,9 @@ For round r = 1, 2, 3:
    classifiers can decline a request, and a declined request is retried
    on another model
    (https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-2,
-   Safeguard refusals; TYRE-484, U215). A second dispatch that fails the
-   same way stops for the owner (The run cannot go on).
+   Safeguard refusals; TYRE-484, U215). A second dispatch that fails in
+   any of those ways, the same as the first or not, stops for the owner
+   (The run cannot go on).
 2. Record its verdict and its findings by severity in the state file, with
    `on opus` after the round number when the second dispatch gave them.
 3. Send every Critical and Important finding to `planner`, and wait for its
@@ -850,7 +851,8 @@ Give each fixer this brief verbatim, its placeholders filled:
   that reads the wrong diff twice (step 4); a dirty tree after a fixer
   (Close a round, row D); a finder (the review script included), verifier
   or fixer that returns nothing twice (above, and row A); a red team whose
-  second dispatch fails as its first did (Red team step 1). Shutting a
+  second dispatch also returns nothing, is declined or gives no verdict
+  (Red team step 1). Shutting a
   teammate down adds three: a teammate still listed after `TaskStop`, a
   failed teammate's checkout that has not settled in six reads, and an
   implementer whose HEAD moved or tree went dirty while it shut down. Hand-over
