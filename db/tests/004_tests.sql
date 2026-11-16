@@ -15393,6 +15393,127 @@ ROLLBACK;
 DROP FUNCTION pg_temp.t76_task(uuid, int, interval);
 DROP FUNCTION pg_temp.t76_rig6();
 
+\echo '== 76n. a start, an end and a nomination naming another fleet''s unit, driver, trip, task, nominee or added trailer, or made with no fleet bound, are refused as no such row in this fleet and write nothing, each fleet case beside a control in that fleet (rule 1, FR-TEN-004; as BAC, rolled back)'
+-- The outcome is pinned, TY012 with nothing written, not which check
+-- refused: an added trailer meets start_trip's own loop and
+-- app.create_combination_at's with the same code and words. That row
+-- security binds behind these checks is P27's, 8c's and 8e's to prove
+-- (ADR-0024).
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+  h5  constant uuid := md5('t76h5')::uuid;
+  d1  constant uuid := md5('t76d1')::uuid; d2 constant uuid := md5('t76d2')::uuid;
+  xt  constant uuid := md5('t76n-xt')::uuid; xh constant uuid := md5('t76n-xh')::uuid;
+  xk uuid; bk uuid; tid uuid; st text; msg text; got text; before_ text := ''; after_ text := '';
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, md5('t76h3')::uuid, now() + interval '2 days') RETURNING id INTO bk;
+  -- Second Fleet's own rows, planted under its binding. No actor is bound
+  -- here or in its controls, or started_by and nominated_by would name a
+  -- BAC user behind a composite FK. The task is due two days ahead, so
+  -- U148 does not block the control that starts its horse.
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  SELECT x.id, t2, x.f, x.f || ' GP', v.configuration_id, x.kind::app.unit_kind, 'ACTIVE'::app.vehicle_status
+    FROM app.vehicle v, (VALUES (xt, 'T76N-XT', 'TRAILER'), (xh, 'T76N-XH', 'HORSE')) x(id, f, kind)
+   WHERE v.id = md5('t2veh1')::uuid;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (t2, xh, now() + interval '2 days') RETURNING id INTO xk;
+
+  FOREACH tid IN ARRAY ARRAY[bac, t2] LOOP
+    PERFORM set_config('app.tenant_id', tid::text, true);
+    before_ := before_ || (SELECT count(*) FROM app.trip) || '/' || (SELECT count(*) FROM app.inspection_task_nomination)
+               || '/' || (SELECT count(*) FROM app.combination) || '/' || (SELECT count(*) FROM app.audit_log) || ' ';
+  END LOOP;
+
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  FOR st, msg IN SELECT * FROM (VALUES
+      (format('SELECT app.start_trip(%L, %L)', md5('t2veh1')::uuid, d1),
+       'TY012 no such unit in this fleet'),
+      (format('SELECT app.start_trip(%L, %L)', h5, md5('driver2')::uuid),
+       'TY012 no such user in this fleet'),
+      (format('SELECT app.start_trip(%L, %L, ARRAY[%L]::uuid[])', h5, d1, xt),
+       'TY012 no such unit in this fleet'),
+      (format('SELECT app.end_trip(%L)', md5('t2trip1')::uuid),
+       'TY012 no such trip in this fleet'),
+      (format('SELECT app.nominate_for_task(%L, %L)', xk, d2),
+       'TY012 no such inspection task in this fleet'),
+      (format('SELECT app.nominate_for_task(%L, %L)', bk, md5('driver2')::uuid),
+       'TY012 no such user in this fleet')
+    ) v(a, b)
+  LOOP
+    got := pg_temp.t76_try(st);
+    IF got IS DISTINCT FROM msg THEN
+      RAISE EXCEPTION 'FAIL 76n: bound to BAC, % answered %, not %', st, got, msg;
+    END IF;
+  END LOOP;
+
+  -- ADR-0024 rests on the three finding nothing when no fleet is bound.
+  PERFORM set_config('app.tenant_id', '', true);
+  FOR st, msg IN SELECT * FROM (VALUES
+      (format('SELECT app.start_trip(%L, %L)', h5, d1),
+       'TY012 no such user in this fleet'),
+      (format('SELECT app.end_trip(%L)', md5('trip1')::uuid),
+       'TY012 no such trip in this fleet'),
+      (format('SELECT app.nominate_for_task(%L, %L)', bk, d2),
+       'TY012 no such inspection task in this fleet')
+    ) v(a, b)
+  LOOP
+    got := pg_temp.t76_try(st);
+    IF got IS DISTINCT FROM msg THEN
+      RAISE EXCEPTION 'FAIL 76n: with no fleet bound, % answered %, not %', st, got, msg;
+    END IF;
+  END LOOP;
+
+  FOREACH tid IN ARRAY ARRAY[bac, t2] LOOP
+    PERFORM set_config('app.tenant_id', tid::text, true);
+    after_ := after_ || (SELECT count(*) FROM app.trip) || '/' || (SELECT count(*) FROM app.inspection_task_nomination)
+              || '/' || (SELECT count(*) FROM app.combination) || '/' || (SELECT count(*) FROM app.audit_log) || ' ';
+  END LOOP;
+  IF after_ IS DISTINCT FROM before_ THEN
+    RAISE EXCEPTION 'FAIL 76n: the refused calls moved trips/nominations/rigs/audit entries per fleet from % to %', before_, after_;
+  END IF;
+
+  -- The controls, each undone by its own subtransaction so none changes
+  -- what the next sees: the same calls inside the fleet that owns the rows.
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  FOR st IN SELECT * FROM (VALUES
+      (format('SELECT app.start_trip(%L, %L)', md5('t2veh1')::uuid, md5('driver2')::uuid)),
+      (format('SELECT app.start_trip(%L, %L, ARRAY[%L]::uuid[])', xh, md5('driver2')::uuid, xt)),
+      (format('SELECT app.end_trip(%L)', md5('t2trip1')::uuid)),
+      (format('SELECT app.nominate_for_task(%L, %L)', xk, md5('driver2')::uuid))
+    ) v(a)
+  LOOP
+    BEGIN
+      got := pg_temp.t76_try(st);
+      RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = '76n control undone';
+    EXCEPTION WHEN raise_exception THEN
+      NULL;
+    END;
+    IF got IS DISTINCT FROM 'ok' THEN
+      RAISE EXCEPTION 'FAIL 76n: bound to Second Fleet, the control % answered %', st, got;
+    END IF;
+  END LOOP;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  BEGIN
+    got := pg_temp.t76_try(format('SELECT app.nominate_for_task(%L, %L)', bk, d2));
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = '76n control undone';
+  EXCEPTION WHEN raise_exception THEN
+    NULL;
+  END;
+  IF got IS DISTINCT FROM 'ok' THEN
+    RAISE EXCEPTION 'FAIL 76n: bound to BAC, the control nomination answered %', got;
+  END IF;
+  RAISE NOTICE 'PASS  76n another fleet''s unit, driver, trip, task, nominee or added trailer, and no fleet bound, answer no such row and write nothing, and each control in its own fleet lands';
+END $$;
+ROLLBACK;
+
 \echo '== 76z. nothing section 76 planted outlives its rollback'
 DROP FUNCTION pg_temp.t76_due(uuid, timestamptz);
 DROP FUNCTION pg_temp.t76_try(text);
