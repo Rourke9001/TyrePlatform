@@ -119,10 +119,12 @@ second is the write list, `app.start_trip`, `app.end_trip` and
   schema;
 - has EXECUTE revoked from PUBLIC and granted to app_rw;
 - is not a trigger function (section 67a);
-- goes on check 8c's write list and on 8e's literal list in
-  `db/tests/helpers.sql`;
+- goes on the write list in check 8c and in section 67a
+  (`db/tests/004_tests.sql`), and on `sigs` in 8e's
+  `pg_temp.app_writer_faults` (`db/tests/helpers.sql`);
 - comes with a migration that grants `app_writer` what its call tree needs,
-  each grant naming the statement that needs it.
+  each grant naming the statement that needs it and each added to that
+  helper's `want` list, since 8e fails a grant `want` does not name.
 
 A migration that replaces one restates SECURITY DEFINER and the pin.
 
