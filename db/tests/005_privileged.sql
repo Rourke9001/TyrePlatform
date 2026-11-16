@@ -55,6 +55,13 @@
 -- or in a shape no function writes (TYRE-472). postgres stages them, and the
 -- probe runs as app_login. P20 to P22 probe as app_writer, the one role
 -- besides the owner that may write either table (000061).
+--
+-- P26 stages each fault suite check 8e looks for, a table app_writer owns,
+-- BYPASSRLS, a grant off its list or missing from it, the app login as a
+-- member, and shows the shared check names it. P27 is where the WITH CHECK
+-- on trip and inspection_task_nomination lives, since no app_login route
+-- reaches it, with a control that shows it would catch an owner that
+-- bypasses RLS (ADR-0024, Option C).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -1932,6 +1939,205 @@ BEGIN
     RAISE EXCEPTION 'FAIL P25 (76i): the control, the same capture with the trip open, was refused';
   END IF;
   RAISE NOTICE 'PASS  P25 (76i) the control: the same capture passes with the trip open at submitted_at';
+END $$;
+ROLLBACK;
+
+\echo '== P26. TYRE-472: the app_writer shape check fails when app_writer owns a table, bypasses RLS, holds a grant off its list or lacks one on it, or has the app login as a member, and passes with nothing staged (ADR-0024)'
+BEGIN;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P26: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_writer_faults('app_login');
+  IF f IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL P26: with nothing staged the shape check reads %', f;
+  END IF;
+  RAISE NOTICE 'PASS  P26 with nothing staged app_writer has no fault';
+END $$;
+ROLLBACK;
+
+BEGIN;
+CREATE TABLE app.p26_owned (id int);
+ALTER TABLE app.p26_owned OWNER TO app_writer;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P26: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_writer_faults('app_login');
+  IF f IS NULL OR position('app_writer owns relation app.p26_owned' IN f) = 0 THEN
+    RAISE EXCEPTION 'FAIL P26: app_writer owning app.p26_owned read %', COALESCE(f, 'no fault');
+  END IF;
+  RAISE NOTICE 'PASS  P26 a table app_writer owns is named';
+END $$;
+ROLLBACK;
+
+BEGIN;
+ALTER ROLE app_writer BYPASSRLS;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P26: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_writer_faults('app_login');
+  IF f IS NULL OR position('app_writer has rolbypassrls' IN f) = 0 THEN
+    RAISE EXCEPTION 'FAIL P26: app_writer with BYPASSRLS read %', COALESCE(f, 'no fault');
+  END IF;
+  RAISE NOTICE 'PASS  P26 an app_writer that bypasses RLS is named';
+END $$;
+ROLLBACK;
+
+BEGIN;
+GRANT DELETE ON app.trip TO app_writer;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P26: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_writer_faults('app_login');
+  IF f IS NULL OR position('extra: table app.trip DELETE' IN f) = 0 THEN
+    RAISE EXCEPTION 'FAIL P26: a DELETE grant on app.trip read %', COALESCE(f, 'no fault');
+  END IF;
+  RAISE NOTICE 'PASS  P26 a grant off the list is named as extra';
+END $$;
+ROLLBACK;
+
+BEGIN;
+REVOKE INSERT ON app.audit_log FROM app_writer;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P26: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_writer_faults('app_login');
+  IF f IS NULL OR position('missing: table app.audit_log INSERT' IN f) = 0 THEN
+    RAISE EXCEPTION 'FAIL P26: app_writer without INSERT on app.audit_log read %', COALESCE(f, 'no fault');
+  END IF;
+  RAISE NOTICE 'PASS  P26 a grant on the list and not held is named as missing';
+END $$;
+ROLLBACK;
+
+BEGIN;
+GRANT app_writer TO app_login;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P26: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_writer_faults('app_login');
+  IF f IS NULL OR position('app_login is a member of app_writer' IN f) = 0 THEN
+    RAISE EXCEPTION 'FAIL P26: app_login as a member of app_writer read %', COALESCE(f, 'no fault');
+  END IF;
+  RAISE NOTICE 'PASS  P26 the app login as a member is named';
+END $$;
+ROLLBACK;
+
+\echo '== P27. TYRE-472: row security binds app_writer: bound to BAC it reads none of Second Fleet''s trips, nominations, units, users or rigs and writes neither a trip nor a nomination for it, and the same probes with BYPASSRLS read and write them (rule 1, FR-TEN-004, ADR-0024)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+  rig uuid;
+BEGIN
+  -- Each fleet holds a row of every table the read covers. The fixture has
+  -- no nomination and Second Fleet no rig, so those are staged.
+  PERFORM set_config('app.actor_id', '', true);
+  IF NOT EXISTS (SELECT 1 FROM app.inspection_task_nomination WHERE tenant_id = bac) THEN
+    INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at)
+    VALUES (md5('p27-bac-task')::uuid, bac, md5('veh1')::uuid, now() + interval '2 days');
+    INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id)
+    VALUES (bac, md5('p27-bac-task')::uuid, md5('driver1')::uuid);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM app.inspection_task_nomination WHERE tenant_id = t2) THEN
+    INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at)
+    VALUES (md5('p27-t2-task')::uuid, t2, md5('t2veh1')::uuid, now() + interval '2 days');
+    INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id)
+    VALUES (t2, md5('p27-t2-task')::uuid, md5('driver2')::uuid);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM app.combination WHERE tenant_id = t2) THEN
+    INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+    VALUES (t2, md5('t2veh1')::uuid, now() - interval '1 day') RETURNING id INTO rig;
+    INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+    VALUES (t2, rig, md5('t2veh1')::uuid, 1);
+  END IF;
+  -- The probe rows: a free horse, a driver on no trip, and a task on that
+  -- horse with no nomination, so only row security can refuse the writes.
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  SELECT md5('p27-horse')::uuid, t2, 'P27-H', 'P27H GP', v.configuration_id, 'HORSE', 'ACTIVE'
+    FROM app.vehicle v WHERE v.id = md5('t2veh1')::uuid;
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
+  VALUES (md5('p27-driver')::uuid, t2, 'p27-driver@example.invalid', 'P27 Driver', 'DRIVER');
+  INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at)
+  VALUES (md5('p27-task')::uuid, t2, md5('p27-horse')::uuid, now() + interval '2 days');
+END $$;
+
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+  tbl text; n_t2 int; n_bac int; got text; bad text := '';
+BEGIN
+  SET LOCAL ROLE app_writer;
+  IF current_user <> 'app_writer' THEN RAISE EXCEPTION 'FAIL P27: the probe runs as %, not app_writer', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+
+  FOREACH tbl IN ARRAY ARRAY['trip', 'inspection_task_nomination', 'vehicle', 'app_user', 'combination'] LOOP
+    EXECUTE format('SELECT count(*) FROM app.%I WHERE tenant_id = $1', tbl) INTO n_t2 USING t2;
+    EXECUTE format('SELECT count(*) FROM app.%I WHERE tenant_id = $1', tbl) INTO n_bac USING bac;
+    IF n_t2 <> 0 OR n_bac = 0 THEN
+      bad := bad || format(' %s: Second Fleet %s, BAC %s;', tbl, n_t2, n_bac);
+    END IF;
+  END LOOP;
+  IF bad <> '' THEN
+    RAISE EXCEPTION 'FAIL P27: bound to BAC, app_writer read%', bad;
+  END IF;
+
+  -- WITH CHECK on both tables, by the table's own policy: audit_log's
+  -- would answer a row that got past it with the same 42501.
+  got := NULL;
+  BEGIN
+    INSERT INTO app.trip (tenant_id, vehicle_id, user_id) VALUES (t2, md5('p27-horse')::uuid, md5('p27-driver')::uuid);
+  EXCEPTION WHEN insufficient_privilege THEN
+    GET STACKED DIAGNOSTICS got = MESSAGE_TEXT;
+  END;
+  IF got IS NULL OR got NOT LIKE '%row-level security policy for table "trip"%' THEN
+    RAISE EXCEPTION 'FAIL P27: bound to BAC, app_writer''s trip for Second Fleet was answered %', COALESCE(got, 'by an accepted row');
+  END IF;
+  got := NULL;
+  BEGIN
+    INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id)
+    VALUES (t2, md5('p27-task')::uuid, md5('p27-driver')::uuid);
+  EXCEPTION WHEN insufficient_privilege THEN
+    GET STACKED DIAGNOSTICS got = MESSAGE_TEXT;
+  END;
+  IF got IS NULL OR got NOT LIKE '%row-level security policy for table "inspection_task_nomination"%' THEN
+    RAISE EXCEPTION 'FAIL P27: bound to BAC, app_writer''s nomination for Second Fleet was answered %', COALESCE(got, 'by an accepted row');
+  END IF;
+  RAISE NOTICE 'PASS  P27 bound to BAC, app_writer reads none of Second Fleet''s rows in the five tables and its trip and nomination for Second Fleet are refused by each table''s policy';
+
+  -- The control: an owner that bypasses RLS, which ADR-0024 rejects, reads
+  -- and writes Second Fleet's rows through the same probes.
+  RESET ROLE;
+  ALTER ROLE app_writer BYPASSRLS;
+  SET LOCAL ROLE app_writer;
+  IF current_user <> 'app_writer' THEN RAISE EXCEPTION 'FAIL P27: the control runs as %, not app_writer', current_user; END IF;
+  bad := '';
+  FOREACH tbl IN ARRAY ARRAY['trip', 'inspection_task_nomination', 'vehicle', 'app_user', 'combination'] LOOP
+    EXECUTE format('SELECT count(*) FROM app.%I WHERE tenant_id = $1', tbl) INTO n_t2 USING t2;
+    IF n_t2 = 0 THEN
+      bad := bad || format(' %s;', tbl);
+    END IF;
+  END LOOP;
+  IF bad <> '' THEN
+    RAISE EXCEPTION 'FAIL P27: with BYPASSRLS, app_writer bound to BAC still read none of Second Fleet''s rows in%', bad;
+  END IF;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id) VALUES (t2, md5('p27-horse')::uuid, md5('p27-driver')::uuid);
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id)
+  VALUES (t2, md5('p27-task')::uuid, md5('p27-driver')::uuid);
+  RAISE NOTICE 'PASS  P27 the control: with BYPASSRLS the same reads return Second Fleet''s rows and both writes land';
 END $$;
 ROLLBACK;
 
