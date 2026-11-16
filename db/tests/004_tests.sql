@@ -13852,7 +13852,7 @@ BEGIN
   END IF;
   -- Same-fleet rows valid in every way, so privilege is the only thing left
   -- to refuse them. The WITH CHECK of both tables is P27 in
-  -- db/tests/005_privileged.sql, since no app_login route reaches it.
+  -- db/tests/005_privileged.sql (db/CLAUDE.md).
   PERFORM pg_temp.t76_units();
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
   VALUES (bac, md5('t76h3')::uuid, now() + interval '1 day') RETURNING id INTO bk;
