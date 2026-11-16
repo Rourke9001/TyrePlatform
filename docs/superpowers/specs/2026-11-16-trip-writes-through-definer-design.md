@@ -1,13 +1,13 @@
 # Trips and nominations are written only through their functions: the raw grants go, and the functions run as a role row security binds
 
-Date: 2026-11-16. Ticket: TYRE-472 (epic TYRE-55). Status: written for
-the owner's approval. From the 9 Nov 2026 design audit, section 2
+Date: 2026-11-16. Ticket: TYRE-472 (epic TYRE-55). Status: approved by
+the owner on 16 Nov 2026 (U217). From the 9 Nov 2026 design audit, section 2
 (verdict Replace). Owner ruling U202 (9 Nov 2026) approved the direction:
 `app_rw` loses its raw writes on the two tables, the three functions run
 as a NOLOGIN, NOSUPERUSER, NOBYPASSRLS definer, the cost is restaging the
 suite's plants, and an ADR comes first. The ADR is
-`docs/adr/0024-trip-writes-run-as-a-definer-rls-binds.md`, committed with
-this spec at status Proposed.
+`docs/adr/0024-trip-writes-run-as-a-definer-rls-binds.md`, Accepted with
+this spec's approval.
 
 Requirements this touches, none of them changed: FR-TEN-004 and
 NFR-SEC-005 (isolation in the database, proven in CI), FR-VEH-007 as
@@ -524,8 +524,8 @@ leg to a partial chain without the lead's answer.
   U202), with one sentence on how.
 - **ADR-0021.** A dated line under "Revisit when" records that the
   second-definer clause fired and ADR-0024 answered it.
-- **ADR-0024** moves to Accepted when the owner approves this spec. The
-  lead makes that edit and the index line in `docs/architecture.md`.
+- **ADR-0024** is Accepted (U217), and so is its index line in
+  `docs/architecture.md`. The lead made both edits.
 - **`api/internal/httpapi/refusal_codes.json`.** TY018 loses
   `app.nomination_is_well_formed` and TY028 loses
   `app.trip_is_well_formed` from `raisedBy`.

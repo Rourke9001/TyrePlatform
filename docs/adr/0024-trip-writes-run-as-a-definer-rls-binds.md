@@ -1,7 +1,7 @@
 # ADR-0024: Trip and nomination writes run as a definer that row security binds
 
-- **Status:** Proposed (the owner approved the direction on 9 Nov 2026,
-  U202; the approval of TYRE-472's spec accepts this record)
+- **Status:** Accepted (owner, 16 Nov 2026, U217, with the approval of
+  TYRE-472's spec; the direction was U202, 9 Nov 2026)
 - **Date:** 2026-11-16
 - **Deciders:** Rourke
 - **Related:** TYRE-472 (this record), TYRE-326, TYRE-346, TYRE-467,
