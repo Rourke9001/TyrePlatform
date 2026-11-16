@@ -208,9 +208,9 @@ Each of the three stamps `now()`, the start of the caller's transaction. A
 session that holds its transaction open therefore starts, ends or nominates
 at its own `BEGIN`, earlier than the call, and an end dated so changes who
 held a task and which captures were admitted for whatever committed in
-between. The API's window is one request (`store.InTenantTx`), and the repo
-sets no transaction timeout, so a raw `app_login` session's window is
-unbounded. The owner accepted the window rather than bound it, as U131 did
+between. The API's window is one request (`store.InActorTx`), and nothing in
+the repo bounds a raw `app_login` session's, since it sets no transaction
+timeout. The owner accepted the window rather than bound it, as U131 did
 for policy rows (U218, 16 Nov 2026). The app role dates trip and nomination
 history no earlier than the start of the caller's transaction.
 `inspection_task_nomination` is insert-only: a new nomination supersedes the
