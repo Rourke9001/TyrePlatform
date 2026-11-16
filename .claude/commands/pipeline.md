@@ -839,11 +839,11 @@ Give each fixer this brief verbatim, its placeholders filled:
   `STATUS:` for a fixer, and exit 0 with a last line `REVIEW: ok` for the
   review script, whose reply at `findings 0` must also have reviewed, by
   Review loop step 3), is dispatched again once, on the same model, then
-  the owner. The red team alone changes model for its second dispatch (Red
-  team step 1). Gate
+  the owner. Gate
   on that line, never on a file existing (docs/lessons.md, 2026-09-03 and
   2026-11-09). A verifier whose line is there but whose `review-<k>.md` is
-  missing: write its hand-back to that path yourself before going on.
+  missing: write its hand-back to that path yourself before going on. The
+  red team alone changes model for its second dispatch (Red team step 1).
 - These stop for the owner under the row "The run cannot go on": the
   range assertion or an empty file list (Review loop step 2);
   `git branch --show-current` not printing the run's branch; a verifier
