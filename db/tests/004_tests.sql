@@ -10929,8 +10929,8 @@ BEGIN
     PERFORM app.set_tyre_cost(r.tyre_id, 10000000.00, 'INVOICE');
   EXCEPTION WHEN sqlstate 'TY013' THEN got := SQLERRM;
   END;
-  IF got IS DISTINCT FROM format('a purchase price of %s over %s mm of usable tread is a rate above what the register carries; check the price entered',
-                                 10000000.00::numeric(12,2), (thr + 0.1)::numeric(4,1) - thr) THEN
+  IF got IS DISTINCT FROM format('%s''s price of %s over %s mm of usable tread is a rate above what the register carries; check the price and the new tread recorded for it',
+                                 'this tyre', 10000000.00::numeric(12,2), (thr + 0.1)::numeric(4,1) - thr) THEN
     RAISE EXCEPTION 'FAIL 69g: a rate past the register was answered %',
       coalesce('TY013 "' || got || '"', 'by a stored cost');
   END IF;
@@ -13445,7 +13445,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 75j. applying the list price prices every tyre on an unpriced receipt at the match for the receipt''s own size, brand and date, keeps a retreaded tyre''s rate, files each write in the audit log, and is refused with no row in force or a NaN entry (FR-CFG-041, FR-TYR-019, FR-AUD-001; as BAC, rolled back)'
+\echo '== 75j. applying the list price prices every tyre on an unpriced receipt at the match for the receipt''s own size, brand and date, keeps a retreaded tyre''s rate, files each write in the audit log, and is refused with no row in force, a NaN entry or a rate past the register (FR-CFG-041, FR-TYR-019, FR-AUD-001; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
@@ -13453,7 +13453,7 @@ DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
         pt2 constant uuid := md5('t75j-pt2')::uuid;
         base constant jsonb := jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid,
                                                   'new_tread_mm', '25.0', 'received_date', '2026-10-01');
-        rc uuid; first_tyre uuid; got text; n int;
+        rc uuid; first_tyre uuid; got text; n int; code1 text;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', md5('controller1')::text, true);
@@ -13513,6 +13513,23 @@ BEGIN
     RAISE EXCEPTION 'FAIL 75j: a set whose first tyre was re-patterned reads %', got;
   END IF;
 
+  -- R3: a list price past the register is refused in words true of a list
+  -- move, where nobody entered a price, naming the tyre it rated.
+  INSERT INTO app.tyre_price_list (tenant_id, size_id, brand_id, typical_price, effective_from)
+  VALUES (bac, md5('sz1')::uuid, md5('br1')::uuid, 9999999999.99, '2026-10-03');
+  rc := pg_temp.t75_receive(base || jsonb_build_object('received_date', '2026-10-03'));
+  SELECT t.display_code INTO code1 FROM app.tyre t WHERE t.receipt_id = rc;
+  got := pg_temp.t75_try(format('SELECT app.apply_receipt_list_price(%L)', rc));
+  IF got IS DISTINCT FROM 'TY013 ' || format('%s''s price of %s over %s mm of usable tread is a rate above what the register carries; check the price and the new tread recorded for it',
+                                             'tyre ' || code1, 9999999999.99::numeric(12,2),
+                                             25.0::numeric(4,1) - app.current_removal_threshold_mm()) THEN
+    RAISE EXCEPTION 'FAIL 75j: a list price past the register was answered %', got;
+  END IF;
+  IF (SELECT c.price_state FROM app.tyre_receipt c WHERE c.id = rc) IS DISTINCT FROM 'UNPRICED' THEN
+    RAISE EXCEPTION 'FAIL 75j: a list price past the register moved the receipt to %',
+      (SELECT c.price_state FROM app.tyre_receipt c WHERE c.id = rc);
+  END IF;
+
   -- The list's CHECK (>= 0) passes NaN, and only hand-written SQL plants
   -- one; the move refuses it rather than store it on a retreaded tyre.
   INSERT INTO app.tyre_price_list (tenant_id, size_id, brand_id, typical_price, effective_from)
@@ -13522,7 +13539,7 @@ BEGIN
   IF got IS DISTINCT FROM 'TY026 the price list entry in force for this size and brand on 2026-10-02 is not an amount; correct the price list, or record the invoice price instead' THEN
     RAISE EXCEPTION 'FAIL 75j: the list price at a NaN list entry was answered %', got;
   END IF;
-  RAISE NOTICE 'PASS  75j the list price follows the receipt''s own match, keeps a retread''s rate, is audited per row, and is refused with no row in force or a NaN entry';
+  RAISE NOTICE 'PASS  75j the list price follows the receipt''s own match, keeps a retread''s rate, is audited per row, and is refused with no row in force, a NaN entry or a rate past the register';
 END $$;
 ROLLBACK;
 
