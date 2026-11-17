@@ -24,5 +24,5 @@ job is the judgment calls a regex cannot make.
    Under `make pipeline` the implementer runs steps 1 to 3 on its own branch
    and fixes what it finds, so the fixes are in the PR the review loop reads.
    It leaves a comment it is unsure about as it is and sends it to the lead
-   as an item that is not a bug, which the lead sets aside in the PR body
-   (`/pipeline`, Implementation; TYRE-485, U219).
+   as an item that is not a bug, which the lead puts through the schedule
+   test (`/pipeline`, Implementation; TYRE-485, U219).
