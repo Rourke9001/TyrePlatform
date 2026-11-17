@@ -817,11 +817,19 @@ Give each fixer this brief verbatim, its placeholders filled:
    stage `handed over`, and tell the owner, written as Owner stops says:
    the PR, the rounds, what was fixed, the tickets touched, and the lead's
    calls. Say that the code review is done, since the review loop ran on
-   the branch before the PR opened, and that the merge is the only step
-   left. Name no further review for the owner to run: the owner read an
-   optional one as a review still owed (TYRE-485, U219). The owner merges,
-   and close-out runs by itself from the merge. A finding from a review the
-   owner runs anyway is fixed outside the run, as on the manual path
+   the branch before the PR opened, and that no further review is owed.
+   Name no further review for the owner to run: the owner read an
+   optional one as a review still owed (TYRE-485, U219). List each step
+   the owner still owes after the merge, or say there is none: a step
+   that a ticket's definition of done, the spec or an owner answer leaves
+   until after the merge, such as a check on staging; the SRS row in each
+   `docs/HANDOFF_srs_errata_<key>_<date>.md` this run wrote, for the
+   owner's Cowork agent to paste (Spec); and staging's migrate when the
+   branch adds a migration (`docs/runbooks/environment-release.md`, Each
+   release). The owner merges, and close-out runs by itself from the
+   merge. Say that close-out lists anything else it finds under Waiting
+   on the owner (TYRE-485, U220). A finding from a review the owner runs
+   anyway is fixed outside the run, as on the manual path
    (`/ticket` step 12). Until
    that PR merges or closes, a new `make pipeline` for another job stops,
    because a late fix round works in this checkout.
