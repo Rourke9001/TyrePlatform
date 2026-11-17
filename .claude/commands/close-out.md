@@ -54,7 +54,7 @@ working in this checkout.
    is usually the thing this pass has to resolve or record.
 
    Then list the migrations the PR added, because staging's migrate is a
-   manual step that nothing else reminds anyone of (U94, TYRE-433):
+   manual step and, after the merge, nothing else lists it (U94, TYRE-433):
    `gh api 'repos/Rourke9001/TyrePlatform/pulls/<n>/files?per_page=100' --paginate --jq '.[] | select(.status == "added") | .filename | select(startswith("db/migrations/"))'`.
    When it lists any file, the report and every ticket comment carry this
    under a **Waiting on the owner** heading:
