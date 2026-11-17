@@ -280,8 +280,6 @@ or git. Differences from `/ticket`:
 Then move each key that is in To Do to In Progress, and cut the branch:
 `git fetch origin` and
 `git checkout --no-track -b <first key>-<short-description> origin/develop`.
-`--no-track` keeps `origin/develop` from becoming the upstream, which the
-review loop sets.
 
 ## Spec (you, with the owner). Skipped for a small fix.
 
@@ -487,29 +485,17 @@ nothing, that gate stands and is not run again.
    `docs/how-work-runs.md`, How work runs, stage 5, skips the loop: record stage
    `loop done` and go to Hand-over. Before every review and every fixer,
    check that `git branch --show-current` prints the run's branch.
-2. **Setting the range.** Before each review:
-   `git branch -f pipeline-review-base <from>`, then
-   `git branch --set-upstream-to=pipeline-review-base`. `<from>` is `base`
-   for review 0 and the round's `before` for a re-review. `/code-review`
-   with no target is then meant to review `<from>...HEAD` (ADR-0023), but
-   can read another diff, which step 4 checks. Then assert, and stop for
-   the owner if either fails:
-   `git rev-parse --abbrev-ref @{upstream}` prints `pipeline-review-base`,
-   and `git rev-parse pipeline-review-base` equals `<from>`. Record
-   `git diff --name-only <from>...HEAD` as the range's file list; an empty
-   list means there is nothing to review and is an error, not a clean
-   review. A missing `pipeline-review-base` on a resume is recreated, not a
-   stop. Once the branch is on origin (for example a `ci` round), run
-   `git branch --set-upstream-to=origin/<branch>` after the review, and
-   every push is `git push -u origin <branch>`, never a bare `git push`,
-   which would follow an upstream that may be the local
-   `pipeline-review-base`.
+2. **The range.** `<from>` is `base` for review 0 and the round's `before`
+   for a re-review. Record `git diff --name-only <from>...HEAD` as the
+   range's file list; an empty list means there is nothing to review and is
+   an error, not a clean review.
 3. **Review `<k>`.** Start the code review as a background Bash call, in
    exactly the form the allow rule in `.claude/settings.json` matches, with
    no `cd`, variable or wrapper in front:
-   `bash scripts/pipeline-review.sh <state dir> <k>`. It runs
-   `/code-review high` with no target in its own Opus process (ADR-0023,
-   amended 10 Nov 2026). Dispatch each of `rls-auditor`,
+   `bash scripts/pipeline-review.sh <state dir> <k> <from>`. It runs
+   `/code-review high` in its own Opus process with `<from>...<HEAD sha>` as
+   its target, since with no target the review can read a wider diff
+   (ADR-0023, amended 10 and 17 Nov 2026). Dispatch each of `rls-auditor`,
    `append-only-auditor` and `valuation-verifier` whose trigger the range's
    file list meets, each unnamed and each given the range and that file
    list. The auditors return long before the script, so save each one's raw
@@ -524,8 +510,8 @@ nothing, that gate stands and is not run again.
    a question, says the review could not or did not run, or stops short (it
    ends mid-sentence or names files it did not read). Anything that is not
    a review is a finder that returned nothing, so run the script once more.
-   A review id gets one such rerun, whichever way it returned nothing, and
-   a wrong-diff rerun (step 4) does not spend it. Before the rerun, copy
+   A review id gets one such rerun, whichever way it returned nothing.
+   Before the rerun, copy
    each of `code-review-<k>.json`, `.err` and `.md` that exists to
    `code-review-<k>-first.json`, `-first.err` and `-first.md`, since the
    rerun deletes or overwrites all three. A second finder that returned
@@ -576,7 +562,7 @@ nothing, that gate stands and is not run again.
    report as kept with its severity and class, as dropped with a reason,
    or as set aside with a reason: `/code-review` gives no severity, so the
    verifier assigns it by `docs/how-work-runs.md`, Severity. Count the raw items against the report's entries;
-   if one is missing, dispatch the verifier again once. Then read which diff the code review ran, never judging it by the files its items cite (docs/lessons.md, 2026-11-17): `jq -r .session_id <state dir>/code-review-<k>.json` prints `<id>`, and `jq -r 'select(.type == "assistant") | .message.content[]? | select(.name == "Bash") | .input.command' ~/.claude/projects/*/<id>/subagents/agent-*.jsonl` prints the commands its process ran. Each `git diff` there that prints hunks, one with no `--stat`, `--name-only` or `--name-status`, must start from `@{upstream}`, `pipeline-review-base` or a commit `X` for which `git merge-base X HEAD` prints `<from>`. If one does not, or that command fails or shows no such `git diff`, it read the wrong diff: set the range again and run step 3 again from the script: the script, the read at `findings 0`, the copy, the auditors' saved files and a fresh verifier. A verified finding that arrives from outside the range is classified like any other and does not widen the next review.
+   if one is missing, dispatch the verifier again once. A verified finding that arrives from outside the range is classified like any other and does not widen the next review.
    Record the `Review <k>:` line, with the code review's model keys and
    finding count from the `REVIEW: ok` line, or, if that line has left your
    context, from `<state dir>/code-review-<k>.json` (its `modelUsage` keys)
@@ -813,9 +799,8 @@ Give each fixer this brief verbatim, its placeholders filled:
      again.
 
    Record `CI <result> @ <head sha>` on the `PR:` line.
-5. Move every key to In Review, comment the PR link on each, delete
-   `pipeline-review-base` (`git branch -D pipeline-review-base`), set
-   stage `handed over`, and tell the owner, written as Owner stops says:
+5. Move every key to In Review, comment the PR link on each, set stage
+   `handed over`, and tell the owner, written as Owner stops says:
    the PR, the rounds, what was fixed, the tickets touched, and the lead's
    calls. Say that the code review is done, since the review loop ran on
    the branch before the PR opened, and that no further review is owed.
@@ -858,11 +843,10 @@ Give each fixer this brief verbatim, its placeholders filled:
   on that line, never on a file existing (docs/lessons.md, 2026-09-03 and
   2026-11-09). A verifier whose line is there but whose `review-<k>.md` is
   missing: write its hand-back to that path yourself before going on.
-- These stop for the owner under the row "The run cannot go on": the
-  range assertion or an empty file list (Review loop step 2);
-  `git branch --show-current` not printing the run's branch; a verifier
-  that still misses a raw finding after its second dispatch, or a review
-  that reads the wrong diff twice (step 4); a dirty tree after a fixer
+- These stop for the owner under the row "The run cannot go on": an
+  empty file list (Review loop step 2); `git branch --show-current` not
+  printing the run's branch; a verifier that still misses a raw finding
+  after its second dispatch (step 4); a dirty tree after a fixer
   (Close a round, row D); a finder (the review script included), verifier
   or fixer that returns nothing twice (above, and row A); a red team whose
   second dispatch also returns nothing, is declined or gives no verdict

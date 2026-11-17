@@ -22,8 +22,7 @@ does not use step 2: it runs the review and the auditors in place by
    branch, and `gh pr view <n> --json headRefName,headRefOid` for the head
    branch and commit. With `from`, run step 2's worktree check now, before
    reading on. A verifier takes the keys, the spec path, the review base and
-   the range from its caller instead; with no range given, the range is
-   `@{upstream}...HEAD`, and with no review base,
+   the range from its caller instead; with no review base, the review base is
    `git merge-base origin/develop HEAD`. Then `CLAUDE.md`,
    `docs/how-work-runs.md`, the `CLAUDE.md`
    of each directory the diff touches, `docs/comments.md`, the spec the PR
@@ -44,9 +43,9 @@ does not use step 2: it runs the review and the auditors in place by
    switch branches there. To run anything on the branch, use a worktree
    (`git worktree add ../tp-review-<n> <branch>`) and remove it afterwards.
 
-   With `from <sha>`, review only `<sha>...<PR head>`. `/code-review` with no
-   target reviews the upstream of the directory the session started in, so
-   this session must have been started inside a worktree at the PR head. If
+   With `from <sha>`, review only `<sha>...<PR head>`. The review reads whole
+   files from the checkout it runs in, so this session must have been started
+   inside a worktree at the PR head. If
    `git rev-parse --show-toplevel` is the main checkout (the first path
    `git worktree list` prints), stop and give the owner these commands,
    filled in, to run from the main checkout: `git fetch origin <head branch>`,
@@ -59,14 +58,9 @@ does not use step 2: it runs the review and the auditors in place by
    `review-pr<n>`; if it is not, stop and say so. Before reviewing
    `<sha>...<PR head>`, check `git merge-base --is-ancestor <sha> <PR head>`;
    if `<sha>` is not an ancestor (the fix round rebased), stop and say so.
-   Run `git branch -f review-pr<n>-base <sha>` and
-   `git branch --set-upstream-to=review-pr<n>-base`, the only refs this
-   form writes, and check that `git rev-parse @{upstream}` equals
-   `git rev-parse <sha>`. Then run `/code-review <level>` with no target.
-   When it returns, read the `git diff` commands its fork ran:
-   `jq -r 'select(.type == "assistant") | .message.content[]? | select(.name == "Bash") | .input.command' ~/.claude/projects/*/$CLAUDE_CODE_SESSION_ID/subagents/agent-*.jsonl`.
-   Read `git diff <sha>...<PR head>` yourself whatever it prints, and say
-   in the report which diff the fork read, or that the command failed
+   Then run `/code-review <level> <from>...<head>`, where `<from>` is
+   `git rev-parse <sha>` and `<head>` is `git rev-parse HEAD`, both in full:
+   with no target the review can read a wider diff than the round
    (docs/lessons.md, 2026-11-17).
 
    Either way, wait for `/code-review`'s result before step 3.
@@ -149,4 +143,4 @@ on the mechanism it sits in. Open Minors alone get one Minor batch session, whic
 batch committed anything, one re-review, `from <before>`. A batch that commits
 nothing gets none (U196). End a re-review by telling the owner to run,
 from the main checkout, `git worktree remove ../tp-review-<n>` and
-`git branch -D review-pr<n> review-pr<n>-base`.
+`git branch -D review-pr<n>`.
