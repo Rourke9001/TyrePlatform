@@ -43,6 +43,23 @@ citation that matches no entry here points at a deleted one, and
 `git log -p -S "<yyyy-mm-dd or title words>" -- docs/lessons.md` finds the
 commit that deleted it.
 
+## 2026-11-17 - `/code-review` with no target read the whole PR, not the range its upstream set (TYRE-485, #223)
+
+**What happened:** the re-review of PR #223's fix round ran `/code-review high`
+in a worktree whose upstream was set to the round's `before`, as `/review-pr`
+and `/pipeline` both do to limit a review to `<from>...HEAD`. On Claude Code
+2.1.326 the fork printed the upstream's name and then ran
+`git diff origin/develop...HEAD`. It returned eight items, none on a line the
+round changed, and nothing in its reply said which diff it had read. The
+reviewer caught it in the fork's transcript and read the two hunks by hand.
+
+**The rule:** never take a range-limited `/code-review` on trust. Compare the
+lines its items cite with `git diff --name-only <from>...HEAD` every time.
+When no item sits inside the range, it read another diff: under `/pipeline`
+that is Review loop step 4's rerun, and under `/review-pr` read the range's
+hunks yourself and say so in the report. A review with no items cannot be
+checked this way, so read the range yourself then too.
+
 ## 2026-11-14 - A routine kept the connector it was created with, so its Jira steps had no tool once the connector was re-added (TYRE-481, #217)
 
 **What happened:** on 14 Nov the owner removed the claude.ai Atlassian
