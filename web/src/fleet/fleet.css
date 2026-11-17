@@ -254,8 +254,6 @@
   gap: var(--space-2);
 }
 
-/* The register's two backlog filters sit on one line and wrap at phone
-   width (TYRE-99). */
 .tyres-filters {
   display: flex;
   flex-wrap: wrap;

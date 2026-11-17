@@ -109,9 +109,10 @@ func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 // after a tyre leaves the estate). awaitingCost narrows to
 // app.v_tyre_awaiting_cost (CFL-002), and codesToMark to
 // app.v_tyre_code_to_mark (B22), which also gives each row's flag and the
-// count; the views are the rules, with no copy here (TYRE-99). Depot scope is deliberately unapplied,
-// unlike listVehicles: widening or narrowing this read is TYRE-76's open
-// question, not this slice's (D6). Do not "fix" this in passing.
+// count; the views are the rules, with no copy here (TYRE-99). Depot scope
+// is deliberately unapplied, unlike listVehicles: widening or narrowing this
+// read is TYRE-76's open question, not this slice's (D6). Do not "fix" this
+// in passing.
 func listTyres(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
