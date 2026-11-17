@@ -491,8 +491,9 @@ nothing, that gate stands and is not run again.
    `git branch -f pipeline-review-base <from>`, then
    `git branch --set-upstream-to=pipeline-review-base`. `<from>` is `base`
    for review 0 and the round's `before` for a re-review. `/code-review`
-   with no target then reviews exactly `<from>...HEAD` (ADR-0023). Then
-   assert, and stop for the owner if either fails:
+   with no target is then meant to review `<from>...HEAD` (ADR-0023), but
+   can read another diff, which step 4 checks. Then assert, and stop for
+   the owner if either fails:
    `git rev-parse --abbrev-ref @{upstream}` prints `pipeline-review-base`,
    and `git rev-parse pipeline-review-base` equals `<from>`. Record
    `git diff --name-only <from>...HEAD` as the range's file list; an empty
