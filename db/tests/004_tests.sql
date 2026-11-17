@@ -12989,6 +12989,8 @@ BEGIN
   END IF;
   PERFORM set_config('app.tenant_id', t2::text, true);
 
+  -- The session's zone must not reach the message: the fleet's does (rule 6, X5).
+  PERFORM set_config('TimeZone', 'Pacific/Auckland', true);
   FOR e IN SELECT * FROM (VALUES
     ('a purpose outside the vocabulary',
      $q$SELECT app.record_consent('MARKETING', true, 'T75 MSA v1')$q$,
@@ -13011,15 +13013,14 @@ BEGIN
     ('a future time',
      $q$SELECT app.record_consent('SERVICE_DELIVERY', true, 'T75 MSA v1', now() + interval '1 minute')$q$,
      'TY027 consent is recorded as given now or earlier, never at a future time'),
-    -- U144: the purpose's latest row is cid's, at 2026-10-01T08:00Z.
+    -- U144: the purpose's latest row is cid's, at 2026-10-01T08:00Z, which
+    -- is 10:00 in Second Fleet's zone.
     ('the time of the purpose''s latest record',
      $q$SELECT app.record_consent('SERVICE_DELIVERY', false, 'T75 MSA v2', '2026-10-01T08:00:00Z')$q$,
-     format('TY027 the latest SERVICE_DELIVERY consent record is dated %s; a new one is dated after it',
-            '2026-10-01T08:00:00Z'::timestamptz)),
+     'TY027 the latest SERVICE_DELIVERY consent record is dated 2026-10-01 10:00:00 Africa/Johannesburg; a new one is dated after it'),
     ('a time before the purpose''s latest record',
      $q$SELECT app.record_consent('SERVICE_DELIVERY', false, 'T75 MSA v2', '2026-09-01T00:00:00Z')$q$,
-     format('TY027 the latest SERVICE_DELIVERY consent record is dated %s; a new one is dated after it',
-            '2026-10-01T08:00:00Z'::timestamptz))
+     'TY027 the latest SERVICE_DELIVERY consent record is dated 2026-10-01 10:00:00 Africa/Johannesburg; a new one is dated after it')
   ) v(what, stmt, want) LOOP
     got := pg_temp.t75_try(e.stmt);
     IF got IS DISTINCT FROM e.want THEN
