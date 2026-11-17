@@ -38,6 +38,8 @@ one is on it. Anything that adds a second is spending something scarce.
 definer that runs with RLS off and the three write-list definers owned by
 `app_writer`, a role RLS binds, and check 67a refuses any definer the
 application role can execute that returns a trigger or is off the write list.
+17 Nov 2026 (TYRE-99): `app.mark_code_on_sidewall` is the fourth write-list
+definer (000062).
 
 There is also a vocabulary mismatch worth recording, because it will otherwise
 be rediscovered. The operator describes four jobs — a driver, a fleet

@@ -159,3 +159,11 @@ fourth function is proposed for the write list (`inspection_task` and
 TYRE-467's `app.combination` are the known candidates), which should
 reuse `app_writer` and this record, not add a role; or a deployed
 `app_writer` reads `rolsuper` or `rolbypassrls` true.
+
+17 Nov 2026 (TYRE-99): `app.mark_code_on_sidewall` is the fourth
+write-list definer, reusing `app_writer` and this record. It holds
+`app.tyre.brand_pending` against `app_rw`, whose `UPDATE` on `app.tyre`
+becomes a grant on every other column (000062). `app_writer` gains
+`SELECT` on `app.tyre`, `UPDATE (brand_pending)` on it, `SELECT` and
+`INSERT` on `app.tyre_event` and `SELECT` on `app.tyre_receipt`, each
+named by the statement that needs it.

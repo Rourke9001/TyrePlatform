@@ -37,7 +37,9 @@ Four constraints make the bootstrap non-obvious:
   (TYRE-472, ADR-0024): check 8c now holds two lists, the one definer that
   runs with RLS off and the three write-list definers owned by `app_writer`,
   a role RLS binds, and check 67a refuses any definer the application role
-  can execute that returns a trigger or is off the write list.
+  can execute that returns a trigger or is off the write list. 17 Nov 2026
+  (TYRE-99): `app.mark_code_on_sidewall` is the fourth write-list definer
+  (000062).
 - **The capture bundle.** The entry chunk had about five bytes of budget
   headroom on 30 Sep 2026, and the capture target makes every byte and every
   redirect a cost.

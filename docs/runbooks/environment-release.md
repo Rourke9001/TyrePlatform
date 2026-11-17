@@ -945,7 +945,7 @@ Production has real data, so it migrates first and is promoted after:
    unset pw enc
    ```
 
-4. **The 000051, 000054 and 000061 checks, and `database-url`** (TYRE-368 comment 13439, TYRE-299, TYRE-472). As `tyreadmin`:
+4. **The 000051, 000054, 000061 and 000062 checks, and `database-url`** (TYRE-368 comment 13439, TYRE-299, TYRE-472, TYRE-99). As `tyreadmin`:
 
    ```bash
    pw=$(az keyvault secret show --vault-name $KV -n psql-admin-password --query value -o tsv)
@@ -955,7 +955,7 @@ Production has real data, so it migrates first and is promoted after:
      -c "SELECT has_function_privilege('app_login', 'app.refresh_governing_tread()', 'EXECUTE');" \
      -c "SELECT has_any_column_privilege('app_login', 'app.threshold_policy', 'UPDATE');" \
      -c "SELECT rolsuper, rolbypassrls, rolcanlogin, rolcreaterole, rolcreatedb, rolreplication FROM pg_roles WHERE rolname = 'app_writer';" \
-     -c "SELECT p.proname, p.proowner::regrole, p.prosecdef, p.proacl FROM pg_proc p WHERE p.oid IN ('app.start_trip(uuid,uuid,uuid[])'::regprocedure, 'app.end_trip(uuid)'::regprocedure, 'app.nominate_for_task(uuid,uuid)'::regprocedure) ORDER BY p.proname;" \
+     -c "SELECT p.proname, p.proowner::regrole, p.prosecdef, p.proacl FROM pg_proc p WHERE p.oid IN ('app.start_trip(uuid,uuid,uuid[])'::regprocedure, 'app.end_trip(uuid)'::regprocedure, 'app.nominate_for_task(uuid,uuid)'::regprocedure, 'app.mark_code_on_sidewall(uuid,uuid,date)'::regprocedure) ORDER BY p.proname;" \
      -c "SELECT has_any_column_privilege('app_login', 'app.trip', 'INSERT'), has_any_column_privilege('app_login', 'app.trip', 'UPDATE'), has_any_column_privilege('app_login', 'app.inspection_task_nomination', 'INSERT');"
    unset pw
    ```
@@ -963,18 +963,19 @@ Production has real data, so it migrates first and is promoted after:
    The first ACL holds only the owner's entry, and the second and third
    queries return `f`. The third reads `has_any_column_privilege` so a
    column-level grant fails it too, as suite check 4 does. The last three are
-   000061's, and print exactly:
+   000061's and 000062's, and print exactly:
 
    ```text
    f|f|f|f|f|f
    end_trip|app_writer|t|{app_writer=X/app_writer,app_rw=X/app_writer}
+   mark_code_on_sidewall|app_writer|t|{app_writer=X/app_writer,app_rw=X/app_writer}
    nominate_for_task|app_writer|t|{app_writer=X/app_writer,app_rw=X/app_writer}
    start_trip|app_writer|t|{app_writer=X/app_writer,app_rw=X/app_writer}
    f|f|f
    ```
 
    `app_writer` bypasses no row security and cannot log in, it owns the
-   three write-list definers, which only it and `app_rw` execute, and
+   four write-list definers, which only it and `app_rw` execute, and
    `app_login` writes neither table raw (ADR-0024). Anything else stops the
    release.
 
