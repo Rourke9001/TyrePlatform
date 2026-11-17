@@ -144,7 +144,7 @@ BEGIN
        'configuration', 'depot', 'display_code_counter', 'exception',
        'exception_rule', 'fitment', 'inspection_schedule',
        'notification', 'operating_group', 'photo', 'position', 'retread_job',
-       'target_pressure', 'tyre', 'tyre_brand', 'tyre_pattern',
+       'target_pressure', 'tyre_brand', 'tyre_pattern',
        'tyre_size', 'user_depot', 'valuation_snapshot',
        'vehicle', 'vehicle_tag', 'vehicle_tag_map',
        -- inspection's grant is (state, void_reason) alone (000040, FR-INS-012);
@@ -156,7 +156,10 @@ BEGIN
        -- inspection_task's grant is (state, cancelled_reason,
        -- completed_inspection_id) alone, and inspection_task_closes_once
        -- holds its close (000060, section 76d).
-       'inspection_task');
+       'inspection_task',
+       -- tyre's grant is every column but brand_pending, which only
+       -- app.mark_code_on_sidewall writes (000062); section 77a pins that shape.
+       'tyre');
   IF bad IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: app role can UPDATE a table off the allow-list: %', bad;
   END IF;
@@ -379,9 +382,9 @@ END $$;
 DO $$
 DECLARE
   -- The write list: definers owned by app_writer, which RLS binds, so the
-  -- caller's tenant still bounds them (ADR-0024).
+  -- caller's tenant still bounds them (ADR-0024; the fourth, 000062).
   sigs text[] := ARRAY['app.start_trip(uuid,uuid,uuid[])', 'app.end_trip(uuid)',
-                       'app.nominate_for_task(uuid,uuid)'];
+                       'app.nominate_for_task(uuid,uuid)', 'app.mark_code_on_sidewall(uuid,uuid,date)'];
   writes oid[];
   offenders text;
 BEGIN
@@ -421,7 +424,7 @@ BEGIN
   IF offenders IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 8c: a write-list function is not a definer owned by app_writer with its search_path pinned, returning no trigger, executable by app_rw alone: %', offenders;
   END IF;
-  RAISE NOTICE 'PASS  no unreviewed routine runs with RLS bypassed, and the three write-list definers run as app_writer';
+  RAISE NOTICE 'PASS  no unreviewed routine runs with RLS bypassed, and the four write-list definers run as app_writer';
 END $$;
 
 \echo '== 8d. search_path is pinned where names resolve at run time and left open where the planner inlines (TYRE-181)'
@@ -464,7 +467,7 @@ BEGIN
   IF faults IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 8e: %', faults;
   END IF;
-  RAISE NOTICE 'PASS  8e app_writer bypasses no row security, owns the three write-list functions and nothing else, and holds exactly their call trees'' grants';
+  RAISE NOTICE 'PASS  8e app_writer bypasses no row security, owns the four write-list functions and nothing else, and holds exactly their call trees'' grants';
 END $$;
 
 \echo '== 9. Combination numbering resolves to constituent units (BR-VEH-003, CFL-006)'
@@ -10266,15 +10269,15 @@ END $$;
 -- the trigger fires, so reading_measurement_governs keeps working without the
 -- grant: section 31's submit and 60b still read the MIN it writes.
 
-\echo '== 67a. the only definers the app login can execute are the three write-list functions, and none returns a trigger'
+\echo '== 67a. the only definers the app login can execute are the four write-list functions, and none returns a trigger'
 -- CREATE TRIGGER takes only a function returning trigger, so an executable
 -- trigger definer could be attached and run with RLS off (TYRE-346); the
--- three write-list functions cannot be, and run as app_writer, which RLS
--- binds (ADR-0024).
+-- four write-list functions cannot be, and run as app_writer, which RLS
+-- binds (ADR-0024, 000062).
 DO $$
 DECLARE
   sigs text[] := ARRAY['app.start_trip(uuid,uuid,uuid[])', 'app.end_trip(uuid)',
-                       'app.nominate_for_task(uuid,uuid)'];
+                       'app.nominate_for_task(uuid,uuid)', 'app.mark_code_on_sidewall(uuid,uuid,date)'];
   writes oid[];
   offenders text;
 BEGIN
@@ -10311,7 +10314,7 @@ BEGIN
   IF offenders IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 67a: % may not execute the write-list function(s) %', current_user, offenders;
   END IF;
-  RAISE NOTICE 'PASS  67a % executes the three write-list definers and no other, and none returns a trigger', current_user;
+  RAISE NOTICE 'PASS  67a % executes the four write-list definers and no other, and none returns a trigger', current_user;
 END $$;
 
 \echo '== 67b. attaching the definer to the login''s own temp table is refused'
@@ -15569,6 +15572,342 @@ BEGIN
     RAISE EXCEPTION 'FAIL 76z: trip and nomination rows per fixture fleet read %, not the fixture''s 2/0 1/0 1/0', got;
   END IF;
   RAISE NOTICE 'PASS  76z section 76 leaves no residue';
+END $$;
+
+\echo '== 77. TYRE-99: a tyre received under GENERATED waits to be marked, and only app.mark_code_on_sidewall records the marking (B22, FR-TYR-035 as amended, U224, rule 1, rule 3, ADR-0024)'
+
+-- Each tyre as pending:BRANDED events:every one carries its code alone, in
+-- display-code order, read in the caller's fleet.
+CREATE FUNCTION pg_temp.t77_flags(p_ids uuid[]) RETURNS text
+LANGUAGE sql
+SET search_path = app, pg_temp AS $fn$
+  SELECT string_agg(t.brand_pending || ':' || n.events || ':' || n.code_alone, ' ' ORDER BY t.display_code)
+    FROM app.tyre t
+    CROSS JOIN LATERAL (
+      SELECT count(*) AS events,
+             COALESCE(bool_and(e.payload = jsonb_build_object('display_code', t.display_code)), false) AS code_alone
+        FROM app.tyre_event e WHERE e.tyre_id = t.id AND e.type = 'BRANDED') n
+   WHERE t.id = ANY (p_ids)
+$fn$;
+
+\echo '== 77a. the app login holds UPDATE on every app.tyre column but brand_pending, and a raw UPDATE of the flag is refused either way (DoD 5, 000062)'
+DO $$
+DECLARE bad text; n int;
+BEGIN
+  -- Control: the sweep reads the live column list, so a column added later
+  -- enrols itself and fails here until it has its own grant.
+  SELECT count(*) INTO n FROM pg_attribute
+   WHERE attrelid = 'app.tyre'::regclass AND attnum > 0 AND NOT attisdropped
+     AND attname <> 'brand_pending';
+  IF n < 20 THEN
+    RAISE EXCEPTION 'FAIL 77a: app.tyre has only % columns besides brand_pending; the sweep would prove nothing', n;
+  END IF;
+  SELECT string_agg(a.attname, ', ' ORDER BY a.attnum) INTO bad
+    FROM pg_attribute a
+   WHERE a.attrelid = 'app.tyre'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+     AND a.attname <> 'brand_pending'
+     AND NOT has_column_privilege(current_user, 'app.tyre', a.attname, 'UPDATE');
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 77a: the app login cannot UPDATE app.tyre %; the invoker functions that edit a tyre need every column but brand_pending', bad;
+  END IF;
+  IF has_column_privilege(current_user, 'app.tyre', 'brand_pending', 'UPDATE') THEN
+    RAISE EXCEPTION 'FAIL 77a: the app login can UPDATE app.tyre.brand_pending, so a raw statement clears a code nobody marked';
+  END IF;
+  IF has_table_privilege(current_user, 'app.tyre', 'UPDATE') THEN
+    RAISE EXCEPTION 'FAIL 77a: the app login holds UPDATE on app.tyre at table level';
+  END IF;
+  RAISE NOTICE 'PASS  77a the app login updates every app.tyre column but brand_pending';
+END $$;
+
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        base constant jsonb := jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid,
+                                                  'new_tread_mm', '25.0', 'received_date', '2026-10-01');
+        pending uuid; plain uuid; err text; e record;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT q.tyre_id INTO pending FROM app.receive_tyres(pg_temp.at_depot(base)) q;
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, pattern_id, status, retread_count, new_tread_mm,
+                        state, received_date)
+  VALUES (bac, 'T77A-PLAIN', md5('sz1')::uuid, md5('pt1')::uuid, 'NEW', 0, 25.0, 'IN_STOCK', '2026-10-01')
+  RETURNING id INTO plain;
+  IF (SELECT t.brand_pending::text || '/' || u.brand_pending::text FROM app.tyre t, app.tyre u
+       WHERE t.id = pending AND u.id = plain) IS DISTINCT FROM 'true/false' THEN
+    RAISE EXCEPTION 'FAIL 77a: the received tyre is not pending or the planted one is, so the refusals below prove nothing';
+  END IF;
+  FOR e IN SELECT * FROM (VALUES ('a pending tyre', pending, false), ('an unpending tyre', plain, true)) v(what, id, flag) LOOP
+    -- Control: the same row takes an UPDATE of a granted column, so the
+    -- refusal below is the grant, not RLS and not a missing row.
+    UPDATE app.tyre SET state = state WHERE id = e.id;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'FAIL 77a: the control UPDATE of % matched no row, so the refusal below would prove nothing', e.what;
+    END IF;
+    err := NULL;
+    BEGIN
+      EXECUTE format('UPDATE app.tyre SET brand_pending = %L WHERE id = %L', e.flag, e.id);
+    EXCEPTION WHEN insufficient_privilege THEN err := SQLERRM;
+    END;
+    -- insufficient_privilege is also an RLS WITH CHECK failure; the message
+    -- tells the grant from a policy.
+    IF err IS NULL OR err NOT LIKE 'permission denied%' THEN
+      RAISE EXCEPTION 'FAIL 77a: a raw UPDATE setting brand_pending to % on % was answered %',
+        e.flag, e.what, COALESCE(err, 'by a write');
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS  77a a raw UPDATE of brand_pending is refused by the grant, to false and to true';
+END $$;
+ROLLBACK;
+
+\echo '== 77b. a receive under GENERATED is pending and one under FREE is not, and the receipt-time BRANDED event is unchanged (B22, DoD 1; as BAC and Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        t2   constant uuid := '22222222-2222-2222-2222-222222222222';
+        base constant jsonb := jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid,
+                                                  'new_tread_mm', '25.0', 'received_date', '2026-10-01');
+        ids uuid[]; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  -- The ids are read first: a statement that joins the receive's result to
+  -- app.tyre reads a snapshot taken before the receive's own inserts.
+  SELECT array_agg(q.tyre_id) INTO ids
+    FROM app.receive_tyres(pg_temp.at_depot(base || jsonb_build_object('quantity', 2))) q;
+  SELECT pg_temp.t77_flags(ids) INTO got;
+  IF got IS DISTINCT FROM 'true:1:true true:1:true' THEN
+    RAISE EXCEPTION 'FAIL 77b: two received under GENERATED read pending:BRANDED events:payload is the code alone %', got;
+  END IF;
+
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  -- Second Fleet seeds no catalogue, so it gets its own, as section 39's does.
+  INSERT INTO app.tyre_size (id, tenant_id, name) VALUES (md5('t77t2sz')::uuid, t2, '315/80R22.5');
+  INSERT INTO app.tyre_pattern (id, tenant_id, name, applies_to) VALUES (md5('t77t2pt')::uuid, t2, 'T77 NEW', 'NEW');
+  SELECT array_agg(q.tyre_id) INTO ids
+    FROM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
+      'size_id', md5('t77t2sz')::uuid, 'pattern_id', md5('t77t2pt')::uuid, 'new_tread_mm', '25.0',
+      'display_code', 'T77B-FREE'))) q;
+  SELECT pg_temp.t77_flags(ids) INTO got;
+  IF got IS DISTINCT FROM 'false:1:true' THEN
+    RAISE EXCEPTION 'FAIL 77b: one received under FREE reads pending:BRANDED events:payload is the code alone %', got;
+  END IF;
+  RAISE NOTICE 'PASS  77b a receive under GENERATED is pending and one under FREE is not, each with one BRANDED event carrying its code alone';
+END $$;
+ROLLBACK;
+
+\echo '== 77c. marking one tyre, and every pending tyre still in the fleet on a receipt, writes a marked BRANDED event and clears the flag, audited as the bound actor (B22, DoD 2; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        base constant jsonb := jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid,
+                                                  'new_tread_mm', '25.0');
+        ids uuid[]; one uuid; code text; scrapped uuid; first_marked uuid; rc uuid; want text; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', md5('controller1')::text, true);
+  SELECT q.tyre_id, q.display_code INTO one, code FROM app.receive_tyres(pg_temp.at_depot(base)) q;
+
+  SELECT m.tyre_id || '/' || m.display_code INTO got FROM app.mark_code_on_sidewall(one, NULL, NULL) m;
+  IF got IS DISTINCT FROM one || '/' || code THEN
+    RAISE EXCEPTION 'FAIL 77c: marking one tyre returned %, not %/%', got, one, code;
+  END IF;
+  IF (SELECT t.brand_pending FROM app.tyre t WHERE t.id = one) THEN
+    RAISE EXCEPTION 'FAIL 77c: a marked tyre is still pending';
+  END IF;
+  SELECT count(*) || '/' || bool_and(e.payload = jsonb_build_object('display_code', code, 'marked', true)
+                                     AND e.to_state IS NULL AND e.occurred_at = now()) INTO got
+    FROM app.tyre_event e WHERE e.tyre_id = one AND e.type = 'BRANDED' AND e.payload ? 'marked';
+  IF got IS DISTINCT FROM '1/true' THEN
+    RAISE EXCEPTION 'FAIL 77c: the marking wrote marked BRANDED events/shaped as the spec says %', got;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM app.audit_log a
+                  WHERE a.entity_type = 'tyre' AND a.entity_id = one AND a.action = 'UPDATE'
+                    AND a.actor_id = md5('controller1')::uuid
+                    AND a.before->>'brand_pending' = 'true' AND a.after->>'brand_pending' = 'false') THEN
+    RAISE EXCEPTION 'FAIL 77c: the marking filed no audit entry for the tyre as the bound actor';
+  END IF;
+  IF EXISTS (SELECT 1 FROM app.v_tyre_code_to_mark v WHERE v.tyre_id = one) THEN
+    RAISE EXCEPTION 'FAIL 77c: a marked tyre is still in the codes-to-mark queue';
+  END IF;
+
+  -- A receipt of four: one scrapped, one marked alone first, two pending.
+  SELECT array_agg(q.tyre_id ORDER BY q.display_code) INTO ids
+    FROM app.receive_tyres(pg_temp.at_depot(base || jsonb_build_object('quantity', 4))) q;
+  scrapped := ids[1];
+  first_marked := ids[2];
+  SELECT t.receipt_id INTO rc FROM app.tyre t WHERE t.id = ids[1];
+  PERFORM app.dispose_tyre(scrapped, 'SCRAPPED', 'T77 probe', NULL, now());
+  PERFORM app.mark_code_on_sidewall(first_marked, NULL, NULL);
+  SELECT string_agg(v.tyre_id::text, ' ' ORDER BY v.tyre_id) INTO want
+    FROM app.v_tyre_code_to_mark v WHERE v.receipt_id = rc;
+  IF want IS DISTINCT FROM (SELECT string_agg(x::text, ' ' ORDER BY x) FROM unnest(ids[3:4]) x) THEN
+    RAISE EXCEPTION 'FAIL 77c: the queue for the receipt reads %, not its two pending tyres', want;
+  END IF;
+  SELECT string_agg(m.tyre_id::text, ' ' ORDER BY m.tyre_id) INTO got
+    FROM app.mark_code_on_sidewall(NULL, rc, NULL) m;
+  IF got IS DISTINCT FROM want THEN
+    RAISE EXCEPTION 'FAIL 77c: marking the receipt marked %, not the queue''s %', got, want;
+  END IF;
+  SELECT string_agg(t.brand_pending || ':' || (SELECT count(*) FROM app.tyre_event e
+                                               WHERE e.tyre_id = t.id AND e.type = 'BRANDED' AND e.payload ? 'marked'),
+                    ' ' ORDER BY t.display_code) INTO got
+    FROM app.tyre t WHERE t.receipt_id = rc;
+  IF got IS DISTINCT FROM 'true:0 false:1 false:1 false:1' THEN
+    RAISE EXCEPTION 'FAIL 77c: after the receipt''s marking its tyres read pending:marked events %', got;
+  END IF;
+  RAISE NOTICE 'PASS  77c one tyre and a receipt''s pending tyres in the fleet are marked once each, the scrapped one left pending, each audited as the bound actor';
+END $$;
+ROLLBACK;
+
+\echo '== 77d. a marking dated on a back-dated receipt''s day is stamped at its receipt, never before it, and a later day at that day''s start (spec section 2, Lead''s call 13; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        base constant jsonb := jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid,
+                                                  'new_tread_mm', '25.0', 'received_date', '2026-10-01');
+        a uuid; b uuid; received timestamptz;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT q.tyre_id INTO a FROM app.receive_tyres(pg_temp.at_depot(base)) q;
+  SELECT q.tyre_id INTO b FROM app.receive_tyres(pg_temp.at_depot(base)) q;
+  SELECT e.occurred_at INTO received FROM app.tyre_event e WHERE e.tyre_id = a AND e.type = 'RECEIVED';
+  -- Receive stamps the UTC day's midnight, which is later than the fleet's
+  -- in Johannesburg; without that the clamp below is not on trial.
+  IF received <= app.tenant_day_instant('2026-10-01') THEN
+    RAISE EXCEPTION 'FAIL 77d: the receipt is stamped %, not after the fleet''s midnight %, so the clamp is not on trial',
+      received, app.tenant_day_instant('2026-10-01');
+  END IF;
+  PERFORM app.mark_code_on_sidewall(a, NULL, '2026-10-01');
+  PERFORM app.mark_code_on_sidewall(b, NULL, '2026-10-05');
+  IF (SELECT e.occurred_at FROM app.tyre_event e WHERE e.tyre_id = a AND e.type = 'BRANDED' AND e.payload ? 'marked')
+     IS DISTINCT FROM received THEN
+    RAISE EXCEPTION 'FAIL 77d: a marking on the day of receipt is stamped %, not at the receipt %',
+      (SELECT e.occurred_at FROM app.tyre_event e WHERE e.tyre_id = a AND e.type = 'BRANDED' AND e.payload ? 'marked'),
+      received;
+  END IF;
+  IF (SELECT e.occurred_at FROM app.tyre_event e WHERE e.tyre_id = b AND e.type = 'BRANDED' AND e.payload ? 'marked')
+     IS DISTINCT FROM app.tenant_day_instant('2026-10-05') THEN
+    RAISE EXCEPTION 'FAIL 77d: a marking on 2026-10-05 is stamped %, not at that day''s start %',
+      (SELECT e.occurred_at FROM app.tyre_event e WHERE e.tyre_id = b AND e.type = 'BRANDED' AND e.payload ? 'marked'),
+      app.tenant_day_instant('2026-10-05');
+  END IF;
+  RAISE NOTICE 'PASS  77d a marking is never stamped before its tyre''s receipt';
+END $$;
+ROLLBACK;
+
+\echo '== 77e. each refusal is TY012 in its own words, and no fleet bound reads as no such tyre or receipt (DoD 2; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        base constant jsonb := jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid,
+                                                  'new_tread_mm', '25.0', 'received_date', '2026-10-01');
+        tz text; gone uuid; gone_code text; marked uuid; marked_code text; late uuid; late_code text;
+        rc uuid; got text; e record;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  SELECT q.tyre_id, q.display_code INTO gone, gone_code FROM app.receive_tyres(pg_temp.at_depot(base)) q;
+  PERFORM app.dispose_tyre(gone, 'SCRAPPED', 'T77 probe', NULL, now());
+  SELECT q.tyre_id, q.display_code INTO marked, marked_code FROM app.receive_tyres(pg_temp.at_depot(base)) q;
+  SELECT t.receipt_id INTO rc FROM app.tyre t WHERE t.id = marked;
+  PERFORM app.mark_code_on_sidewall(marked, NULL, NULL);
+  SELECT q.tyre_id, q.display_code INTO late, late_code FROM app.receive_tyres(pg_temp.at_depot(base)) q;
+
+  FOR e IN SELECT * FROM (VALUES
+    ('both ids', format('SELECT app.mark_code_on_sidewall(%L, %L, NULL)', late, rc),
+     'TY012 a marking names one tyre or one receipt'),
+    ('neither id', 'SELECT app.mark_code_on_sidewall(NULL, NULL, NULL)',
+     'TY012 a marking names one tyre or one receipt'),
+    ('an unknown tyre', format('SELECT app.mark_code_on_sidewall(%L, NULL, NULL)', md5('t77-none')::uuid),
+     'TY012 no such tyre in this fleet'),
+    ('an unknown receipt', format('SELECT app.mark_code_on_sidewall(NULL, %L, NULL)', md5('t77-none')::uuid),
+     'TY012 no such receipt in this fleet'),
+    ('a scrapped tyre', format('SELECT app.mark_code_on_sidewall(%L, NULL, NULL)', gone),
+     format('TY012 %s is scrapped and has left the fleet, so its code is not marked', gone_code)),
+    ('a marked tyre', format('SELECT app.mark_code_on_sidewall(%L, NULL, NULL)', marked),
+     format('TY012 %s has no code waiting to be marked on its sidewall', marked_code)),
+    ('a marked receipt', format('SELECT app.mark_code_on_sidewall(NULL, %L, NULL)', rc),
+     'TY012 this receipt has no tyre whose code is waiting to be marked'),
+    ('a day after today', format('SELECT app.mark_code_on_sidewall(%L, NULL, %L)', late, app.tenant_today(tz) + 1),
+     'TY012 a marking is dated today or earlier, never in the future'),
+    ('a day before the receipt', format('SELECT app.mark_code_on_sidewall(%L, NULL, %L)', late, '2026-09-30'),
+     format('TY012 %s was received on 2026-10-01; a marking is dated on or after that day', late_code))
+  ) v(what, stmt, want) LOOP
+    got := pg_temp.t76_try(e.stmt);
+    IF got IS DISTINCT FROM e.want THEN
+      RAISE EXCEPTION 'FAIL 77e: % was answered %', e.what, got;
+    END IF;
+  END LOOP;
+
+  PERFORM set_config('app.tenant_id', '', true);
+  got := pg_temp.t76_try(format('SELECT app.mark_code_on_sidewall(%L, NULL, NULL)', late));
+  IF got IS DISTINCT FROM 'TY012 no such tyre in this fleet' THEN
+    RAISE EXCEPTION 'FAIL 77e: a tyre marked with no fleet bound was answered %', got;
+  END IF;
+  got := pg_temp.t76_try(format('SELECT app.mark_code_on_sidewall(NULL, %L, NULL)', rc));
+  IF got IS DISTINCT FROM 'TY012 no such receipt in this fleet' THEN
+    RAISE EXCEPTION 'FAIL 77e: a receipt marked with no fleet bound was answered %', got;
+  END IF;
+  RAISE NOTICE 'PASS  77e both or neither id, an unknown tyre or receipt, a tyre that left the fleet or is marked, a marked receipt, a future day and a day before receipt are each refused as TY012, and no fleet bound finds nothing';
+END $$;
+ROLLBACK;
+
+\echo '== 77f. another fleet neither lists nor marks a fleet''s pending tyre or receipt, and the fleet''s own marking is the control (DoD 5, rule 1; as BAC and Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        t2   constant uuid := '22222222-2222-2222-2222-222222222222';
+        base constant jsonb := jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid,
+                                                  'new_tread_mm', '25.0', 'received_date', '2026-10-01');
+        ids uuid[]; rc uuid; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT array_agg(q.tyre_id) INTO ids
+    FROM app.receive_tyres(pg_temp.at_depot(base || jsonb_build_object('quantity', 2))) q;
+  SELECT t.receipt_id INTO rc FROM app.tyre t WHERE t.id = ids[1];
+
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  IF EXISTS (SELECT 1 FROM app.v_tyre_code_to_mark) THEN
+    RAISE EXCEPTION 'FAIL 77f: Second Fleet''s codes-to-mark queue lists % row(s)',
+      (SELECT count(*) FROM app.v_tyre_code_to_mark);
+  END IF;
+  got := pg_temp.t76_try(format('SELECT app.mark_code_on_sidewall(%L, NULL, NULL)', ids[1]));
+  IF got IS DISTINCT FROM 'TY012 no such tyre in this fleet' THEN
+    RAISE EXCEPTION 'FAIL 77f: Second Fleet marking BAC''s tyre was answered %', got;
+  END IF;
+  got := pg_temp.t76_try(format('SELECT app.mark_code_on_sidewall(NULL, %L, NULL)', rc));
+  IF got IS DISTINCT FROM 'TY012 no such receipt in this fleet' THEN
+    RAISE EXCEPTION 'FAIL 77f: Second Fleet marking BAC''s receipt was answered %', got;
+  END IF;
+
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT pg_temp.t77_flags(ids) INTO got;
+  IF got IS DISTINCT FROM 'true:1:true true:1:true' THEN
+    RAISE EXCEPTION 'FAIL 77f: after Second Fleet''s attempts BAC''s tyres read pending:BRANDED events:unmarked %', got;
+  END IF;
+  SELECT count(*) INTO got FROM app.mark_code_on_sidewall(NULL, rc, NULL);
+  IF got IS DISTINCT FROM '2' THEN
+    RAISE EXCEPTION 'FAIL 77f: BAC marking its own receipt marked % tyres, not 2', got;
+  END IF;
+  RAISE NOTICE 'PASS  77f another fleet neither lists nor marks BAC''s pending tyre or receipt, and BAC marks its own';
+END $$;
+ROLLBACK;
+
+\echo '== 77z. nothing section 77 planted outlives its rollback'
+DROP FUNCTION pg_temp.t77_flags(uuid[]);
+DO $$
+DECLARE got text := ''; tid uuid;
+BEGIN
+  FOREACH tid IN ARRAY ARRAY['11111111-1111-1111-1111-111111111111',
+                             '22222222-2222-2222-2222-222222222222']::uuid[] LOOP
+    PERFORM set_config('app.tenant_id', tid::text, true);
+    got := got || (SELECT count(*) FROM app.tyre_receipt) || '/'
+               || (SELECT count(*) FROM app.tyre t WHERE t.receipt_id IS NOT NULL OR t.brand_pending) || '/'
+               || (SELECT count(*) FROM app.tyre_event e WHERE e.type = 'BRANDED' AND e.payload ? 'marked') || ' ';
+  END LOOP;
+  IF got IS DISTINCT FROM '0/0/0 0/0/0 ' THEN
+    RAISE EXCEPTION 'FAIL 77z: receipts/received or pending tyres/marked events per fleet read %, not the fixture''s 0/0/0 0/0/0', got;
+  END IF;
+  RAISE NOTICE 'PASS  77z section 77 leaves no residue';
 END $$;
 
 \echo '== 79. TYRE-450: a receive names an active depot or store of the fleet, required when it has one (B39, FR-TYR-040 as amended, rule 1; as BAC and Second Fleet, rolled back)'

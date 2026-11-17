@@ -405,13 +405,16 @@ BEGIN
       code := hand;
     END IF;
 
+    -- B22 (FR-TYR-035 as amended): under GENERATED the platform issued the
+    -- code and someone must mark it on the sidewall; under FREE the code was
+    -- read off the sidewall.
     INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id,
                           status, retread_count, purchase_date, purchase_price,
                           cost_source, new_tread_mm, rand_per_mm, state,
-                          current_depot_id, received_date, receipt_id)
+                          current_depot_id, received_date, receipt_id, brand_pending)
     VALUES (app.current_tenant_id(), code, sz, br, pt, 'NEW', 0,
             (payload->>'purchase_date')::date, price, src, tread, rate,
-            'IN_STOCK', dp, rcv, rcpt)
+            'IN_STOCK', dp, rcv, rcpt, pol = 'GENERATED')
     RETURNING id INTO new_id;
 
     -- The vocabulary's first writer (TYRE-48): receipt is the point a tyre
@@ -427,3 +430,146 @@ BEGIN
     RETURN NEXT;
   END LOOP;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- Codes to mark (TYRE-99, B22, U224)
+-- ---------------------------------------------------------------------------
+-- The flag is cleared only by app.mark_code_on_sidewall, which runs as
+-- app_writer (DoD 5, ADR-0024). A table-level REVOKE also revokes every
+-- column grant (https://www.postgresql.org/docs/16/sql-revoke.html), so it
+-- runs first. A later column needs its own grant: section 77a fails until
+-- it has one.
+REVOKE UPDATE ON app.tyre FROM app_rw;
+GRANT UPDATE (id, tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+              purchase_date, purchase_price, new_tread_mm, rand_per_mm, casing_value, state,
+              current_depot_id, last_tread_mm, last_tread_at, created_at, cost_source,
+              received_date, created_by, updated_at, updated_by, receipt_id)
+  ON app.tyre TO app_rw;
+
+COMMENT ON COLUMN app.tyre.brand_pending IS
+  'True while a code the platform issued at Receive waits to be marked on the sidewall (B22, FR-TYR-035 as amended). Set by app.receive_tyres under GENERATED; cleared only by app.mark_code_on_sidewall, which runs as app_writer (000062, ADR-0024).';
+
+-- The one rule for the queue, shaped like v_tyre_awaiting_cost (000012):
+-- pending and still in the fleet. app.mark_code_on_sidewall marks exactly
+-- these rows, and the register joins this view rather than repeat it.
+CREATE VIEW app.v_tyre_code_to_mark WITH (security_invoker = true) AS
+SELECT t.tenant_id,
+       t.id AS tyre_id,
+       t.display_code,
+       t.receipt_id,
+       t.received_date,
+       t.state
+  FROM app.tyre t
+ WHERE t.brand_pending
+   AND t.state NOT IN ('SCRAPPED', 'LOST', 'SOLD');
+
+-- The one writer of the flag after receipt (B22): one tyre, or every tyre
+-- on a receipt still in the queue. Who may mark is the handler's capability,
+-- ManageAssets (U224). Every read and write names the bound tenant, so a
+-- missing id, another fleet's and no fleet bound read alike (rule 1).
+CREATE FUNCTION app.mark_code_on_sidewall(p_tyre uuid, p_receipt uuid, p_marked_on date)
+RETURNS TABLE (tyre_id uuid, display_code text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = app, pg_temp AS $$
+DECLARE
+  tid   uuid := app.current_tenant_id();
+  tz    text;
+  today date;
+  d     date;
+  ty    app.tyre;
+  stamp timestamptz;
+  n     int := 0;
+BEGIN
+  IF (p_tyre IS NULL) = (p_receipt IS NULL) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = 'a marking names one tyre or one receipt';
+  END IF;
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = tid;
+  today := app.tenant_today(tz);
+
+  IF p_tyre IS NOT NULL THEN
+    SELECT t.* INTO ty FROM app.tyre t WHERE t.tenant_id = tid AND t.id = p_tyre FOR UPDATE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such tyre in this fleet';
+    END IF;
+  ELSIF NOT EXISTS (SELECT 1 FROM app.tyre_receipt r WHERE r.tenant_id = tid AND r.id = p_receipt) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such receipt in this fleet';
+  END IF;
+
+  -- Back-dated to the day of receipt and no earlier, never forward, as
+  -- receive_tyres and dispatch_tyre treat their days (spec, Lead's call 8).
+  d := COALESCE(p_marked_on, today);
+  IF d > today THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = 'a marking is dated today or earlier, never in the future';
+  END IF;
+  IF p_tyre IS NOT NULL THEN
+    IF ty.state IN ('SCRAPPED', 'LOST', 'SOLD') THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY012',
+        MESSAGE = format('%s is %s and has left the fleet, so its code is not marked',
+                         ty.display_code, lower(ty.state::text));
+    END IF;
+    IF NOT ty.brand_pending THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY012',
+        MESSAGE = format('%s has no code waiting to be marked on its sidewall', ty.display_code);
+    END IF;
+  END IF;
+
+  -- The receipt's predicate repeats the view's, in the receipt moves' lock
+  -- order. A row waited on is re-read and re-checked against it once its
+  -- lock is free, so a concurrent marking leaves nothing to mark twice.
+  FOR ty IN
+    SELECT t.* FROM app.tyre t
+     WHERE t.tenant_id = tid
+       AND (t.id = p_tyre
+            OR (p_tyre IS NULL AND t.receipt_id = p_receipt AND t.brand_pending
+                AND t.state NOT IN ('SCRAPPED', 'LOST', 'SOLD')))
+     ORDER BY t.display_code
+       FOR UPDATE
+  LOOP
+    IF d < ty.received_date THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY012',
+        MESSAGE = format('%s was received on %s; a marking is dated on or after that day',
+                         ty.display_code, ty.received_date);
+    END IF;
+    -- Never before the tyre's receipt: receive_tyres stamps a back-dated
+    -- day at UTC midnight, later than the fleet's own east of UTC (spec,
+    -- Lead's call 13).
+    stamp := greatest(app.tenant_day_instant(d),
+                      (SELECT max(e.occurred_at) FROM app.tyre_event e
+                        WHERE e.tenant_id = tid AND e.tyre_id = ty.id AND e.type = 'RECEIVED'));
+    INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, payload)
+    VALUES (tid, ty.id, 'BRANDED', stamp,
+            jsonb_build_object('display_code', ty.display_code, 'marked', true));
+    UPDATE app.tyre t SET brand_pending = false WHERE t.tenant_id = tid AND t.id = ty.id;
+    tyre_id := ty.id; display_code := ty.display_code;
+    n := n + 1;
+    RETURN NEXT;
+  END LOOP;
+  IF n = 0 THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = 'this receipt has no tyre whose code is waiting to be marked';
+  END IF;
+END $$;
+
+-- What app.mark_code_on_sidewall's call tree needs, and nothing more; suite
+-- check 8e pins it. app.tenant, app.audit_log and its sequence are
+-- 000061's grants, which this function also uses (tyre_audited).
+-- The tyre reads and the row locks.
+GRANT SELECT ON app.tyre TO app_writer;
+-- The clear.
+GRANT UPDATE (brand_pending) ON app.tyre TO app_writer;
+-- The RECEIVED read and the marked event.
+GRANT SELECT, INSERT ON app.tyre_event TO app_writer;
+-- The receipt check.
+GRANT SELECT ON app.tyre_receipt TO app_writer;
+
+-- The hand-over, as 000061 and db/CLAUDE.md (Adding a function) require:
+-- OWNER TO needs the new owner to hold CREATE on the schema at that moment
+-- only, and the ACL is set before the owner changes.
+REVOKE ALL ON FUNCTION app.mark_code_on_sidewall(uuid, uuid, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.mark_code_on_sidewall(uuid, uuid, date) TO app_rw;
+GRANT CREATE ON SCHEMA app TO app_writer;
+ALTER FUNCTION app.mark_code_on_sidewall(uuid, uuid, date) OWNER TO app_writer;
+REVOKE CREATE ON SCHEMA app FROM app_writer;

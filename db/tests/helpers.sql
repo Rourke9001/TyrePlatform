@@ -173,8 +173,8 @@ SET search_path = app, pg_temp AS $fn$
   ORDER BY 1
 $fn$;
 
--- What suite check 8e holds of app_writer, the owner of the three write-list
--- definers (ADR-0024): NULL when every property holds, else each fault,
+-- What suite check 8e holds of app_writer, the owner of the four write-list
+-- definers (ADR-0024, 000062): NULL when every property holds, else each fault,
 -- '; '-joined. P26 in 005 shows each fault can fire. p_login is the app
 -- login whose membership is checked. Catalogues only: information_schema
 -- hides another role's grants from app_login.
@@ -184,10 +184,11 @@ SET search_path = app, pg_temp AS $fn$
 DECLARE
   w      oid := (SELECT r.oid FROM pg_roles r WHERE r.rolname = 'app_writer');
   sigs   text[] := ARRAY['app.start_trip(uuid,uuid,uuid[])', 'app.end_trip(uuid)',
-                         'app.nominate_for_task(uuid,uuid)'];
+                         'app.nominate_for_task(uuid,uuid)',
+                         'app.mark_code_on_sidewall(uuid,uuid,date)'];
   writes oid[];
-  -- The three call trees' needs, each read from the statement that needs
-  -- it (000061). A lock-only table holds UPDATE on updated_at alone.
+  -- The four call trees' needs, each read from the statement that needs
+  -- it (000061, 000062). A lock-only table holds UPDATE on updated_at alone.
   want   text[] := ARRAY[
     'schema app USAGE',
     'table app.trip SELECT',
@@ -213,7 +214,12 @@ DECLARE
     'sequence app.audit_log_id_seq USAGE',
     'view app.v_unit_coverage SELECT',
     'function app.end_combination_at(uuid,timestamp with time zone) EXECUTE',
-    'function app.create_combination_at(uuid,jsonb,timestamp with time zone) EXECUTE'];
+    'function app.create_combination_at(uuid,jsonb,timestamp with time zone) EXECUTE',
+    'table app.tyre SELECT',
+    'column app.tyre.brand_pending UPDATE',
+    'table app.tyre_event SELECT',
+    'table app.tyre_event INSERT',
+    'table app.tyre_receipt SELECT'];
   held   text[];
   faults text[] := '{}';
 BEGIN

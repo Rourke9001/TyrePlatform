@@ -64,6 +64,10 @@
 -- member, and shows the shared check names it. P27 is where the WITH CHECK
 -- on trip and inspection_task_nomination lives, with a control that shows
 -- it would catch an owner that bypasses RLS (ADR-0024, Option C).
+--
+-- P28 shows the marking function stays in the bound fleet as app_login,
+-- and that row security binds app_writer on the three tables it reads and
+-- writes, with P27's BYPASSRLS control (ADR-0024, 000062).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -2147,6 +2151,108 @@ BEGIN
   INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id)
   VALUES (t2, md5('p27-task')::uuid, md5('p27-driver')::uuid);
   RAISE NOTICE 'PASS  P27 the control: with BYPASSRLS the same reads return Second Fleet''s rows and both writes land';
+END $$;
+ROLLBACK;
+
+\echo '== P28. TYRE-99: app.mark_code_on_sidewall stays in the bound fleet as app_login, and row security binds app_writer on the three tables it reads and writes, beside P27''s BYPASSRLS control (rule 1, DoD 5, ADR-0024)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+BEGIN
+  -- Second Fleet is FREE, so no receive of its own is pending: its pending
+  -- tyre on a receipt is staged raw. BAC's comes through the function.
+  PERFORM set_config('app.actor_id', '', true);
+  INSERT INTO app.tyre_size (id, tenant_id, name) VALUES (md5('p28-sz')::uuid, t2, 'P28 SIZE');
+  INSERT INTO app.tyre_pattern (id, tenant_id, name, applies_to) VALUES (md5('p28-pt')::uuid, t2, 'P28 NEW', 'NEW');
+  INSERT INTO app.tyre_receipt (id, tenant_id, size_id, pattern_id, received_date, price_state)
+  VALUES (md5('p28-rc')::uuid, t2, md5('p28-sz')::uuid, md5('p28-pt')::uuid, '2026-10-01', 'UNPRICED');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, pattern_id, status, retread_count, new_tread_mm,
+                        state, received_date, brand_pending, receipt_id)
+  VALUES (md5('p28-tyre')::uuid, t2, 'P28-1', md5('p28-sz')::uuid, md5('p28-pt')::uuid, 'NEW', 0, 25.0,
+          'IN_STOCK', '2026-10-01', true, md5('p28-rc')::uuid);
+  INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, to_state)
+  VALUES (t2, md5('p28-tyre')::uuid, 'RECEIVED', '2026-10-01', 'IN_STOCK');
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
+    'size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid, 'new_tread_mm', '25.0', 'received_date', '2026-10-01')));
+END $$;
+
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  got text;
+BEGIN
+  SET LOCAL ROLE app_login;
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P28: the probe runs as %, not app_login', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  got := pg_temp.t76_try(format('SELECT app.mark_code_on_sidewall(%L, NULL, NULL)', md5('p28-tyre')::uuid));
+  IF got IS DISTINCT FROM 'TY012 no such tyre in this fleet' THEN
+    RAISE EXCEPTION 'FAIL P28: bound to BAC, marking Second Fleet''s tyre was answered %', got;
+  END IF;
+  got := pg_temp.t76_try(format('SELECT app.mark_code_on_sidewall(NULL, %L, NULL)', md5('p28-rc')::uuid));
+  IF got IS DISTINCT FROM 'TY012 no such receipt in this fleet' THEN
+    RAISE EXCEPTION 'FAIL P28: bound to BAC, marking Second Fleet''s receipt was answered %', got;
+  END IF;
+  RESET ROLE;
+  IF NOT (SELECT t.brand_pending FROM app.tyre t WHERE t.id = md5('p28-tyre')::uuid)
+     OR EXISTS (SELECT 1 FROM app.tyre_event e WHERE e.tyre_id = md5('p28-tyre')::uuid AND e.payload ? 'marked') THEN
+    RAISE EXCEPTION 'FAIL P28: after BAC''s refused markings, Second Fleet''s tyre is no longer pending or carries a marked event';
+  END IF;
+  RAISE NOTICE 'PASS  P28 as app_login bound to BAC, Second Fleet''s pending tyre and receipt read as no such row and stay unmarked';
+END $$;
+
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+  tbl text; n_t2 int; n_bac int; n int; got text; bad text := '';
+BEGIN
+  SET LOCAL ROLE app_writer;
+  IF current_user <> 'app_writer' THEN RAISE EXCEPTION 'FAIL P28: the probe runs as %, not app_writer', current_user; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  FOREACH tbl IN ARRAY ARRAY['tyre', 'tyre_event', 'tyre_receipt'] LOOP
+    EXECUTE format('SELECT count(*) FROM app.%I WHERE tenant_id = $1', tbl) INTO n_t2 USING t2;
+    EXECUTE format('SELECT count(*) FROM app.%I WHERE tenant_id = $1', tbl) INTO n_bac USING bac;
+    IF n_t2 <> 0 OR n_bac = 0 THEN
+      bad := bad || format(' %s: Second Fleet %s, BAC %s;', tbl, n_t2, n_bac);
+    END IF;
+  END LOOP;
+  IF bad <> '' THEN
+    RAISE EXCEPTION 'FAIL P28: bound to BAC, app_writer read%', bad;
+  END IF;
+  UPDATE app.tyre SET brand_pending = false WHERE tenant_id = t2;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL P28: bound to BAC, app_writer cleared % of Second Fleet''s flags', n;
+  END IF;
+  got := NULL;
+  BEGIN
+    INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, payload)
+    VALUES (t2, md5('p28-tyre')::uuid, 'BRANDED', now(), jsonb_build_object('display_code', 'P28-1', 'marked', true));
+  EXCEPTION WHEN insufficient_privilege THEN
+    GET STACKED DIAGNOSTICS got = MESSAGE_TEXT;
+  END;
+  IF got IS NULL OR got NOT LIKE '%row-level security policy for table "tyre_event"%' THEN
+    RAISE EXCEPTION 'FAIL P28: bound to BAC, app_writer''s marked event for Second Fleet was answered %', COALESCE(got, 'by an accepted row');
+  END IF;
+  RAISE NOTICE 'PASS  P28 bound to BAC, app_writer reads none of Second Fleet''s tyres, events or receipts, clears none of its flags and writes no event for it';
+
+  -- The control, as P27's: an owner that bypasses RLS reaches Second
+  -- Fleet's rows through the same probes.
+  RESET ROLE;
+  ALTER ROLE app_writer BYPASSRLS;
+  SET LOCAL ROLE app_writer;
+  IF current_user <> 'app_writer' THEN RAISE EXCEPTION 'FAIL P28: the control runs as %, not app_writer', current_user; END IF;
+  UPDATE app.tyre SET brand_pending = false WHERE tenant_id = t2;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL P28: with BYPASSRLS, app_writer bound to BAC cleared % of Second Fleet''s flags, not 1', n;
+  END IF;
+  INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, payload)
+  VALUES (t2, md5('p28-tyre')::uuid, 'BRANDED', now(), jsonb_build_object('display_code', 'P28-1', 'marked', true));
+  RAISE NOTICE 'PASS  P28 the control: with BYPASSRLS the same UPDATE clears Second Fleet''s flag and the event lands';
 END $$;
 ROLLBACK;
 
