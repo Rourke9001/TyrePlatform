@@ -349,18 +349,15 @@ For round r = 1, 2, 3:
    unless the agent shows the ruling itself is wrong. A dispatch that
    returns nothing, says the request was declined, or gives no verdict
    (`EXECUTE`, `EXECUTE AFTER FIXES` or `REPLAN`) after its report on each
-   item, where the agent file puts it, is dispatched again once with
-   `model: "opus"`, which outranks the agent file's model for that
-   dispatch. A verdict word inside a finding is not the verdict, and text
-   after the verdict does not matter. The agent runs on Fable, whose safety
-   classifiers can decline a request, and a declined request is retried
-   on another model
-   (https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-2,
-   Safeguard refusals; TYRE-484, U215). A second dispatch that fails in
+   item, where the agent file puts it, is dispatched again once. A verdict
+   word inside a finding is not the verdict, and text after the verdict
+   does not matter. The agent file puts it on Opus (TYRE-485, U219), so
+   both dispatches run on that model. A second dispatch that fails in
    any of those ways, the same as the first or not, stops for the owner
    (The run cannot go on).
 2. Record its verdict and its findings by severity in the state file, with
-   `on opus` after the round number when the second dispatch gave them.
+   `second dispatch` after the round number when the second dispatch gave
+   them.
 3. Send every Critical and Important finding to `planner`, and wait for its
    reply (Waiting for a teammate's message). Sort each one
    the planner disputes or cannot close as product or engineering, as in
@@ -424,8 +421,14 @@ Spawn a teammate named `implementer` (general-purpose, on the model the
 > take a small fix past the small-fix definition (`docs/how-work-runs.md`,
 > Small fixes), goes to the lead with the
 > evidence; wait for its answer. Send anything that is not a bug to the
-> lead with the evidence. With your last message, report the final-review
-> line and the rulings and deferred minors the skill lists. When the skill
+> lead with the evidence. Before your last `make check`, do steps 1 to 3 of
+> `.claude/commands/comment-audit.md` over the comments your commits add or
+> change, and fix each one that breaks `docs/comments.md` yourself, in one
+> commit that names the first key. Leave a comment you are unsure about as
+> it is, and send it to the lead with the evidence as an item that is not
+> a bug; do not wait for an answer (TYRE-485, U219). With your last message, report
+> the final-review line, the number of comments the audit fixed, and the
+> rulings and deferred minors the skill lists. When the skill
 > reaches finishing-a-development-branch, do not present its menu: end with
 > an empty `git status --porcelain`, send the lead "ready for review
 > <branch>" with the `make check` exit code, then stop; do not push or open
@@ -813,10 +816,13 @@ Give each fixer this brief verbatim, its placeholders filled:
    `pipeline-review-base` (`git branch -D pipeline-review-base`), set
    stage `handed over`, and tell the owner, written as Owner stops says:
    the PR, the rounds, what was fixed, the tickets touched, and the lead's
-   calls. The owner merges, and
-   close-out runs by itself from the merge. `/review-pr <n>` in a separate
-   session and `/code-review ultra` are optional; a finding from either is
-   fixed outside the run, as on the manual path (`/ticket` step 12). Until
+   calls. Say that the code review is done, since the review loop ran on
+   the branch before the PR opened, and that the merge is the only step
+   left. Name no further review for the owner to run: the owner read an
+   optional one as a review still owed (TYRE-485, U219). The owner merges,
+   and close-out runs by itself from the merge. A finding from a review the
+   owner runs anyway is fixed outside the run, as on the manual path
+   (`/ticket` step 12). Until
    that PR merges or closes, a new `make pipeline` for another job stops,
    because a late fix round works in this checkout.
 
@@ -842,8 +848,7 @@ Give each fixer this brief verbatim, its placeholders filled:
   the owner. Gate
   on that line, never on a file existing (docs/lessons.md, 2026-09-03 and
   2026-11-09). A verifier whose line is there but whose `review-<k>.md` is
-  missing: write its hand-back to that path yourself before going on. The
-  red team alone changes model for its second dispatch (Red team step 1).
+  missing: write its hand-back to that path yourself before going on.
 - These stop for the owner under the row "The run cannot go on": the
   range assertion or an empty file list (Review loop step 2);
   `git branch --show-current` not printing the run's branch; a verifier
@@ -878,7 +883,7 @@ Give each fixer this brief verbatim, its placeholders filled:
 - Spec: <path> @ <commit>
 - Lead's calls: <question>: <choice> (<source>)
 - Plan: <path>
-- Red team: round <r>[ on opus]: <verdict>, C<n> I<n> M<n>; fixed <n>, ruled <n> (U<n>, ...); lead's rulings: <finding>: <ruling> (<source>)
+- Red team: round <r>[ second dispatch]: <verdict>, C<n> I<n> M<n>; fixed <n>, ruled <n> (U<n>, ...); lead's rulings: <finding>: <ruling> (<source>)
 - Implementer model: <sonnet | opus>, because <the files that met a trigger | no trigger met>
 - Implementer report: <state dir>/implementer-report.md; make check exit <code>
 - Review base: <sha>
