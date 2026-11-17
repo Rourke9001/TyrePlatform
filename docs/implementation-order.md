@@ -154,8 +154,9 @@ TYRE-464, 468 and 479 have no ruling on timing, only the board's Medium:
 
 **Not a pipeline run.** Each waits on the owner or a live step:
 
-- TYRE-485: PR #223, awaiting its last re-review and the merge. Its last
-  definition-of-done item is checked on row 1's transcripts.
+- TYRE-485: merged as #223. It closes on the first `make pipeline` run after
+  the merge, whose transcripts must show no advisor call from the lead, a
+  teammate or a subagent; the ticket reopens if one shows.
 - TYRE-486: this page's own PR.
 - TYRE-472: merged as #221. It closes on the owner's report that release
   step 4's queries match on staging, at the first release that carries
