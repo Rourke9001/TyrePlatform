@@ -21,6 +21,10 @@ export CLAUDE_CODE_SUBAGENT_MODEL=opus
 unset CLAUDE_CODE_SUBAGENT_MODEL_FORCE
 # Set in the caller's shell, it would outrank --effort (TYRE-476).
 unset CLAUDE_CODE_EFFORT_LEVEL
+# The settings name a Fable advisor, and every agent of a run would send it
+# its whole transcript uncached. Each agent has a checker after it, so no
+# agent of a run calls the advisor (TYRE-485, U219).
+export CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1
 # The lead runs on Fable at high effort (U205).
 lead=(--model fable --effort high)
 # Git Bash rewrites a leading / into a Windows path when it starts claude.exe.

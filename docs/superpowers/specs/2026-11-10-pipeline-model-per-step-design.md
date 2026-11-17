@@ -66,6 +66,10 @@ settings hold.
 
 ## The mapping (U205)
 
+*Superseded in part on 17 Nov 2026 (TYRE-485, U219): the red team runs on
+Opus, and no agent of a run calls the advisor. ADR-0023 holds the current
+table.*
+
 | Step | Model | Where it is set |
 | --- | --- | --- |
 | Lead: triage, spec, orchestration | Fable, effort high | `scripts/pipeline.sh` |

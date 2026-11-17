@@ -13,7 +13,8 @@ cat >"$work/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$#" "$@" "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-unset}" \
   "${MSYS2_ARG_CONV_EXCL:-unset}" "${CLAUDE_CODE_SUBAGENT_MODEL-unset}" \
-  "${CLAUDE_CODE_SUBAGENT_MODEL_FORCE-unset}" "${CLAUDE_CODE_EFFORT_LEVEL-unset}" >"$STUB_DIR/called"
+  "${CLAUDE_CODE_SUBAGENT_MODEL_FORCE-unset}" "${CLAUDE_CODE_EFFORT_LEVEL-unset}" \
+  "${CLAUDE_CODE_DISABLE_ADVISOR_TOOL-unset}" >"$STUB_DIR/called"
 EOF
 chmod +x "$work/bin/claude"
 
@@ -21,9 +22,11 @@ export STUB_DIR="$work" PATH="$work/bin:$PATH"
 unset CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS MSYS2_ARG_CONV_EXCL
 # A launch that missed the stub would exec a real /pipeline session.
 [ "$(command -v claude)" = "$work/bin/claude" ] || { echo "FAIL: the stub claude is not first on PATH"; exit 1; }
-# Values a caller's shell can hold. The launcher overrides the first and
-# clears the other two (U205, TYRE-476).
+# Values a caller's shell can hold. The launcher overrides the first, clears
+# the next two (U205, TYRE-476) and overrides the last, which would leave the
+# advisor on (TYRE-485, U219).
 export CLAUDE_CODE_SUBAGENT_MODEL=haiku CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_EFFORT_LEVEL=low
+export CLAUDE_CODE_DISABLE_ADVISOR_TOOL=0
 fails=0
 
 refused() {
@@ -56,8 +59,9 @@ refused "a comma list" "TYRE-12,TYRE-13"
 refused "a leading zero" "TYRE-012"
 
 # The stub's record: the argument count, each argument, then the agent-teams
-# flag, the path exclusion, the backstop model, FORCE and EFFORT_LEVEL.
-shape() { printf '%s\n' 5 --model fable --effort high "/pipeline $1" 1 '/pipeline ' opus unset unset; }
+# flag, the path exclusion, the backstop model, FORCE, EFFORT_LEVEL and the
+# advisor switch.
+shape() { printf '%s\n' 5 --model fable --effort high "/pipeline $1" 1 '/pipeline ' opus unset unset 1; }
 want=$(shape TYRE-412)
 rm -f "$work/called"
 if bash "$launcher" TYRE-412 && [ "$(cat "$work/called")" = "$want" ]; then
