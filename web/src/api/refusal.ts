@@ -4,9 +4,10 @@
 
 import { ApiError } from "./client";
 
-// Every screen speaks these two: invalid_submission carries a field-level
-// message we wrote, and conflict is the generic 409 an unmapped constraint
-// arrives as.
+// Every screen speaks these two. invalid_submission carries a field-level
+// message the API wrote, or the canned "the submission was refused as
+// invalid" for a class 22 or 23514 refusal (api/internal/httpapi/refusal.go);
+// conflict is the generic 409 an unmapped constraint arrives as.
 export const ALWAYS_SPEAKABLE = ["invalid_submission", "conflict"] as const;
 
 export interface RefusalWording {
