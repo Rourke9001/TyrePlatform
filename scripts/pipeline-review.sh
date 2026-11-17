@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs the review loop's code review as its own Opus process and passes it only
 # when every check below holds (TYRE-476, U205, ADR-0023).
-# usage: bash scripts/pipeline-review.sh <state dir> <review id>
+# usage: bash scripts/pipeline-review.sh <state dir> <review id> <from>
+# <from> is the commit the reviewed range starts at (Review loop step 2).
 # Prints one REVIEW: line and nothing else; the caller gates on the exit code
 # (0 passed, 1 a check failed, 2 refused before claude ran) and that line.
 set -euo pipefail
@@ -15,13 +16,17 @@ fail() {
   exit 1
 }
 
-[ "$#" -eq 2 ] || refuse usage "bash scripts/pipeline-review.sh <state dir> <review id>"
+[ "$#" -eq 3 ] || refuse usage "bash scripts/pipeline-review.sh <state dir> <review id> <from>"
 k=$2
 # The id names files, so nothing else may pass.
 [[ "$k" =~ ^([0-3]|gate|ci|minor|owner-[1-9][0-9]*)$ ]] || refuse usage "review id '$k' is not 0 to 3, gate, ci, minor or owner-<n>"
 [ -d "$1" ] || refuse usage "state directory '$1' does not exist"
 state=$(cd "$1" && pwd)
 here=$(cd "$(dirname "$0")" && pwd)
+# Hex alone, so the argument can never be read as a git option.
+[[ "$3" =~ ^[0-9a-f]{7,40}$ ]] || refuse usage "from '$3' is not a commit sha"
+from=$(git -C "$here/.." rev-parse --verify --quiet "$3^{commit}") || refuse usage "from '$3' names no commit"
+head=$(git -C "$here/.." rev-parse --verify --quiet HEAD) || refuse setup "HEAD names no commit"
 # The bound leaves a large branch room to finish and still ends a hang inside
 # the hour (docs/superpowers/specs/2026-11-10-pipeline-model-per-step-design.md,
 # Left to the builder). The variable exists for the tests.
@@ -34,8 +39,8 @@ trap 'echo "REVIEW: failed, internal: line $LINENO"; exit 1' ERR
 out=$state/code-review-$k.json
 err=$state/code-review-$k.err
 md=$state/code-review-$k.md
-# A review id runs again after a failure or a wrong-diff rerun, and an earlier
-# result must never stand for this one (TYRE-476).
+# A review id runs again after a failure, and an earlier result must never
+# stand for this one (TYRE-476).
 rm -f "$md"
 cd "$here/.."
 
@@ -51,6 +56,9 @@ export CLAUDE_CODE_SUBAGENT_MODEL=opus
 export CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1
 rc=0
 start=$SECONDS
+# The range is the review's target, both ends in full: with no target the
+# review can read a wider diff than the branch's upstream sets (TYRE-488,
+# U222; docs/lessons.md, 2026-11-17).
 # --max-findings default: the skill keeps the last value typed, so a cap set in
 # another session would limit every review unseen (TYRE-476).
 # </dev/null: print mode reads a piped stdin, and the CLI's own warning says to
@@ -59,7 +67,7 @@ start=$SECONDS
 # The path exclusion is the one scripts/pipeline.sh sets, for the reason given
 # there.
 MSYS2_ARG_CONV_EXCL='/code-review' timeout -k 60 "$bound" \
-  claude -p --model opus --output-format json "/code-review high --max-findings default" \
+  claude -p --model opus --output-format json "/code-review high --max-findings default $from...$head" \
   >"$out" 2>"$err" </dev/null || rc=$?
 
 # jq on Windows ends each line with a CR (docs/lessons.md, 2026-11-03), so every
