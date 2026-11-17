@@ -26,6 +26,10 @@ type retreadJobJSON struct {
 	DepotName   string `json:"depotName"`
 	SentAt      string `json:"sentAt"`
 	DaysOut     int    `json:"daysOut"`
+	// The casing's current pattern, null when it has none: the return form
+	// pre-selects it when it is an active retread pattern (B23, TYRE-102).
+	PatternID   *string `json:"patternId"`
+	PatternName *string `json:"patternName"`
 }
 
 // listRetreadJobs is the retread queue (D6). Gated on LogRetread, which today
@@ -49,9 +53,11 @@ func listRetreadJobs(s *store.Store) http.HandlerFunc {
 			}
 			rows, err := tx.Query(ctx, `
 				SELECT rj.id, rj.tyre_id, t.display_code, d.name, rj.sent_at::text,
-				       (app.tenant_today(tn.timezone) - rj.sent_at)::int
+				       (app.tenant_today(tn.timezone) - rj.sent_at)::int,
+				       p.id::text, p.name
 				  FROM app.retread_job rj
 				  JOIN app.tyre t    ON t.id = rj.tyre_id
+				  LEFT JOIN app.tyre_pattern p ON p.id = t.pattern_id
 				  -- retreader_depot_id is nullable on the column, but an inner join is
 				  -- safe: app.dispatch_tyre's depot check raises TY014 ("no such depot in
 				  -- this fleet", "is not an active RETREADER") before a job is opened, so
@@ -70,13 +76,16 @@ func listRetreadJobs(s *store.Store) http.HandlerFunc {
 					displayCode, depotName string
 					sentAt                 string
 					daysOut                int
+					patternID, patternName *string
 				)
-				if err := rows.Scan(&id, &tyreID, &displayCode, &depotName, &sentAt, &daysOut); err != nil {
+				if err := rows.Scan(&id, &tyreID, &displayCode, &depotName, &sentAt, &daysOut,
+					&patternID, &patternName); err != nil {
 					return fmt.Errorf("scanning retread job: %w", err)
 				}
 				out = append(out, retreadJobJSON{
 					ID: id.String(), TyreID: tyreID.String(), DisplayCode: displayCode,
 					DepotName: depotName, SentAt: sentAt, DaysOut: daysOut,
+					PatternID: patternID, PatternName: patternName,
 				})
 			}
 			return rows.Err()
