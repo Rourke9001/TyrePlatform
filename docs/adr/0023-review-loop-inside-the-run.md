@@ -2,11 +2,11 @@
 
 - **Status:** Accepted (owner, 9 Nov 2026, with U191 to U195). Its PR is
   #208. It supersedes ADR-0018's stage 5
-  decision and its push stop. Amended 10 Nov 2026 (TYRE-476, U205), 14 Nov 2026 (TYRE-481, U212) and 16 Nov 2026 (TYRE-484, U215).
+  decision and its push stop. Amended 10 Nov 2026 (TYRE-476, U205), 14 Nov 2026 (TYRE-481, U212), 16 Nov 2026 (TYRE-484, U215) and 17 Nov 2026 (TYRE-485, U219).
 - **Date:** 2026-11-09
 - **Deciders:** Rourke (owner)
-- **Related:** ADR-0018 · TYRE-470, TYRE-395, TYRE-476, TYRE-484 · U123, U124, U125, U146,
-  U191 to U195, U205, U215 · spec `docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`
+- **Related:** ADR-0018 · TYRE-470, TYRE-395, TYRE-476, TYRE-484, TYRE-485 · U123, U124, U125, U146,
+  U191 to U195, U205, U215, U219 · spec `docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`
 
 ## Context
 
@@ -202,7 +202,7 @@ variable.
 | Lead: triage, spec, orchestration | Fable, effort high | `scripts/pipeline.sh` |
 | Spec builder check | Opus | `.claude/commands/pipeline.md`, its dispatch |
 | Planner teammate | Opus | `pipeline.md`, its spawn line |
-| Red team of the plan | Fable, effort high; Opus for the one retry of each dispatch | `.claude/agents/plan-red-team.md` frontmatter; `pipeline.md`, Red team step 1 |
+| Red team of the plan | Opus, effort high, for both dispatches (U219) | `.claude/agents/plan-red-team.md` frontmatter |
 | Implementer teammate | Sonnet, or Opus when the plan's files meet an auditor's trigger | `pipeline.md`, Implementation |
 | Code review | Opus | `scripts/pipeline-review.sh` |
 | Auditors | Opus | their frontmatter |
@@ -253,3 +253,18 @@ retry a declined request on another model
 (https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-2,
 Calibrate effort and Safeguard refusals). A model passed on the dispatch
 outranks the agent file's (the sub-agents page, Choose a model).
+
+**Amended 2026-11-17 (TYRE-485, U219):** two changes to what a run spends,
+from the TYRE-472 run's token usage summed from its session transcripts
+(the figures are in the ticket). The red team runs on Opus at effort high,
+which amends U205: its two rounds on Fable were about a sixth of the run.
+Its second dispatch after a failure stays on Opus, which amends U215, so the change of model
+in the 16 Nov amendment goes. And `scripts/pipeline.sh` exports
+`CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`, so no agent of a run calls the
+advisor the settings name: at least 16 calls, each sending a whole
+transcript uncached to Fable, were about a quarter of the run, and every
+agent of a run already has a checker after it. The variable is proved for
+the review's own process (TYRE-476); for the lead, a teammate and a
+subagent it is checked on the next run's transcripts. The lead stays on
+Fable: cache reads cost the same on both models, so Opus there would save
+about a twentieth of the run.
