@@ -34,6 +34,7 @@ const STOCK: Tyre[] = [
     receivedDate: "2026-01-05",
     awaitingCost: false,
     receiptId: null,
+    codePending: false,
   },
   {
     id: "t8",
@@ -47,6 +48,7 @@ const STOCK: Tyre[] = [
     receivedDate: "2026-01-05",
     awaitingCost: false,
     receiptId: null,
+    codePending: false,
   },
 ];
 

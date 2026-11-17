@@ -254,6 +254,14 @@
   gap: var(--space-2);
 }
 
+/* The register's two backlog filters sit on one line and wrap at phone
+   width (TYRE-99). */
+.tyres-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
 /* ------------------------------------------------- the rigs screen (TYRE-72) */
 
 /* The train's towed units, quieter than the motive that leads it. The

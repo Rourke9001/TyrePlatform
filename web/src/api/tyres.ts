@@ -29,6 +29,9 @@ export interface Tyre {
   // The receipt a received tyre is priced on (FR-CFG-041); null for a tyre
   // received before receipts existed.
   receiptId: string | null;
+  // B22: a code the platform issued waits to be marked on the sidewall,
+  // read from app.v_tyre_code_to_mark (TYRE-99).
+  codePending: boolean;
 }
 
 export interface ReceivedTyre {
@@ -113,22 +116,54 @@ export const COST_SOURCES: { value: CostSource; label: string }[] = [
   { value: "PRICE_LIST_ESTIMATE", label: "Price list estimate" },
 ];
 
-// fetchTyres is the register read (FR-TYR-040..042). code and on together
-// resolve a display code as of a date (a code is reissued after a tyre
-// leaves the estate); awaitingCost narrows to the CFL-002 backlog. Neither
-// pairing is validated here. The server owns that 400 (ADR-0013 decision
-// 5). This only shapes the query string and unwraps the envelope.
-export function fetchTyres(opts?: {
+export interface TyreRegisterFilters {
   code?: string;
   on?: string;
   awaitingCost?: boolean;
-}): Promise<Tyre[]> {
+  codesToMark?: boolean;
+}
+
+// fetchTyreRegister is the register read (FR-TYR-040..042). code and on
+// together resolve a display code as of a date (a code is reissued after a
+// tyre leaves the estate); awaitingCost narrows to the CFL-002 backlog and
+// codesToMark to the codes waiting for the sidewall (B22), the two ANDed.
+// No pairing is validated here. The server owns that 400 (ADR-0013 decision
+// 5). codesToMark in the answer is the whole queue's count, whatever the
+// filter.
+export function fetchTyreRegister(
+  opts?: TyreRegisterFilters,
+): Promise<{ tyres: Tyre[]; codesToMark: number }> {
   const params = new URLSearchParams();
   if (opts?.code) params.set("code", opts.code);
   if (opts?.on) params.set("on", opts.on);
   if (opts?.awaitingCost) params.set("awaitingCost", "true");
+  if (opts?.codesToMark) params.set("codesToMark", "true");
   const qs = params.toString();
-  return apiGet<{ tyres: Tyre[] }>(`/api/tyres${qs ? `?${qs}` : ""}`).then((body) => body.tyres);
+  return apiGet<{ tyres: Tyre[]; codesToMark: number }>(`/api/tyres${qs ? `?${qs}` : ""}`);
+}
+
+// fetchTyres is the register's rows alone, for a picker that needs no count.
+export function fetchTyres(opts?: TyreRegisterFilters): Promise<Tyre[]> {
+  return fetchTyreRegister(opts).then((body) => body.tyres);
+}
+
+// TYRE-99: record that a code is on the sidewall, for one tyre or for every
+// tyre on a receipt still waiting. A blank day is the tenant's today, decided
+// by the server (rule 6). Every refusal is app.mark_code_on_sidewall's TY012.
+export function markTyreCode(tyreId: string, body: { markedOn?: string }): Promise<ReceivedTyre[]> {
+  return apiPost<{ tyres: ReceivedTyre[] }>(`/api/tyres/${tyreId}/code-marked`, body).then(
+    (res) => res.tyres,
+  );
+}
+
+export function markReceiptCodes(
+  receiptId: string,
+  body: { markedOn?: string },
+): Promise<ReceivedTyre[]> {
+  return apiPost<{ tyres: ReceivedTyre[] }>(
+    `/api/tyre-receipts/${receiptId}/codes-marked`,
+    body,
+  ).then((res) => res.tyres);
 }
 
 export function receiveTyres(body: NewTyres): Promise<ReceivedTyre[]> {

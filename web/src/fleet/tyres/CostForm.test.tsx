@@ -18,6 +18,7 @@ const TYRE: Tyre = {
   receivedDate: "2026-01-05",
   awaitingCost: true,
   receiptId: null,
+  codePending: false,
 };
 
 const PRICE_SHAPE_COPY =

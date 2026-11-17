@@ -18,6 +18,7 @@ function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
     receivedDate: "2026-01-05",
     awaitingCost: false,
     receiptId: null,
+    codePending: false,
     ...overrides,
   };
 }
