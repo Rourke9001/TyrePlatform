@@ -67,7 +67,9 @@
 --
 -- P28 shows the marking function stays in the bound fleet as app_login,
 -- and that row security binds app_writer on the three tables it reads and
--- writes, with P27's BYPASSRLS control (ADR-0024, 000062).
+-- writes, with P27's BYPASSRLS control (ADR-0024, 000062). P29 shows the
+-- return's pattern check names the bound fleet under a role that bypasses
+-- RLS (000062).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -287,7 +289,7 @@ BEGIN
   UPDATE app.tyre SET state = 'AT_RETREADER' WHERE id = rt;
   INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at)
   VALUES (j, bac, rt, d_rt, app.tenant_today(tz) - 5);
-  PERFORM app.log_retread_return(j, app.tenant_today(tz) - 1, true, 'P5-RPT', 2500.00, 16.0, 800.00);
+  PERFORM app.log_retread_return(j, app.tenant_today(tz) - 1, true, 'P5-RPT', 2500.00, 16.0, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
 END $$;
 RESET ROLE;
 DELETE FROM app.threshold_policy
@@ -2253,6 +2255,52 @@ BEGIN
   INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, payload)
   VALUES (t2, md5('p28-tyre')::uuid, 'BRANDED', now(), jsonb_build_object('display_code', 'P28-1', 'marked', true));
   RAISE NOTICE 'PASS  P28 the control: with BYPASSRLS the same UPDATE clears Second Fleet''s flag and the event lands';
+END $$;
+ROLLBACK;
+
+\echo '== P29. TYRE-102: under a role that bypasses RLS, a retread return naming another fleet''s pattern is refused by the function''s own tenant predicate (rule 1, FR-TEN-003, U225)'
+BEGIN;
+DO $$
+DECLARE
+  bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+  t2   constant uuid := '22222222-2222-2222-2222-222222222222';
+  d_rt constant uuid := md5('p29-rt')::uuid;
+  j    constant uuid := md5('p29-job')::uuid;
+  tz text; ty uuid; msg text; got text;
+BEGIN
+  PERFORM set_config('app.actor_id', '', true);
+  INSERT INTO app.tyre_pattern (id, tenant_id, name, applies_to) VALUES (md5('p29-t2-rt')::uuid, t2, 'P29 RETREAD', 'RETREAD');
+  -- An open job on a BAC casing, planted raw as plantOpenRetreadJob plants one.
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  INSERT INTO app.depot (id, tenant_id, name, type) VALUES (d_rt, bac, 'P29 Retreaders', 'RETREADER');
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, pattern_id, status, retread_count, new_tread_mm,
+                        state, received_date)
+  VALUES (bac, 'P29-1', md5('sz1')::uuid, md5('pt1')::uuid, 'NEW', 0, 25.0, 'AT_RETREADER',
+          app.tenant_today(tz) - 10)
+  RETURNING id INTO ty;
+  INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at)
+  VALUES (j, bac, ty, d_rt, app.tenant_today(tz) - 5);
+
+  -- postgres bypasses RLS, so only the function's own predicate keeps the
+  -- pattern in the bound fleet.
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  BEGIN
+    PERFORM app.log_retread_return(j, app.tenant_today(tz) - 1, true, 'P29-RPT', 2500.00, 16.0, 800.00,
+                                   md5('p29-t2-rt')::uuid);
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS got = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
+  END;
+  IF got IS DISTINCT FROM 'TY014'
+     OR msg IS DISTINCT FROM 'that pattern is not in this fleet''s active catalogue; choose another, or ask an administrator to add it' THEN
+    RAISE EXCEPTION 'FAIL P29: bound to BAC, a return naming Second Fleet''s pattern was answered %',
+      COALESCE(got || ' "' || msg || '"', 'by a return');
+  END IF;
+  SELECT (j2.returned_at IS NULL) || ':' || t.state INTO got
+    FROM app.retread_job j2 JOIN app.tyre t ON t.id = j2.tyre_id WHERE j2.id = j;
+  IF got IS DISTINCT FROM 'true:AT_RETREADER' THEN
+    RAISE EXCEPTION 'FAIL P29: after the refused return the job reads open:state %', got;
+  END IF;
+  RAISE NOTICE 'PASS  P29 bound to BAC as postgres, a return naming Second Fleet''s pattern is refused and the job stays open';
 END $$;
 ROLLBACK;
 

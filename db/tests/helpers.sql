@@ -146,6 +146,27 @@ SET search_path = app, pg_temp AS $fn$
                        ORDER BY d.name LIMIT 1)) END
 $fn$;
 
+-- The bound fleet's suite retread pattern, planted the first time it is
+-- asked for: an accepted retread return leaves the casing on an active
+-- retread pattern (U225, 000062). It holds no cache and looks again on every
+-- call, since a refused return's EXCEPTION block (section 42f) rolls back a
+-- row planted inside it. It names the tenant because 005 calls it as
+-- postgres, which bypasses RLS.
+CREATE FUNCTION pg_temp.retread_pattern() RETURNS uuid
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE found_id uuid;
+BEGIN
+  SELECT p.id INTO found_id FROM app.tyre_pattern p
+   WHERE p.tenant_id = app.current_tenant_id() AND p.name = 'SUITE RETREAD';
+  IF NOT FOUND THEN
+    INSERT INTO app.tyre_pattern (tenant_id, name, applies_to)
+    VALUES (app.current_tenant_id(), 'SUITE RETREAD', 'RETREAD')
+    RETURNING tyre_pattern.id INTO found_id;
+  END IF;
+  RETURN found_id;
+END $fn$;
+
 -- Every privilege app_writer holds in schema app, as 'kind object privilege',
 -- functions it owns aside. app_writer_faults compares it with its list, and
 -- db/tests/migration/000061_catalogue.sql prints it.

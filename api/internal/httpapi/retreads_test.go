@@ -46,10 +46,19 @@ func plantOpenRetreadJob(t *testing.T, ctx context.Context, admin *pgx.Conn, ten
 		tenantID, depotName,
 	).Scan(&depotID))
 
+	// U225: an accepted return leaves the casing on an active retread
+	// pattern, so the casing goes out on one and a return may keep it.
+	var patternID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.tyre_pattern (tenant_id, name, applies_to) VALUES ($1, $2, 'RETREAD') RETURNING id`,
+		tenantID, "RETREAD-TEST-"+suffix,
+	).Scan(&patternID))
+
 	tyreID = plantTyre(t, ctx, admin, tenantID, "RETREAD-JOB-"+suffix, nil)
 	_, err := admin.Exec(ctx,
-		`UPDATE app.tyre SET state = 'AT_RETREADER'::app.tyre_state, current_depot_id = $2 WHERE id = $1`,
-		tyreID, depotID)
+		`UPDATE app.tyre SET state = 'AT_RETREADER'::app.tyre_state, current_depot_id = $2, pattern_id = $3
+		  WHERE id = $1`,
+		tyreID, depotID, patternID)
 	require.NoError(t, err)
 
 	require.NoError(t, admin.QueryRow(ctx,

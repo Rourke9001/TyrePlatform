@@ -5091,13 +5091,13 @@ BEGIN
   -- are read back off the rows rather than restated, so only the stored
   -- figures are on trial.
   PERFORM app.log_retread_return(ja, app.tenant_today(tz) - 1, true, 'T42-RPT-A',
-                                 2500.005, 16.04, 800.00);
+                                 2500.005, 16.04, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
   SELECT t.retread_count, t.status, t.new_tread_mm, t.pattern_id, t.state,
          t.current_depot_id, t.rand_per_mm
     INTO r FROM app.tyre t WHERE t.id = ta;
   IF r.retread_count IS DISTINCT FROM 1 OR r.status IS DISTINCT FROM 'RETREAD'
      OR r.new_tread_mm IS DISTINCT FROM 16.0
-     OR r.pattern_id IS DISTINCT FROM pt1 OR r.state IS DISTINCT FROM 'IN_STOCK'
+     OR r.pattern_id IS DISTINCT FROM pg_temp.retread_pattern() OR r.state IS DISTINCT FROM 'IN_STOCK'
      OR r.current_depot_id IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 42a: the return did not propagate to the tyre: %', r;
   END IF;
@@ -5153,7 +5153,7 @@ BEGIN
   -- API surface (D6) maps this one string to its 404.
   BEGIN
     PERFORM app.log_retread_return(ja, app.tenant_today(tz) - 1, true, 'T42-RPT-A',
-                                   2500.005, 16.04, 800.00);
+                                   2500.005, 16.04, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42d: a job was returned twice';
   EXCEPTION WHEN sqlstate 'TY012' THEN
     IF SQLERRM <> 'no such open retread job in this fleet' THEN
@@ -5206,7 +5206,7 @@ BEGIN
     END IF;
   END;
   BEGIN
-    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', 1000.00, thr, 500.00);
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', 1000.00, thr, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42f: a post-retread tread at the removal threshold was accepted';
   EXCEPTION WHEN sqlstate 'TY014' THEN
     IF SQLERRM NOT LIKE '%must exceed the removal threshold%' THEN
@@ -5217,7 +5217,7 @@ BEGIN
   -- scale, so the guard has to see the rounded figure or it admits a casing
   -- whose stored tread yields no rate at all (BR-VAL-002).
   BEGIN
-    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', 1000.00, thr + 0.04, 500.00);
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', 1000.00, thr + 0.04, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42f: a tread that rounds onto the removal threshold was accepted';
   EXCEPTION WHEN sqlstate 'TY014' THEN
     IF SQLERRM NOT LIKE '%must exceed the removal threshold%' THEN
@@ -5225,7 +5225,7 @@ BEGIN
     END IF;
   END;
   BEGIN
-    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 6, true, 'T42-RPT-F', 1000.00, 16.0, 500.00);
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 6, true, 'T42-RPT-F', 1000.00, 16.0, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42f: a return dated before the send was accepted';
   EXCEPTION WHEN sqlstate 'TY014' THEN
     IF SQLERRM NOT LIKE '%on or after the day it was sent%' THEN
@@ -5233,7 +5233,7 @@ BEGIN
     END IF;
   END;
   BEGIN
-    PERFORM app.log_retread_return(jf, app.tenant_today(tz) + 1, true, 'T42-RPT-F', 1000.00, 16.0, 500.00);
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) + 1, true, 'T42-RPT-F', 1000.00, 16.0, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42f: a return dated in the future was accepted';
   EXCEPTION WHEN sqlstate 'TY014' THEN
     IF SQLERRM NOT LIKE '%never on a future date%' THEN
@@ -5244,7 +5244,7 @@ BEGIN
   -- register as an ACTUAL zero indistinguishable from a rejection, so it is
   -- refused, including the zero a sub-cent figure rounds into.
   BEGIN
-    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', 1000.00, 16.0, 0.00);
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', 1000.00, 16.0, 0.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42f: an accepted casing was valued at zero';
   EXCEPTION WHEN sqlstate 'TY014' THEN
     IF SQLERRM NOT LIKE '%a zero belongs to a rejection%' THEN
@@ -5252,7 +5252,7 @@ BEGIN
     END IF;
   END;
   BEGIN
-    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', 1000.00, 16.0, 0.004);
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', 1000.00, 16.0, 0.004, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42f: an accepted casing value that rounds to zero was accepted';
   EXCEPTION WHEN sqlstate 'TY014' THEN
     IF SQLERRM NOT LIKE '%a zero belongs to a rejection%' THEN
@@ -5260,7 +5260,7 @@ BEGIN
     END IF;
   END;
   BEGIN
-    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', NULL, 16.0, 500.00);
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', NULL, 16.0, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42f: a paid retread was logged without its cost';
   EXCEPTION WHEN sqlstate 'TY014' THEN
     IF SQLERRM NOT LIKE '%records what the retread cost%' THEN
@@ -5275,7 +5275,7 @@ BEGIN
   -- ceiling, not an absurd value.
   BEGIN
     PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F',
-                                   10000000000.00, 16.0, 500.00);
+                                   10000000000.00, 16.0, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42f: a retread cost wider than its column was accepted';
   EXCEPTION WHEN sqlstate 'TY014' THEN
     IF SQLERRM NOT LIKE '%a retread cost is a non-negative amount%' THEN
@@ -5284,7 +5284,7 @@ BEGIN
   END;
   BEGIN
     PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F',
-                                   1000.00, 16.0, 10000000000.00);
+                                   1000.00, 16.0, 10000000000.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42f: a casing value wider than its column was accepted';
   EXCEPTION WHEN sqlstate 'TY014' THEN
     IF SQLERRM NOT LIKE '%a casing value is an amount%' THEN
@@ -5307,7 +5307,7 @@ BEGIN
   END IF;
   BEGIN
     PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F',
-                                   bad_cost, 16.0, 500.00);
+                                   bad_cost, 16.0, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42f: a cost yielding a rate past the register''s ceiling was accepted';
   EXCEPTION WHEN sqlstate 'TY014' THEN
     IF SQLERRM NOT LIKE '%is a rate above what the register carries%' THEN
@@ -5320,7 +5320,7 @@ BEGIN
   -- app.rand_per_mm rather than against a literal. The ceiling must refuse
   -- what will not fit and nothing else (FR-VAL-006, one implementation).
   PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F',
-                                 ok_cost, 16.0, 500.00);
+                                 ok_cost, 16.0, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
   IF (SELECT t.rand_per_mm FROM app.tyre t WHERE t.id = tf)
      IS DISTINCT FROM app.rand_per_mm(ok_cost, 16.0, thr) THEN
     RAISE EXCEPTION 'FAIL 42f: the highest rate the column holds stored as %',
@@ -5341,7 +5341,7 @@ BEGIN
   INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at)
   VALUES (jg, bac, tg, d_rt, app.tenant_today(tz) - 3);
   BEGIN
-    PERFORM app.log_retread_return(jg, app.tenant_today(tz), true, 'T42-RPT-G', 1000.00, 16.0, 500.00);
+    PERFORM app.log_retread_return(jg, app.tenant_today(tz), true, 'T42-RPT-G', 1000.00, 16.0, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42g: a casing past its cap was retreaded on return';
   EXCEPTION WHEN sqlstate 'TY015' THEN
     IF SQLERRM NOT LIKE '%a purchase, not a retread candidate%' THEN
@@ -5372,7 +5372,7 @@ BEGIN
   ji := r.retread_job_id;
   PERFORM set_config('app.tenant_id', t_two::text, true);
   BEGIN
-    PERFORM app.log_retread_return(ji, app.tenant_today(tz) - 1, true, 'T42-RPT-I', 1000.00, 16.0, 500.00);
+    PERFORM app.log_retread_return(ji, app.tenant_today(tz) - 1, true, 'T42-RPT-I', 1000.00, 16.0, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42i: another fleet''s retread job was returned';
   EXCEPTION WHEN sqlstate 'TY012' THEN
     IF SQLERRM <> 'no such open retread job in this fleet' THEN
@@ -5405,7 +5405,7 @@ BEGIN
   -- the return stamps at now() and never behind the dispatch.
   SELECT * INTO r FROM app.dispatch_tyre(tk1, 'AT_RETREADER', d_rt);
   PERFORM app.log_retread_return(r.retread_job_id, app.tenant_today(tz), true,
-                                 'T42-RPT-K', 1000.00, 16.0, 500.00);
+                                 'T42-RPT-K', 1000.00, 16.0, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
   SELECT e.occurred_at INTO sent_at_k FROM app.tyre_event e
    WHERE e.tyre_id = tk1 AND e.type = 'SENT_FOR_RETREAD';
   SELECT e.occurred_at INTO ret_at_k FROM app.tyre_event e
@@ -5423,7 +5423,7 @@ BEGIN
   VALUES (jk2, bac, tk2, d_rt, app.tenant_today(tz) - 3);
   BEGIN
     PERFORM app.log_retread_return(jk2, app.tenant_today(tz) - 2, true,
-                                   'T42-RPT-K2', 1000.00, 16.0, 500.00);
+                                   'T42-RPT-K2', 1000.00, 16.0, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 42k: a return predating the dispatch it follows was accepted';
   EXCEPTION WHEN sqlstate 'TY012' THEN
     IF SQLERRM NOT LIKE '%cannot predate it%' THEN
@@ -5459,7 +5459,7 @@ BEGIN
   SELECT * INTO r FROM app.dispatch_tyre(tl, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 5);
   jl := r.retread_job_id;
   PERFORM app.log_retread_return(jl, app.tenant_today(tz) - 1, true, 'T42-RPT-L',
-                                 2500.00, 16.0, 800.00);
+                                 2500.00, 16.0, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
   -- The event's own instant, not now(): the return is dated, and a column
   -- stamped at the moment of logging would make a backdated return outrank a
   -- measurement taken after it.
@@ -6630,7 +6630,7 @@ BEGIN
   END;
   BEGIN
     PERFORM app.log_retread_return(job, app.tenant_today(tz), true, 'T47-RPT-A',
-                                   100.00, mx + 0.1, 500.00);
+                                   100.00, mx + 0.1, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 47a: a retread return above the shared ceiling was accepted';
   EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS m4 = MESSAGE_TEXT;
   END;
@@ -6697,7 +6697,7 @@ BEGIN
   END;
   BEGIN
     PERFORM app.log_retread_return(job, app.tenant_today(tz), true, 'T47-RPT-B',
-                                   100.00, NULL, 500.00);
+                                   100.00, NULL, 500.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 47b: a retread return with no tread was accepted';
   EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS n4 = MESSAGE_TEXT;
   END;
@@ -7439,7 +7439,7 @@ BEGIN
      OR stamp = (today - 2)::timestamptz THEN
     RAISE EXCEPTION 'FAIL 47n: an earlier day was resolved outside the tenant''s zone: %', stamp;
   END IF;
-  PERFORM app.log_retread_return(jb, today - 1, true, 'T47-RPT-N', 2500.00, 12.0, 800.00);
+  PERFORM app.log_retread_return(jb, today - 1, true, 'T47-RPT-N', 2500.00, 12.0, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
   SELECT e.occurred_at INTO stamp FROM app.tyre_event e
    WHERE e.tyre_id = n2 AND e.type = 'RETURNED';
   IF stamp IS DISTINCT FROM app.tenant_day_instant(today - 1) THEN
@@ -7456,7 +7456,7 @@ BEGIN
     END IF;
   END;
   BEGIN
-    PERFORM app.log_retread_return(ja, today + 1, true, 'T47-RPT-F', 2500.00, 12.0, 800.00);
+    PERFORM app.log_retread_return(ja, today + 1, true, 'T47-RPT-F', 2500.00, 12.0, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 47n: a casing returned on a future date';
   EXCEPTION WHEN SQLSTATE 'TY014' THEN
     GET STACKED DIAGNOSTICS d2 = MESSAGE_TEXT;
@@ -9841,14 +9841,14 @@ BEGIN
   -- dated today, so it reads the policy in force at now() (U70); 70e holds
   -- the back-dated half.
   BEGIN
-    PERFORM app.log_retread_return(ja, app.tenant_today(tz), true, 'T63-RPT-A', 2500.00, 5.5, 800.00);
+    PERFORM app.log_retread_return(ja, app.tenant_today(tz), true, 'T63-RPT-A', 2500.00, 5.5, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 63b: a casing returned at 5.5 mm was accepted under the 6.0 threshold in force';
   EXCEPTION WHEN sqlstate 'TY014' THEN
     IF SQLERRM NOT LIKE '%removal threshold of 6.0 mm%' THEN
       RAISE EXCEPTION 'FAIL 63b: the 5.5 mm return was refused for another reason: %', SQLERRM;
     END IF;
   END;
-  PERFORM app.log_retread_return(ja, app.tenant_today(tz), true, 'T63-RPT-A', 2500.00, 16.0, 800.00);
+  PERFORM app.log_retread_return(ja, app.tenant_today(tz), true, 'T63-RPT-A', 2500.00, 16.0, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
   SELECT t.rand_per_mm INTO rate FROM app.tyre t WHERE t.id = ta;
   IF rate IS DISTINCT FROM app.rand_per_mm(2500.00, 16.0, 6.0) THEN
     RAISE EXCEPTION 'FAIL 63b: log_retread_return stored % where the 6.0 in force gives %',
@@ -9858,7 +9858,7 @@ BEGIN
   -- The cap comes off the same row. At cap 1 a casing retreaded once is
   -- refused, where the seeded cap of 2 would pass it.
   BEGIN
-    PERFORM app.log_retread_return(jb, app.tenant_today(tz), true, 'T63-RPT-B', 2500.00, 16.0, 800.00);
+    PERFORM app.log_retread_return(jb, app.tenant_today(tz), true, 'T63-RPT-B', 2500.00, 16.0, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
     RAISE EXCEPTION 'FAIL 63b: a return past the cap in force was retreaded';
   EXCEPTION WHEN sqlstate 'TY015' THEN
     IF SQLERRM NOT LIKE '%cap of 1%' THEN
@@ -9920,7 +9920,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL 63c: dispatch_tyre read a class or group cap: %', SQLERRM;
   END;
   BEGIN
-    PERFORM app.log_retread_return(job, app.tenant_today(tz), true, 'T63-RPT-D', 2500.00, 16.0, 800.00);
+    PERFORM app.log_retread_return(job, app.tenant_today(tz), true, 'T63-RPT-D', 2500.00, 16.0, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
   EXCEPTION WHEN sqlstate 'TY015' THEN
     RAISE EXCEPTION 'FAIL 63c: log_retread_return read a class or group cap: %', SQLERRM;
   END;
@@ -10883,7 +10883,7 @@ BEGIN
   UPDATE app.tyre SET state = 'AT_RETREADER' WHERE id = r.tyre_id;
   INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at)
   VALUES (j, bac, r.tyre_id, d_rt, app.tenant_today(tz) - 5);
-  PERFORM app.log_retread_return(j, app.tenant_today(tz) - 1, true, 'T69F-RPT', 2500.00, 16.0, 800.00);
+  PERFORM app.log_retread_return(j, app.tenant_today(tz) - 1, true, 'T69F-RPT', 2500.00, 16.0, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
   want := app.rand_per_mm(2500.00, 16.0, app.current_removal_threshold_mm());
   IF (SELECT rand_per_mm FROM app.tyre WHERE id = r.tyre_id) IS DISTINCT FROM want OR want IS NULL THEN
     RAISE EXCEPTION 'FAIL 69f: the return stored rate %, not the retread''s %',
@@ -11286,7 +11286,7 @@ BEGIN
   -- Five tenant days back the baseline governs both figures: 2500.00 over
   -- 16.0 - 4.0 mm, and a casing retreaded once is under its cap of 2.
   BEGIN
-    PERFORM app.log_retread_return(jpast, app.tenant_today(tz) - 5, true, 'T70-RPT-P', 2500.00, 16.0, 800.00);
+    PERFORM app.log_retread_return(jpast, app.tenant_today(tz) - 5, true, 'T70-RPT-P', 2500.00, 16.0, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
   EXCEPTION WHEN sqlstate 'TY015' THEN
     RAISE EXCEPTION 'FAIL 70e: a return five days back was capped by the row written now: %', SQLERRM;
   END;
@@ -11299,14 +11299,14 @@ BEGIN
 
   -- Today the row written now governs both: 2500.00 over 16.0 - 6.0 mm, and
   -- a casing retreaded once is at its cap of 1.
-  PERFORM app.log_retread_return(jnow, app.tenant_today(tz), true, 'T70-RPT-N', 2500.00, 16.0, 800.00);
+  PERFORM app.log_retread_return(jnow, app.tenant_today(tz), true, 'T70-RPT-N', 2500.00, 16.0, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
   SELECT t.rand_per_mm INTO rate FROM app.tyre t WHERE t.id = tnow;
   IF rate IS DISTINCT FROM 250.0000 OR rate IS DISTINCT FROM app.rand_per_mm(2500.00, 16.0, 6.0) THEN
     RAISE EXCEPTION 'FAIL 70e: a return today stored %, expected 250.0000 (the 6.0 row in force now)', rate;
   END IF;
   got := NULL;
   BEGIN
-    PERFORM app.log_retread_return(jcap, app.tenant_today(tz), true, 'T70-RPT-C', 2500.00, 16.0, 800.00);
+    PERFORM app.log_retread_return(jcap, app.tenant_today(tz), true, 'T70-RPT-C', 2500.00, 16.0, 800.00, p_new_pattern_id => pg_temp.retread_pattern());
   EXCEPTION WHEN sqlstate 'TY015' THEN got := SQLERRM;
   END;
   IF got IS NULL OR got NOT LIKE '%at a cap of 1;%' THEN
@@ -15908,6 +15908,150 @@ BEGIN
     RAISE EXCEPTION 'FAIL 77z: receipts/received or pending tyres/marked events per fleet read %, not the fixture''s 0/0/0 0/0/0', got;
   END IF;
   RAISE NOTICE 'PASS  77z section 77 leaves no residue';
+END $$;
+
+\echo '== 78. TYRE-102, TYRE-420: an accepted retread return leaves the tyre on an active retread pattern of the fleet, named or kept, and the RETURNED event records both patterns (B23, U225, U227, FR-FIT-021, FR-CFG-004, FR-CFG-007; as BAC, rolled back)'
+
+-- One REMOVED tyre of the bound fleet on p_pattern, sent to p_depot five
+-- tenant days back as section 42 sends them, answered with its open job.
+CREATE FUNCTION pg_temp.t78_job(p_depot uuid, p_code text, p_pattern uuid) RETURNS uuid
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE ty uuid; tz text;
+BEGIN
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = app.current_tenant_id();
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, pattern_id, status, retread_count, state)
+  VALUES (app.current_tenant_id(), p_code, md5('sz1')::uuid, p_pattern, 'NEW', 0, 'REMOVED')
+  RETURNING id INTO ty;
+  RETURN (SELECT d.retread_job_id FROM app.dispatch_tyre(ty, 'AT_RETREADER', p_depot, app.tenant_today(tz) - 5) d);
+END $fn$;
+
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        t2   constant uuid := '22222222-2222-2222-2222-222222222222';
+        pt1  constant uuid := md5('pt1')::uuid;
+        m1   constant text := 'TY014 that pattern is not in this fleet''s active catalogue; choose another, or ask an administrator to add it';
+        m2   constant text := 'TY014 that pattern is for new tyres only; a retreaded casing comes back on a retread pattern';
+        m3   constant text := 'TY014 choose the retread pattern this casing came back on; the pattern it went out on is not an active retread pattern';
+        m4   constant text := 'TY014 this fleet has no retread pattern in its catalogue; ask an administrator to add the retreader''s patterns, then log the return';
+        tz text; d_rt uuid; back date;
+        gone_brand uuid; gone_rt uuid; rt uuid; either uuid; old uuid; newer uuid; t2_rt uuid;
+        j_new uuid; j_old uuid; j_gone uuid; j_none uuid; j_rt uuid; j_both uuid; j_keep uuid; j_rej uuid;
+        got text; e record;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  back := app.tenant_today(tz) - 1;
+  INSERT INTO app.depot (tenant_id, name, type) VALUES (bac, 'T78 Retreaders', 'RETREADER') RETURNING id INTO d_rt;
+
+  j_new := pg_temp.t78_job(d_rt, 'T78-NEW', pt1);
+  j_rej := pg_temp.t78_job(d_rt, 'T78-REJECT', pt1);
+
+  -- 78a: no retread pattern yet, so nothing can be named or kept.
+  got := pg_temp.t76_try(format('SELECT app.log_retread_return(%L, %L, true, ''T78-RPT'', 2500.00, 16.0, 800.00)', j_new, back));
+  IF got IS DISTINCT FROM m4 THEN
+    RAISE EXCEPTION 'FAIL 78a: a return on a new-tyre pattern with no retread pattern in the fleet was answered %', got;
+  END IF;
+  -- A retread pattern of a deactivated brand is one no form offers, so it
+  -- is not counted.
+  INSERT INTO app.tyre_brand (tenant_id, name, active) VALUES (bac, 'T78 GONE', false) RETURNING id INTO gone_brand;
+  INSERT INTO app.tyre_pattern (tenant_id, name, brand_id, applies_to)
+  VALUES (bac, 'T78 GONE RETREAD', gone_brand, 'RETREAD') RETURNING id INTO gone_rt;
+  got := pg_temp.t76_try(format('SELECT app.log_retread_return(%L, %L, true, ''T78-RPT'', 2500.00, 16.0, 800.00)', j_new, back));
+  IF got IS DISTINCT FROM m4 THEN
+    RAISE EXCEPTION 'FAIL 78a: with only a deactivated brand''s retread pattern, a return was answered %', got;
+  END IF;
+  RAISE NOTICE 'PASS  78a with no active retread pattern in the fleet, a return on a new-tyre pattern is refused and told to ask an administrator';
+
+  INSERT INTO app.tyre_pattern (tenant_id, name, applies_to) VALUES (bac, 'T78 RETREAD', 'RETREAD') RETURNING id INTO rt;
+  INSERT INTO app.tyre_pattern (tenant_id, name, applies_to) VALUES (bac, 'T78 BOTH', 'BOTH') RETURNING id INTO either;
+  INSERT INTO app.tyre_pattern (tenant_id, name, applies_to, active) VALUES (bac, 'T78 OLD', 'RETREAD', false) RETURNING id INTO old;
+  INSERT INTO app.tyre_pattern (tenant_id, name, applies_to) VALUES (bac, 'T78 NEWER', 'NEW') RETURNING id INTO newer;
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  INSERT INTO app.tyre_pattern (tenant_id, name, applies_to) VALUES (t2, 'T78 SECOND', 'RETREAD') RETURNING id INTO t2_rt;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  j_old := pg_temp.t78_job(d_rt, 'T78-OLD', old);
+  j_gone := pg_temp.t78_job(d_rt, 'T78-GONE', gone_rt);
+  j_none := pg_temp.t78_job(d_rt, 'T78-NONE', NULL);
+
+  -- 78b: one message for a missing, foreign, deactivated or deactivated
+  -- brand's pattern, so the refusal is no oracle; a new-tyre one has its own.
+  FOR e IN SELECT * FROM (VALUES
+    ('a deactivated pattern', j_new, old, m1),
+    ('a deactivated brand''s pattern', j_new, gone_rt, m1),
+    ('another fleet''s pattern', j_new, t2_rt, m1),
+    ('a pattern nobody holds', j_new, md5('t78-none')::uuid, m1),
+    ('a new-tyre pattern', j_new, newer, m2),
+    ('no pattern on a new-tyre tyre', j_new, NULL::uuid, m3),
+    ('no pattern on a tyre whose retread pattern is deactivated', j_old, NULL::uuid, m3),
+    ('no pattern on a tyre whose retread pattern''s brand is deactivated', j_gone, NULL::uuid, m3),
+    ('no pattern on a tyre with none', j_none, NULL::uuid, m3)
+  ) v(what, job, pattern, want) LOOP
+    got := pg_temp.t76_try(format('SELECT app.log_retread_return(%L, %L, true, ''T78-RPT'', 2500.00, 16.0, 800.00, %L)',
+                                  e.job, back, e.pattern));
+    IF got IS DISTINCT FROM e.want THEN
+      RAISE EXCEPTION 'FAIL 78b: % was answered %', e.what, got;
+    END IF;
+  END LOOP;
+  SELECT string_agg(j.returned_at IS NULL || ':' || t.state, ' ' ORDER BY t.display_code) INTO got
+    FROM app.retread_job j JOIN app.tyre t ON t.id = j.tyre_id
+   WHERE j.id IN (j_new, j_old, j_gone, j_none);
+  IF got IS DISTINCT FROM 'true:AT_RETREADER true:AT_RETREADER true:AT_RETREADER true:AT_RETREADER' THEN
+    RAISE EXCEPTION 'FAIL 78b: after the refusals the jobs read open:state %', got;
+  END IF;
+  RAISE NOTICE 'PASS  78b a missing, foreign or deactivated pattern, a new-tyre one, and no pattern on a casing not on an active retread pattern are each refused, the job left open';
+
+  -- 78c: a sent RETREAD or BOTH pattern is stored on the tyre and the job;
+  -- none sent on a casing already on one keeps it.
+  j_rt := pg_temp.t78_job(d_rt, 'T78-RT', pt1);
+  j_both := pg_temp.t78_job(d_rt, 'T78-BOTH', pt1);
+  j_keep := pg_temp.t78_job(d_rt, 'T78-KEEP', rt);
+  PERFORM app.log_retread_return(j_rt, back, true, 'T78-RPT', 2500.00, 16.0, 800.00, rt);
+  PERFORM app.log_retread_return(j_both, back, true, 'T78-RPT', 2500.00, 16.0, 800.00, either);
+  PERFORM app.log_retread_return(j_keep, back, true, 'T78-RPT', 2500.00, 16.0, 800.00);
+  FOR e IN SELECT * FROM (VALUES
+    ('a sent retread pattern', j_rt, rt, rt, pt1),
+    ('a sent BOTH pattern', j_both, either, either, pt1),
+    ('a kept retread pattern', j_keep, NULL::uuid, rt, rt)
+  ) v(what, job, stored, now_on, went_on) LOOP
+    SELECT t.pattern_id || '/' || COALESCE(j.new_pattern_id::text, 'none') || '/'
+           || (ev.payload->>'pattern_id') || '/' || (ev.payload->>'previous_pattern_id') INTO got
+      FROM app.retread_job j JOIN app.tyre t ON t.id = j.tyre_id
+      JOIN app.tyre_event ev ON ev.tyre_id = t.id AND ev.type = 'RETURNED'
+     WHERE j.id = e.job;
+    IF got IS DISTINCT FROM e.now_on || '/' || COALESCE(e.stored::text, 'none') || '/' || e.now_on || '/' || e.went_on THEN
+      RAISE EXCEPTION 'FAIL 78c: % reads tyre/job/event pattern/event previous %', e.what, got;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS  78c a sent RETREAD or BOTH pattern is stored on the tyre and the job, none keeps an active retread pattern, and each RETURNED event names the pattern it came back on and the one it went out on';
+
+  -- 78d: a rejected casing is scrapped and takes no pattern.
+  PERFORM app.log_retread_return(j_rej, back, false, 'T78-RPT-R');
+  IF (SELECT t.state FROM app.retread_job j JOIN app.tyre t ON t.id = j.tyre_id WHERE j.id = j_rej)
+     IS DISTINCT FROM 'SCRAPPED' THEN
+    RAISE EXCEPTION 'FAIL 78d: a rejected casing with no pattern is not SCRAPPED';
+  END IF;
+  RAISE NOTICE 'PASS  78d a rejected casing needs no pattern and is scrapped';
+END $$;
+ROLLBACK;
+
+\echo '== 78z. nothing section 78 planted outlives its rollback'
+DROP FUNCTION pg_temp.t78_job(uuid, text, uuid);
+DO $$
+DECLARE got text := ''; tid uuid;
+BEGIN
+  FOREACH tid IN ARRAY ARRAY['11111111-1111-1111-1111-111111111111',
+                             '22222222-2222-2222-2222-222222222222']::uuid[] LOOP
+    PERFORM set_config('app.tenant_id', tid::text, true);
+    got := got || (SELECT count(*) FROM app.retread_job) || '/'
+               || (SELECT count(*) FROM app.tyre_pattern p WHERE p.name LIKE 'T78 %') || '/'
+               || (SELECT count(*) FROM app.tyre t WHERE t.display_code LIKE 'T78-%') || ' ';
+  END LOOP;
+  IF got IS DISTINCT FROM '0/0/0 0/0/0 ' THEN
+    RAISE EXCEPTION 'FAIL 78z: jobs/T78 patterns/T78 tyres per fleet read %, not the fixture''s 0/0/0 0/0/0', got;
+  END IF;
+  RAISE NOTICE 'PASS  78z section 78 leaves no residue';
 END $$;
 
 \echo '== 79. TYRE-450: a receive names an active depot or store of the fleet, required when it has one (B39, FR-TYR-040 as amended, rule 1; as BAC and Second Fleet, rolled back)'
