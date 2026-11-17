@@ -76,15 +76,15 @@ function ReceiptRow({
       : `${String(receipt.quantity)}, ${String(receipt.inFleet)} in the fleet`;
   return (
     <tr>
+      <th scope="row" data-mono="true">
+        {codes}
+      </th>
       <td data-nowrap="true">{asDate(receipt.receivedDate)}</td>
       <td>{receipt.depotName ?? "Not recorded"}</td>
       <td data-mono="true">{receipt.sizeName}</td>
       <td>{receipt.brandName ?? "No brand"}</td>
       <td>{receipt.patternName}</td>
       <td>{quantity}</td>
-      <th scope="row" data-mono="true">
-        {codes}
-      </th>
       <td data-align="right" data-mono="true">
         {moneyText(receipt.unitPrice ?? null, canSeeMoney, currency)}
       </td>
@@ -180,13 +180,13 @@ export function ReceiptList() {
             <table className="fleet-table">
               <thead>
                 <tr>
+                  <th scope="col">Codes</th>
                   <th scope="col">Received</th>
                   <th scope="col">Depot</th>
                   <th scope="col">Size</th>
                   <th scope="col">Brand</th>
                   <th scope="col">Pattern</th>
                   <th scope="col">Quantity</th>
-                  <th scope="col">Codes</th>
                   <th scope="col" data-align="right">
                     Unit price
                   </th>
