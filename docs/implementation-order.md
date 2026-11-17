@@ -67,7 +67,7 @@ How to read a row:
   and the launch ticket has a "Run queue" comment that restates it. The PR
   body carries a `Closes` line for each carried key, and the lead moves each
   at hand-over. `/pipeline` has no rule for a carried key and close-out acts
-  only on the keys a PR names, so check the carried keys after row 1. A
+  only on the keys a PR names, so check the carried keys after the PR merges. A
   "fold" is a ticket that is Done on the board whose work lands here.
 - **Before it starts** names what is not code: an ADR, an answer or an asset
   from the owner or BAC, a live step, a row that must merge first. A run
@@ -87,7 +87,6 @@ migration, an endpoint, a route or a screen, or is several defects.
 
 | # | Launch | Carries | Lane | Before it starts |
 |---|---|---|---|---|
-| 1 | `make pipeline T=TYRE-99` | 102 and 450, with the 18 bugs PR #139 set aside (B40); fold 420 | database, API, web | TYRE-99's description has the superseded wording; its comment 13903 holds the replacement |
 | 2 | `make pipeline T=TYRE-371` | none | infrastructure, database, API | an ADR first; an Azure-managed sender domain for the pilot; the job's daily run on staging |
 | 3 | `make pipeline T=TYRE-438` | fold 437's fix | infrastructure | the owner's call to narrow `id-tyre-deploy-prod` or re-accept it; a platform apply. It merges before BAC onboards (B43) |
 | 4 | `make pipeline T=TYRE-334` | folds 333, 339, 340 and 335 | web, capture | two design choices that the spec settles (U168) |
@@ -154,10 +153,6 @@ TYRE-464, 468 and 479 have no ruling on timing, only the board's Medium:
 
 **Not a pipeline run.** Each waits on the owner or a live step:
 
-- TYRE-485: merged as #223. It closes on the first `make pipeline` run after
-  the merge, whose transcripts must show no advisor call from the lead, a
-  teammate or a subagent; the ticket reopens if one shows.
-- TYRE-486: this page's own PR.
 - TYRE-472: merged as #221. It closes on the owner's report that release
   step 4's queries match on staging, at the first release that carries
   000061.
@@ -183,14 +178,14 @@ readiness week from 25 Nov. The dates below are estimates from the pace since
 from 2 Dec runs into the December holidays; if the date moves earlier, the
 first things out are TYRE-441, 76, 366 and 377. At 1 Nov, past sprint 1's
 dates, trips and Tread had merged and the rest of sprint 1's row had not. At
-17 Nov sprint 1's row still has the run queue's rows 1 to 5 to go, and the
-queue holds 42 runs; the dates have not been re-planned.
+17 Nov sprint 1's row still has the run queue's rows 2 to 5 to go, and the
+queue holds 41 runs; the dates have not been re-planned.
 
 The table is the 21 Oct plan, kept as the record of what each sprint was to
 unlock; the run queue above decides the order. Its two lanes touch disjoint
 files. The database lane runs one PR after another, because each takes the
-next migration number and suite section: the next free pair is **000062 and
-section 77**, taken by whichever database branch is cut first.
+next migration number and suite section: the next free pair is **000063 and
+section 80**, taken by whichever database branch is cut first.
 
 | Sprint | Dates | Web, API and infrastructure lane | Database lane | Unlocks |
 |---|---|---|---|---|
