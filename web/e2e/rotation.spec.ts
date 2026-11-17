@@ -8,6 +8,7 @@ import {
   createUnit,
   posted,
   sandboxCatalogue,
+  sandboxDepot,
   CONTROLLER,
   type AxleConfiguration,
   type Position,
@@ -65,6 +66,7 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
     sizeId,
     patternId,
     newTreadMm: "18.0",
+    depotId: await sandboxDepot(page),
   })) as {
     tyres: { id: string; displayCode: string }[];
   };

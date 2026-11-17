@@ -89,6 +89,18 @@ export async function sandboxCatalogue(page: Page): Promise<{ sizeId: string; pa
   return { sizeId, patternId };
 }
 
+// A receive names the depot or store that takes the stock while the fleet
+// has one (B39, 000062). The Sandbox controller and admin hold no depot of
+// their own, so the form pre-selects nothing and a spec chooses it.
+export const SANDBOX_DEPOT = "Sandbox Depot";
+
+export async function sandboxDepot(page: Page): Promise<string> {
+  const depots = (await apiGet(page, "/api/depots")) as { id: string; name: string }[];
+  const id = depots.find((d) => d.name === SANDBOX_DEPOT)?.id ?? "";
+  expect(id, `${SANDBOX_DEPOT} is not among Sandbox's active depots`).not.toBe("");
+  return id;
+}
+
 export interface AxleConfiguration {
   id: string;
   code: string;

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { actAsOrgAdmin } from "./admin";
-import { posted, SANDBOX_PATTERN, SANDBOX_SIZE } from "./sandbox";
+import { posted, SANDBOX_DEPOT, SANDBOX_PATTERN, SANDBOX_SIZE } from "./sandbox";
 
 // TYRE-91's tyre register (Jira), walked on Sandbox Fleet, never BAC
 // (TYRE-80).
@@ -30,6 +30,7 @@ test("an admin receives a tyre, prices its receipt and scraps it on Sandbox", as
   await page.getByLabel("Size", { exact: true }).selectOption({ label: SANDBOX_SIZE });
   await page.getByLabel("Pattern", { exact: true }).selectOption({ label: SANDBOX_PATTERN });
   await page.getByLabel("New tread (mm)").fill("25.0");
+  await page.getByLabel("Depot", { exact: true }).selectOption({ label: SANDBOX_DEPOT });
   await page.getByRole("button", { name: /^receive$/i }).click();
 
   const status = page.getByRole("status");
@@ -93,6 +94,7 @@ test("a priced receive through the pickers is rated on the register", async ({ p
   await page.getByLabel("New tread (mm)").fill("25.0");
   await page.getByLabel("Unit price").fill("4319.91");
   await expect(page.getByText("This is an invoice price.")).toBeVisible();
+  await page.getByLabel("Depot", { exact: true }).selectOption({ label: SANDBOX_DEPOT });
   await Promise.all([
     posted(page, /^\/api\/tyres$/),
     page.getByRole("button", { name: /^receive$/i }).click(),

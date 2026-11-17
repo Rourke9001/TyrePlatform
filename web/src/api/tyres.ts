@@ -46,6 +46,9 @@ export interface NewTyres {
   sizeId: string;
   patternId: string;
   brandId?: string;
+  // B39: the active depot or store that takes the stock, required by
+  // app.receive_tyres while the fleet has one (000062).
+  depotId?: string;
   // Decimal text, cast in SQL; never a number (DR-007).
   newTreadMm: string;
   purchasePrice?: string;
