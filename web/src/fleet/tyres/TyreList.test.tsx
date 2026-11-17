@@ -938,6 +938,20 @@ describe("the tyre register", () => {
       expect(markPosts()).toEqual([{ url: "/api/tyre-receipts/r1/codes-marked", body: {} }]);
     });
 
+    it("says the marking is being recorded while the write is in flight", async () => {
+      vi.mocked(fetch).mockImplementation((_input: RequestInfo | URL, init?: RequestInit) =>
+        init?.method === "POST"
+          ? new Promise<Response>(() => undefined)
+          : Promise.resolve(respond(200, { tyres: PENDING, codesToMark: 1 })),
+      );
+      renderScreen();
+      await screen.findByText("Code not yet on the sidewall");
+
+      await userEvent.click(screen.getByRole("button", { name: "Record as marked" }));
+
+      expect(await screen.findByRole("button", { name: "Recording…" })).toBeDisabled();
+    });
+
     it("renders the function's own refusal", async () => {
       mockRegister({
         reply: () =>

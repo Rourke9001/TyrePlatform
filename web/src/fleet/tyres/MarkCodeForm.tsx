@@ -37,6 +37,8 @@ export function MarkCodeForm({
   onMarked: (marked: ReceivedTyre[]) => void;
 }) {
   const [markedOn, setMarkedOn] = useState("");
+  // Which of the two buttons sent the write in flight, so only it says so.
+  const [sentWhole, setSentWhole] = useState(false);
 
   const mark = useFormMutation<MarkVars, ReceivedTyre[]>({
     mutate: (vars) => {
@@ -53,6 +55,7 @@ export function MarkCodeForm({
   });
 
   function send(whole: boolean) {
+    setSentWhole(whole);
     mark.submit(markedOn === "" ? { wholeReceipt: whole } : { wholeReceipt: whole, markedOn });
   }
 
@@ -70,11 +73,11 @@ export function MarkCodeForm({
         onChange={(e) => setMarkedOn(e.target.value)}
       />
       <Button type="submit" disabled={mark.isPending}>
-        Record as marked
+        {mark.isPending && !sentWhole ? "Recording…" : "Record as marked"}
       </Button>
       {wholeReceipt && (
         <Button disabled={mark.isPending} onClick={() => send(true)}>
-          Record the whole receipt as marked
+          {mark.isPending && sentWhole ? "Recording…" : "Record the whole receipt as marked"}
         </Button>
       )}
       <RefusalAlert error={mark.error} wording={MARK_WORDING} />
