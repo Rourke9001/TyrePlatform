@@ -216,7 +216,7 @@ describe("the tyre register", () => {
 
     const scrapped = screen.getByRole("rowheader", { name: "POS1" }).closest("tr");
     if (!scrapped) throw new Error("row for POS1 not found");
-    expect(cellUnder(scrapped, "Actions")).toHaveTextContent(/^—$/);
+    expect(cellUnder(scrapped, "Actions").textContent).toBe("—");
     expect(
       within(scrapped).queryByRole("combobox", { name: /disposal for pos1/i }),
     ).not.toBeInTheDocument();
@@ -382,7 +382,7 @@ describe("the tyre register", () => {
 
     const row = screen.getByRole("rowheader", { name: "POS1" }).closest("tr");
     if (!row) throw new Error("row for POS1 not found");
-    expect(cellUnder(row, "Set cost")).toHaveTextContent(/^—$/);
+    expect(cellUnder(row, "Set cost").textContent).toBe("—");
     expect(within(row).queryByLabelText(/purchase price for pos1/i)).not.toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: /set cost/i })).not.toBeInTheDocument();
   });
