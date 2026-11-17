@@ -51,7 +51,7 @@ dates have not been re-planned.
 
 Two lanes run side by side because they touch disjoint files. The database
 lane runs one PR after another, because each takes the next migration number
-and suite section: the next free pair is **000061 and section 77**, taken by
+and suite section: the next free pair is **000062 and section 77**, taken by
 whichever database branch is cut first.
 
 | Sprint | Dates | Web, API and infrastructure lane | Database lane | Unlocks |
