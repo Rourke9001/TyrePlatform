@@ -6,6 +6,7 @@ import {
   posted,
   postedRefusal,
   CONTROLLER,
+  SANDBOX_DEPOT,
   SANDBOX_PATTERN,
   SANDBOX_SIZE,
 } from "./sandbox";
@@ -59,6 +60,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await page.getByLabel("Size", { exact: true }).selectOption({ label: SANDBOX_SIZE });
   await page.getByLabel("Pattern", { exact: true }).selectOption({ label: SANDBOX_PATTERN });
   await page.getByLabel("New tread (mm)").fill("18.0");
+  await page.getByLabel("Depot", { exact: true }).selectOption({ label: SANDBOX_DEPOT });
   await Promise.all([
     posted(page, /^\/api\/tyres$/),
     page.getByRole("button", { name: /^receive$/i }).click(),

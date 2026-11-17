@@ -7,6 +7,7 @@ import { formatMoney, useCurrency } from "../api/money";
 import { fetchPriceEstimate } from "../api/receipts";
 import { refusalMessage } from "../api/refusal";
 import { receiveTyres, type NewTyres, type ReceivedTyre } from "../api/tyres";
+import { fetchDepots } from "../api/units";
 import { useActor } from "../auth/actorContext";
 import { useTenantDate } from "../time/tenantTime";
 import { Banner } from "../ui/Banner";
@@ -18,15 +19,16 @@ import { Select } from "../ui/Select";
 import { TextInput } from "../ui/TextInput";
 import { priceMisshapen, PRICE_SHAPE_ERROR } from "./priceShape";
 import { byNaturalCode } from "./unit/naturalOrder";
-import { priceEstimateKey, tyreCatalogueKey } from "./unit/queryKeys";
+import { depotsKey, priceEstimateKey, tyreCatalogueKey } from "./unit/queryKeys";
 import "./fleet.css";
 
 // app.receive_tyres answers TY011 for its display-code policy, quantity,
 // catalogue, tread and cost-source refusals (000053), a received date after
 // the tenant's today (TYRE-418), an invoice number without an invoice price,
-// and an estimate off the price list or with no list entry in force
-// (000059); display_code_taken is its conflict. The lifecycle's other codes
-// belong to endpoints this screen never calls.
+// an estimate off the price list or with no list entry in force (000059),
+// and a depot that is not an active depot or store of the fleet, or none
+// while it has one (000062); display_code_taken is its conflict. The
+// lifecycle's other codes belong to endpoints this screen never calls.
 const RECEIVE_WORDING = {
   speakable: ["display_code_taken", "TY011"],
   forbidden: "You do not have permission to receive tyres.",
@@ -63,8 +65,12 @@ export function ReceiveTyre() {
     queryKey: tyreCatalogueKey(tenantKey),
     queryFn: fetchTyreCatalogue,
   });
+  // The untyped read the dashboard's filter shares; the active rows only.
+  const depotsRead = useQuery({ queryKey: depotsKey(tenantKey), queryFn: () => fetchDepots() });
 
   const [quantity, setQuantity] = useState("1");
+  // null until the user picks, so the pre-selection below stays derived.
+  const [depotChoice, setDepotChoice] = useState<string | null>(null);
   const [displayCode, setDisplayCode] = useState("");
   const [sizeId, setSizeId] = useState("");
   const [brandId, setBrandId] = useState("");
@@ -108,6 +114,7 @@ export function ReceiveTyre() {
     mutationFn: receiveTyres,
     onSuccess: (tyres) => {
       setReceived(tyres);
+      setDepotChoice(null);
       setQuantity("1");
       setDisplayCode("");
       setSizeId("");
@@ -137,6 +144,17 @@ export function ReceiveTyre() {
   const brands = loaded ? [...loaded.brands].sort((a, b) => byNaturalCode(a.name, b.name)) : [];
   const patterns = loaded ? newTyrePatterns(loaded, brandId) : [];
   const ready = loaded !== null && sizes.length > 0 && newTyrePatterns(loaded, "").length > 0;
+
+  // B39 (TYRE-450): stock lands at a depot or store, the pair
+  // app.receive_tyres accepts, and is required while the fleet has one
+  // (000062). The user's own depot is pre-selected only when it is the one
+  // offered depot among theirs, so a guess never reaches the receipt.
+  const depotsLoaded = depotsRead.data !== undefined;
+  const depots = (depotsRead.data ?? [])
+    .filter((d) => d.type === "DEPOT" || d.type === "STORE")
+    .sort((a, b) => byNaturalCode(a.name, b.name));
+  const ownDepots = depots.filter((d) => actor?.depots.includes(d.id) === true);
+  const depotId = depotChoice ?? (ownDepots.length === 1 ? (ownDepots[0]?.id ?? "") : "");
 
   const treadEntered = newTread.trim() !== "";
   const treadShaped = TREAD_SHAPE.test(newTread.trim());
@@ -214,6 +232,7 @@ export function ReceiveTyre() {
     if (isFree && displayCode.trim() === "") return;
     if (!isFree && quantity.trim() === "") return;
     if (sizeId === "" || patternId === "" || !treadShaped || priceUnsettled || priceBad) return;
+    if (!depotsLoaded || (depots.length > 0 && depotId === "")) return;
     setReceived(null);
 
     const body: NewTyres = {
@@ -223,6 +242,7 @@ export function ReceiveTyre() {
       newTreadMm: newTread.trim(),
     };
     if (brandId !== "") body.brandId = brandId;
+    if (depotId !== "") body.depotId = depotId;
     // Price is the one field that must never round-trip through Number():
     // all money is decimal text end to end (rule 2), and the cent-exact
     // valuation gate is the whole reason a JS float never touches it here.
@@ -384,6 +404,30 @@ export function ReceiveTyre() {
                 onChange={(e) => setReceivedDate(e.target.value)}
               />
             </Field>
+
+            {depotsRead.isError && !depotsLoaded && (
+              <Banner
+                className="fleet-fields__wide"
+                tone="critical"
+                title="The depots could not be loaded. Check your connection, then retry."
+                action={<Button onClick={() => void depotsRead.refetch()}>Retry</Button>}
+              />
+            )}
+            {depots.length > 0 && (
+              <Field label="Depot">
+                <Select
+                  id="depotId"
+                  name="depotId"
+                  value={depotId}
+                  onChange={(e) => setDepotChoice(e.target.value)}
+                  required
+                  options={[
+                    { value: "", label: "Choose a depot or store" },
+                    ...depots.map((d) => ({ value: d.id, label: d.name })),
+                  ]}
+                />
+              </Field>
+            )}
           </div>
         </Card>
 
@@ -447,7 +491,7 @@ export function ReceiveTyre() {
           <Button
             variant="primary"
             type="submit"
-            disabled={receive.isPending || !ready || priceUnsettled}
+            disabled={receive.isPending || !ready || priceUnsettled || !depotsLoaded}
           >
             {receive.isPending ? "Receiving…" : "Receive"}
           </Button>

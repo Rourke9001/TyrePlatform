@@ -41,17 +41,23 @@ function listed(price: string, from = "2026-06-01", brandSpecific = true): Reply
     respond(200, { estimate: { typicalPrice: price, effectiveFrom: from, brandSpecific } });
 }
 
-// GET /api/tyre-catalogue answers `catalogue` (null: it never answers), each
-// estimate read takes the next of `estimates` and the last one keeps
-// answering (none given: no list entry; null: it never answers), and each
-// POST /api/tyres takes the next of `receives`. Anything else is a request
-// this screen should not make. A fresh Response per call, since a body
-// reads once.
+// GET /api/tyre-catalogue answers `catalogue` (null: it never answers), GET
+// /api/depots answers `depots` (none: an empty list), each estimate read
+// takes the next of `estimates` and the last one keeps answering (none
+// given: no list entry; null: it never answers), and each POST /api/tyres
+// takes the next of `receives`. Anything else is a request this screen
+// should not make. A fresh Response per call, since a body reads once.
 function mockApi({
   catalogue = () => respond(200, CATALOGUE),
+  depots = () => respond(200, []),
   receives = [],
   estimates = [],
-}: { catalogue?: Reply | null; receives?: Reply[]; estimates?: (Reply | null)[] } = {}) {
+}: {
+  catalogue?: Reply | null;
+  depots?: Reply;
+  receives?: Reply[];
+  estimates?: (Reply | null)[];
+} = {}) {
   const queue = [...receives];
   const estimateQueue = [...estimates];
   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
@@ -61,6 +67,7 @@ function mockApi({
         ? new Promise<Response>(() => undefined)
         : Promise.resolve(catalogue());
     }
+    if (url === "/api/depots") return Promise.resolve(depots());
     if (url.startsWith("/api/tyre-price-estimate")) {
       const reply = estimateQueue.length > 1 ? estimateQueue.shift() : estimateQueue[0];
       if (reply === null) return new Promise<Response>(() => undefined);
@@ -100,11 +107,12 @@ function minted(...codes: string[]): Reply {
     respond(201, { tyres: codes.map((code, i) => ({ id: `t${i}`, displayCode: code })) });
 }
 
-function renderScreen(policy = "FREE") {
+function renderScreen(policy = "FREE", depots: string[] = []) {
   const actor = me({
     displayName: "Controller",
     capabilities: ["ManageAssets"],
     displayCodePolicy: policy,
+    depots,
   });
   return render(
     <ActorContext.Provider value={{ actor, settled: true }}>
@@ -773,6 +781,91 @@ describe("receiving tyres into the fleet", () => {
       expect(receivedBodies()).toHaveLength(0);
     },
   );
+
+  // B39 (TYRE-450): the stock lands at a depot or store, required while the
+  // fleet has one, pre-selected when exactly one offered depot is the
+  // user's own.
+  describe("the depot", () => {
+    const DEPOTS = [
+      { id: "d1", name: "Johannesburg", type: "DEPOT" },
+      { id: "d2", name: "Pretoria", type: "STORE" },
+      { id: "d3", name: "Retread Co", type: "RETREADER" },
+    ];
+    const depots = () => respond(200, DEPOTS);
+
+    it("offers the fleet's active depots and stores only, and requires one", async () => {
+      mockApi({ depots });
+      renderScreen("GENERATED");
+
+      const depot = await screen.findByLabelText(/^depot$/i);
+      expect(optionNames(depot)).toEqual(["Choose a depot or store", "Johannesburg", "Pretoria"]);
+      expect(depot).toBeRequired();
+      expect(depot).toHaveValue("");
+    });
+
+    it.each([
+      { own: ["d2"], want: "d2", says: "Pretoria" },
+      { own: ["d1", "d2"], want: "", says: "nothing" },
+      { own: [], want: "", says: "nothing" },
+    ])("with the user's depots $own pre-selects $says", async ({ own, want }) => {
+      mockApi({ depots });
+      renderScreen("GENERATED", own);
+
+      await screen.findByRole("option", { name: "Pretoria" });
+      expect(screen.getByLabelText(/^depot$/i)).toHaveValue(want);
+    });
+
+    it("sends the chosen depot with the receive", async () => {
+      mockApi({ depots, receives: [minted("BAC-00001")] });
+      renderScreen("GENERATED");
+      await chooseEntries();
+      await userEvent.selectOptions(await screen.findByLabelText(/^depot$/i), "d1");
+      await submit();
+      await screen.findByRole("status");
+
+      expect(receivedBodies()[0]).toMatchObject({ depotId: "d1" });
+    });
+
+    it("sends nothing while no depot is chosen", async () => {
+      mockApi({ depots, receives: [minted("BAC-00001")] });
+      const { container } = renderScreen("GENERATED");
+      await chooseEntries();
+      await screen.findByLabelText(/^depot$/i);
+      await forceSubmit(container);
+
+      expect(receivedBodies()).toHaveLength(0);
+    });
+
+    it("says the depots could not be loaded and blocks submission", async () => {
+      mockApi({
+        depots: () => respond(500, { code: "internal", message: "internal error" }),
+        receives: [minted("BAC-00001")],
+      });
+      const { container } = renderScreen("GENERATED");
+      await chooseEntries();
+
+      expect(
+        await screen.findByText(
+          "The depots could not be loaded. Check your connection, then retry.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^receive$/i })).toBeDisabled();
+      await forceSubmit(container);
+      expect(receivedBodies()).toHaveLength(0);
+    });
+
+    it("asks for no depot in a fleet with none, and sends none", async () => {
+      mockApi({ receives: [minted("BAC-00001")] });
+      renderScreen("GENERATED");
+      await chooseEntries();
+      await submit();
+      await screen.findByRole("status");
+
+      expect(screen.queryByLabelText(/^depot$/i)).not.toBeInTheDocument();
+      expect(receivedBodies()[0]).not.toHaveProperty("depotId");
+    });
+  });
 
   it("renders the register's own message for a speakable refusal", async () => {
     mockApi({
