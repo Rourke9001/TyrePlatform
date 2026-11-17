@@ -63,6 +63,11 @@ does not use step 2: it runs the review and the auditors in place by
    `git branch --set-upstream-to=review-pr<n>-base`, the only refs this
    form writes, and check that `git rev-parse @{upstream}` equals
    `git rev-parse <sha>`. Then run `/code-review <level>` with no target.
+   When it returns, read the `git diff` commands its fork ran:
+   `jq -r 'select(.type == "assistant") | .message.content[]? | select(.name == "Bash") | .input.command' ~/.claude/projects/*/$CLAUDE_CODE_SESSION_ID/subagents/agent-*.jsonl`.
+   Read `git diff <sha>...<PR head>` yourself whatever it prints, and say
+   in the report which diff the fork read, or that the command failed
+   (docs/lessons.md, 2026-11-17).
 
    Either way, wait for `/code-review`'s result before step 3.
 3. **Run the auditors** whose trigger the reviewed diff meets, each given
