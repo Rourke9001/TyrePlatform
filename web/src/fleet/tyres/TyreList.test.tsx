@@ -28,8 +28,24 @@ function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
     randPerMm: "150.25" as Money,
     casingValue: "800.00" as Money,
     receiptId: null,
+    codePending: false,
     ...overrides,
   };
+}
+
+// The cell of row under the column headed header: the row header is a th,
+// so cells start at the second column.
+function cellUnder(row: HTMLElement, header: string): HTMLElement {
+  const column = screen.getAllByRole("columnheader").findIndex((h) => h.textContent === header);
+  const cell = within(row).getAllByRole("cell")[column - 1];
+  if (column < 1 || cell === undefined) throw new Error(`no ${header} cell`);
+  return cell;
+}
+
+function rowOf(code: string): HTMLElement {
+  const row = screen.getByRole("rowheader", { name: code }).closest("tr");
+  if (row === null) throw new Error(`no row for ${code}`);
+  return row;
 }
 
 describe("the tyre register", () => {
@@ -185,7 +201,7 @@ describe("the tyre register", () => {
   // spec's own comment says so): DisposeForm must not stay on offer once a
   // tyre is terminal, or its refusal reads as advice for a tyre that is not
   // scrapped. Both rows are awaiting cost so CostForm, not a dash, owns the
-  // Set-cost cell. The only dash left in POS1's row is the Dispose cell's.
+  // Set-cost cell.
   it("shows a dash, never a dispose form, for a terminal tyre, while a non-terminal row keeps the form", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, {
@@ -200,7 +216,7 @@ describe("the tyre register", () => {
 
     const scrapped = screen.getByRole("rowheader", { name: "POS1" }).closest("tr");
     if (!scrapped) throw new Error("row for POS1 not found");
-    expect(within(scrapped).getByText("—")).toBeInTheDocument();
+    expect(cellUnder(scrapped, "Actions")).toHaveTextContent(/^—$/);
     expect(
       within(scrapped).queryByRole("combobox", { name: /disposal for pos1/i }),
     ).not.toBeInTheDocument();
@@ -361,14 +377,12 @@ describe("the tyre register", () => {
         tyres: [tyre({ id: "t1", displayCode: "POS1", awaitingCost: false })],
       }),
     );
-    // No ViewValuation: the money columns are absent, so the only dash left
-    // in this row is the Set-cost cell's. Nothing else to confuse it with.
     renderScreen(["ManageAssets"]);
     await screen.findAllByRole("rowheader");
 
     const row = screen.getByRole("rowheader", { name: "POS1" }).closest("tr");
     if (!row) throw new Error("row for POS1 not found");
-    expect(within(row).getByText("—")).toBeInTheDocument();
+    expect(cellUnder(row, "Set cost")).toHaveTextContent(/^—$/);
     expect(within(row).queryByLabelText(/purchase price for pos1/i)).not.toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: /set cost/i })).not.toBeInTheDocument();
   });
@@ -769,6 +783,178 @@ describe("the tyre register", () => {
     // Still there once the row has settled without its form: this
     // distinguishes surviving the refetch from a flash that already faded.
     expect(screen.getByRole("status")).toHaveTextContent(/tyre pos1's cost was recorded/i);
+  });
+
+  // TYRE-99, B22: a code the platform issued waits until someone records
+  // that it is on the sidewall.
+  describe("codes to mark", () => {
+    const PENDING = [
+      tyre({ id: "t1", displayCode: "BAC-00001", codePending: true, receiptId: "r1" }),
+      tyre({ id: "t2", displayCode: "BAC-00002" }),
+    ];
+
+    // The register answers `rows` and `count` until a marking succeeds, then
+    // `after` and `afterCount`; each POST takes `reply`.
+    function mockRegister({
+      rows = PENDING,
+      count = 1,
+      after = rows.map((t) => ({ ...t, codePending: false })),
+      afterCount = 0,
+      reply = () => respond(200, { tyres: [{ id: "t1", displayCode: "BAC-00001" }] }),
+    }: {
+      rows?: Tyre[];
+      count?: number;
+      after?: Tyre[];
+      afterCount?: number;
+      reply?: () => Response;
+    } = {}) {
+      let marked = false;
+      vi.mocked(fetch).mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          const res = reply();
+          if (res.ok) marked = true;
+          return Promise.resolve(res);
+        }
+        return Promise.resolve(
+          respond(200, {
+            tyres: marked ? after : rows,
+            codesToMark: marked ? afterCount : count,
+          }),
+        );
+      });
+    }
+
+    function registerReads(): string[] {
+      return vi
+        .mocked(fetch)
+        .mock.calls.filter(([, init]) => init?.method !== "POST")
+        .map(([input]) => requestedUrl(input));
+    }
+
+    function markPosts(): { url: string; body: unknown }[] {
+      return vi
+        .mocked(fetch)
+        .mock.calls.filter(([, init]) => init?.method === "POST")
+        .map(([input, init]) => ({
+          url: requestedUrl(input),
+          body: typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : undefined,
+        }));
+    }
+
+    it("names the filter with the queue's count and says which code waits", async () => {
+      mockRegister();
+      renderScreen();
+
+      expect(
+        await screen.findByRole("checkbox", { name: "Codes to mark (1)" }),
+      ).toBeInTheDocument();
+      expect(
+        within(rowOf("BAC-00001")).getByText("Code not yet on the sidewall"),
+      ).toBeInTheDocument();
+      expect(
+        within(rowOf("BAC-00002")).queryByText("Code not yet on the sidewall"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("switching the filter on reads the queue", async () => {
+      mockRegister();
+      renderScreen();
+
+      await userEvent.click(await screen.findByRole("checkbox", { name: /codes to mark/i }));
+
+      await waitFor(() => expect(registerReads()).toContain("/api/tyres?codesToMark=true"));
+    });
+
+    it("records a marking dated today when the date is left blank, confirms it and refetches", async () => {
+      mockRegister();
+      renderScreen();
+      await screen.findByText("Code not yet on the sidewall");
+
+      await userEvent.click(
+        within(rowOf("BAC-00001")).getByRole("button", { name: "Record as marked" }),
+      );
+
+      expect(await screen.findByRole("status")).toHaveTextContent(
+        "Code BAC-00001 recorded as marked.",
+      );
+      await waitFor(() =>
+        expect(screen.queryByText("Code not yet on the sidewall")).not.toBeInTheDocument(),
+      );
+      expect(markPosts()).toEqual([{ url: "/api/tyres/t1/code-marked", body: {} }]);
+      expect(registerReads().length).toBeGreaterThan(1);
+    });
+
+    it("sends a typed day as markedOn", async () => {
+      mockRegister();
+      renderScreen();
+      await screen.findByText("Code not yet on the sidewall");
+
+      fireEvent.change(screen.getByLabelText("Marked on for BAC-00001"), {
+        target: { value: "2026-10-01" },
+      });
+      await userEvent.click(screen.getByRole("button", { name: "Record as marked" }));
+
+      await waitFor(() =>
+        expect(markPosts()).toEqual([
+          { url: "/api/tyres/t1/code-marked", body: { markedOn: "2026-10-01" } },
+        ]),
+      );
+    });
+
+    it("offers the whole receipt when another loaded row waits on it, and confirms every code", async () => {
+      mockRegister({
+        rows: [
+          tyre({ id: "t1", displayCode: "BAC-00001", codePending: true, receiptId: "r1" }),
+          tyre({ id: "t2", displayCode: "BAC-00002", codePending: true, receiptId: "r1" }),
+          tyre({ id: "t3", displayCode: "BAC-00003", codePending: true, receiptId: "r2" }),
+        ],
+        count: 3,
+        afterCount: 1,
+        reply: () =>
+          respond(200, {
+            tyres: [
+              { id: "t1", displayCode: "BAC-00001" },
+              { id: "t2", displayCode: "BAC-00002" },
+            ],
+          }),
+      });
+      renderScreen();
+      await screen.findAllByText("Code not yet on the sidewall");
+
+      expect(
+        within(rowOf("BAC-00003")).queryByRole("button", {
+          name: "Record the whole receipt as marked",
+        }),
+      ).not.toBeInTheDocument();
+      await userEvent.click(
+        within(rowOf("BAC-00001")).getByRole("button", {
+          name: "Record the whole receipt as marked",
+        }),
+      );
+
+      expect(await screen.findByRole("status")).toHaveTextContent(
+        "2 codes recorded as marked: BAC-00001, BAC-00002.",
+      );
+      expect(markPosts()).toEqual([{ url: "/api/tyre-receipts/r1/codes-marked", body: {} }]);
+    });
+
+    it("renders the function's own refusal", async () => {
+      mockRegister({
+        reply: () =>
+          respond(422, {
+            code: "TY012",
+            message: "BAC-00001 has no code waiting to be marked on its sidewall",
+          }),
+      });
+      renderScreen();
+      await screen.findByText("Code not yet on the sidewall");
+
+      await userEvent.click(screen.getByRole("button", { name: "Record as marked" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "BAC-00001 has no code waiting to be marked on its sidewall",
+      );
+    });
   });
 
   it("links to the retread queue for an actor with LogRetread", async () => {

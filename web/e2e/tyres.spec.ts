@@ -117,3 +117,32 @@ test("a priced receive through the pickers is rated on the register", async ({ p
   // fails here, not only a missing one.
   await expect(row.getByRole("cell").nth(rateColumn - 1)).toHaveText("R205.7100");
 });
+
+// TYRE-99's definition of done 4: under GENERATED the issued code waits in
+// Codes to mark until someone records that it is on the sidewall (B22).
+test("a received tyre waits in Codes to mark until its marking is recorded", async ({ page }) => {
+  await page.goto("/fleet/tyres/new");
+  await page.getByLabel(/quantity/i).fill("1");
+  await page.getByLabel("Size", { exact: true }).selectOption({ label: SANDBOX_SIZE });
+  await page.getByLabel("Pattern", { exact: true }).selectOption({ label: SANDBOX_PATTERN });
+  await page.getByLabel("New tread (mm)").fill("25.0");
+  await page.getByLabel("Depot", { exact: true }).selectOption({ label: SANDBOX_DEPOT });
+  await Promise.all([
+    posted(page, /^\/api\/tyres$/),
+    page.getByRole("button", { name: /^receive$/i }).click(),
+  ]);
+  const issuedCode = page.getByRole("status").getByRole("listitem");
+  await expect(issuedCode).toHaveText(/^SBX-\d{5}$/);
+  const displayCode = ((await issuedCode.textContent()) ?? "").trim();
+
+  await page.goto("/fleet/tyres");
+  await page.getByRole("checkbox", { name: /^codes to mark/i }).check();
+  const row = page.getByRole("row", { name: new RegExp(displayCode) });
+  await expect(row.getByText("Code not yet on the sidewall")).toBeVisible();
+  await Promise.all([
+    posted(page, /^\/api\/tyres\/[^/]+\/code-marked$/),
+    row.getByRole("button", { name: "Record as marked" }).click(),
+  ]);
+  await expect(page.getByRole("status")).toHaveText(`Code ${displayCode} recorded as marked.`);
+  await expect(page.getByRole("row", { name: new RegExp(displayCode) })).toHaveCount(0);
+});

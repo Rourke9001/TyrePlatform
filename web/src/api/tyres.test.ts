@@ -7,7 +7,10 @@ import {
   receiveTyres,
   returnTyreToStock,
   setTyreCost,
+  fetchTyreRegister,
   fetchTyres,
+  markReceiptCodes,
+  markTyreCode,
 } from "./tyres";
 import { ApiError } from "./client";
 import { respond } from "../test/fixtures";
@@ -97,6 +100,47 @@ describe("the tyre register API module", () => {
       expect(error).toBeInstanceOf(ApiError);
       expect((error as ApiError).code).toBe("forbidden");
       expect((error as ApiError).message).toBe("ManageAssets is required");
+    });
+  });
+
+  describe("fetchTyreRegister", () => {
+    it("narrows to codes to mark and carries the queue's count", async () => {
+      vi.mocked(fetch).mockResolvedValue(respond(200, { tyres: [], codesToMark: 3 }));
+
+      const body = await fetchTyreRegister({ codesToMark: true });
+
+      expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/api/tyres?codesToMark=true");
+      expect(body.codesToMark).toBe(3);
+      expect(body.tyres).toEqual([]);
+    });
+  });
+
+  // TYRE-99: one tyre or every pending tyre on a receipt, each answering the
+  // tyres the function marked.
+  describe("markTyreCode and markReceiptCodes", () => {
+    it("posts one tyre's marking with its day and unwraps the marked tyres", async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        respond(200, { tyres: [{ id: "t1", displayCode: "BAC-00001" }] }),
+      );
+
+      const marked = await markTyreCode("t1", { markedOn: "2026-10-01" });
+
+      const [url, init] = vi.mocked(fetch).mock.calls[0];
+      expect(url).toBe("/api/tyres/t1/code-marked");
+      expect(jsonBody(init)).toStrictEqual({ markedOn: "2026-10-01" });
+      expect(marked).toEqual([{ id: "t1", displayCode: "BAC-00001" }]);
+    });
+
+    it("posts a receipt's marking", async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        respond(200, { tyres: [{ id: "t1", displayCode: "BAC-00001" }] }),
+      );
+
+      await markReceiptCodes("r1", {});
+
+      const [url, init] = vi.mocked(fetch).mock.calls[0];
+      expect(url).toBe("/api/tyre-receipts/r1/codes-marked");
+      expect(jsonBody(init)).toStrictEqual({});
     });
   });
 

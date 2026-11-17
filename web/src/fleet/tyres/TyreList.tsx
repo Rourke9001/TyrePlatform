@@ -4,8 +4,15 @@ import { Link } from "react-router";
 
 import { getDevTenantId } from "../../api/devTenant";
 import { formatMoney, useCurrency } from "../../api/money";
-import { fetchTyres, isDisposed, type Destination, type Tyre } from "../../api/tyres";
+import {
+  fetchTyreRegister,
+  isDisposed,
+  type Destination,
+  type Tyre,
+  type TyreRegisterFilters,
+} from "../../api/tyres";
 import { useCan } from "../../auth/actorContext";
+import { formatCount } from "../../format/numbers";
 import { useTenantDate } from "../../time/tenantTime";
 import { Banner } from "../../ui/Banner";
 import { Button } from "../../ui/Button";
@@ -22,13 +29,9 @@ import { tyresKey } from "../unit/queryKeys";
 import { CostForm } from "./CostForm";
 import { DispatchForm } from "./DispatchForm";
 import { DisposeForm } from "./DisposeForm";
+import { MarkCodeForm } from "./MarkCodeForm";
 import { ReturnToStockButton } from "./ReturnToStockButton";
 import "../fleet.css";
-
-// fetchTyres's own optional-filter shape, not redeclared: the two are one
-// contract, and the query key below carries this object verbatim as the third
-// element tyresKey's own comment (unit/queryKeys.ts) describes.
-type TyreFilters = NonNullable<Parameters<typeof fetchTyres>[0]>;
 
 // FR-TYR-043: two active tyres carrying one code is a state the register
 // must surface, never resolve on the user's behalf (ADR-0008 rule 3).
@@ -45,7 +48,8 @@ type ActedOn =
   | { kind: "dispatch"; code: string; destination: Destination }
   | { kind: "return"; code: string }
   | { kind: "dispose"; code: string }
-  | { kind: "cost"; code: string };
+  | { kind: "cost"; code: string }
+  | { kind: "mark"; codes: string[] };
 
 function actedMessage(acted: ActedOn): string {
   switch (acted.kind) {
@@ -55,6 +59,10 @@ function actedMessage(acted: ActedOn): string {
       return `Tyre ${acted.code} was disposed of.`;
     case "cost":
       return `Tyre ${acted.code}'s cost was recorded.`;
+    case "mark":
+      return acted.codes.length === 1
+        ? `Code ${acted.codes[0] ?? ""} recorded as marked.`
+        : `${formatCount(acted.codes.length)} codes recorded as marked: ${acted.codes.join(", ")}.`;
     default: {
       const place =
         acted.destination === "AT_RETREADER" ? "the retreader" : "the breakdown supplier";
@@ -130,19 +138,24 @@ export function TyreList() {
   const asOf = useTenantDate();
 
   const [awaitingCost, setAwaitingCost] = useState(false);
+  const [codesToMark, setCodesToMark] = useState(false);
   const [codeInput, setCodeInput] = useState("");
   const [dateInput, setDateInput] = useState("");
   const [lookup, setLookup] = useState<{ code: string; on: string } | null>(null);
   const [acted, setActed] = useState<ActedOn | null>(null);
 
-  // code+on take over from the awaiting-cost toggle when a lookup is active
-  // (FR-TYR-042 resolves by date, not by the backlog filter). The same
-  // precedence listTyres itself applies server-side.
-  const filters: TyreFilters = lookup ? { code: lookup.code, on: lookup.on } : { awaitingCost };
+  // code+on take over from both toggles when a lookup is active
+  // (FR-TYR-042 resolves by date, not by a backlog filter). The same
+  // precedence listTyres itself applies server-side. The query key carries
+  // this object as the third element tyresKey's comment
+  // (unit/queryKeys.ts) describes.
+  const filters: TyreRegisterFilters = lookup
+    ? { code: lookup.code, on: lookup.on }
+    : { awaitingCost, codesToMark };
 
   const tyres = useQuery({
     queryKey: [...tyresKey(tenantKey), filters],
-    queryFn: () => fetchTyres(filters),
+    queryFn: () => fetchTyreRegister(filters),
   });
 
   function submitLookup(e: FormEvent) {
@@ -163,8 +176,18 @@ export function TyreList() {
   }
 
   const rows = tyres.isSuccess
-    ? [...tyres.data].sort((a, b) => byNaturalCode(a.displayCode, b.displayCode))
+    ? [...tyres.data.tyres].sort((a, b) => byNaturalCode(a.displayCode, b.displayCode))
     : [];
+
+  // A receipt another loaded row still waits on can be marked in one go.
+  // This reads the flags the server sent, so it is no second copy of the
+  // queue's rule (TYRE-99).
+  function sharesPendingReceipt(t: Tyre): boolean {
+    return (
+      t.receiptId !== null &&
+      rows.some((o) => o.id !== t.id && o.codePending && o.receiptId === t.receiptId)
+    );
+  }
 
   return (
     <section aria-labelledby="tyres-heading" className="fleet-page tr-stack">
@@ -214,14 +237,28 @@ export function TyreList() {
       </form>
 
       {!lookup && (
-        <Checkbox
-          label="Awaiting cost only"
-          checked={awaitingCost}
-          onChange={(e) => {
-            setAwaitingCost(e.target.checked);
-            setActed(null);
-          }}
-        />
+        <div className="tyres-filters">
+          <Checkbox
+            label="Awaiting cost only"
+            checked={awaitingCost}
+            onChange={(e) => {
+              setAwaitingCost(e.target.checked);
+              setActed(null);
+            }}
+          />
+          <Checkbox
+            label={
+              tyres.isSuccess
+                ? `Codes to mark (${formatCount(tyres.data.codesToMark)})`
+                : "Codes to mark"
+            }
+            checked={codesToMark}
+            onChange={(e) => {
+              setCodesToMark(e.target.checked);
+              setActed(null);
+            }}
+          />
+        </div>
       )}
 
       {lookup && tyres.isSuccess && rows.length > 1 && (
@@ -253,6 +290,7 @@ export function TyreList() {
               <thead>
                 <tr>
                   <th scope="col">Code</th>
+                  <th scope="col">Sidewall code</th>
                   <th scope="col">Size</th>
                   <th scope="col">Brand</th>
                   <th scope="col">Pattern</th>
@@ -272,6 +310,28 @@ export function TyreList() {
                     <th scope="row" data-mono="true">
                       {t.displayCode}
                     </th>
+                    <td>
+                      {t.codePending ? (
+                        <>
+                          <p className="fleet-hint">Code not yet on the sidewall</p>
+                          <MarkCodeForm
+                            tyre={t}
+                            tenantKey={tenantKey}
+                            wholeReceipt={sharesPendingReceipt(t)}
+                            onMarked={(marked) =>
+                              setActed({
+                                kind: "mark",
+                                codes: marked
+                                  .map((m) => m.displayCode)
+                                  .sort((a, b) => byNaturalCode(a, b)),
+                              })
+                            }
+                          />
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td data-mono="true">{t.sizeName ?? "—"}</td>
                     <td>{t.brandName ?? "—"}</td>
                     <td>{t.patternName ?? "—"}</td>
