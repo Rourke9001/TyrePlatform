@@ -2,6 +2,19 @@
 -- migration's text, byte for byte: scripts/provision-tenant.test.sh step 17
 -- compares md5(prosrc) with version 61's.
 
+-- The codes-to-mark half. Only this migration's app_writer grants are
+-- revoked; 000061's stay.
+DROP FUNCTION app.mark_code_on_sidewall(uuid, uuid, date);
+REVOKE SELECT ON app.tyre FROM app_writer;
+REVOKE UPDATE (brand_pending) ON app.tyre FROM app_writer;
+REVOKE SELECT, INSERT ON app.tyre_event FROM app_writer;
+REVOKE SELECT ON app.tyre_receipt FROM app_writer;
+DROP VIEW app.v_tyre_code_to_mark;
+COMMENT ON COLUMN app.tyre.brand_pending IS NULL;
+-- The table-level REVOKE takes the column grants with it.
+REVOKE UPDATE ON app.tyre FROM app_rw;
+GRANT UPDATE ON app.tyre TO app_rw;
+
 -- app.receive_tyres, 000059:377-638.
 CREATE OR REPLACE FUNCTION app.receive_tyres(payload jsonb)
 RETURNS TABLE (tyre_id uuid, display_code text)
