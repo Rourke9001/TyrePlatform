@@ -13298,7 +13298,10 @@ BEGIN
      'TY011 a purchase price is an amount of zero or more, not -1.00'),
     ('a negative price of half a cent, named as sent',
      base || jsonb_build_object('purchase_price', '-0.005', 'cost_source', 'INVOICE'),
-     'TY011 a purchase price is an amount of zero or more, not -0.005')
+     'TY011 a purchase price is an amount of zero or more, not -0.005'),
+    ('a negative price that rounds to 0.00',
+     base || jsonb_build_object('purchase_price', '-0.004', 'cost_source', 'INVOICE'),
+     'TY011 a purchase price is an amount of zero or more, not -0.004')
   ) v(what, payload, want) LOOP
     got := pg_temp.t75_try(format('SELECT app.receive_tyres(pg_temp.at_depot(%L::jsonb))', e.payload));
     IF got IS DISTINCT FROM e.want THEN
