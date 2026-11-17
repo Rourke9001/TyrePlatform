@@ -36,10 +36,13 @@ type tyreBody struct {
 	RandPerMm     *string `json:"randPerMm"`
 	CasingValue   *string `json:"casingValue"`
 	ReceiptID     *string `json:"receiptId"`
+	// A pointer, so a response that carries no flag reads nil, not false.
+	CodePending *bool `json:"codePending"`
 }
 
 type tyresListBody struct {
-	Tyres []tyreBody `json:"tyres"`
+	Tyres       []tyreBody `json:"tyres"`
+	CodesToMark *int       `json:"codesToMark"`
 }
 
 // plantTyre inserts a tyre directly through the admin connection, the way

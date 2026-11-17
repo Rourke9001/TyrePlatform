@@ -37,6 +37,7 @@ type tyreRow struct {
 	patternName   *string
 	receivedDate  *string
 	awaitingCost  bool
+	codePending   bool
 	purchasePrice *string
 	randPerMm     *string
 	casingValue   *string
@@ -65,6 +66,9 @@ type tyreJSON struct {
 	// The receipt a received tyre is priced on (FR-CFG-041); null for a tyre
 	// received before receipts existed, which keeps per-tyre costing.
 	ReceiptID *string `json:"receiptId"`
+	// True while a code the platform issued waits to be marked on the
+	// sidewall (B22), read from app.v_tyre_code_to_mark.
+	CodePending bool `json:"codePending"`
 }
 
 // tyreJSONFor is the FR-AUT-005a projection: every field copies straight
@@ -86,6 +90,7 @@ func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 		PatternName:   row.patternName,
 		ReceivedDate:  row.receivedDate,
 		AwaitingCost:  row.awaitingCost,
+		CodePending:   row.codePending,
 		PurchasePrice: row.purchasePrice,
 		RandPerMm:     row.randPerMm,
 		CasingValue:   row.casingValue,
@@ -102,7 +107,9 @@ func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 // listTyres is the register read (FR-TYR-040..042), gated on ManageAssets.
 // code+on resolve through app.tyre_for_code (a display code is reissued
 // after a tyre leaves the estate). awaitingCost narrows to
-// app.v_tyre_awaiting_cost (CFL-002). Depot scope is deliberately unapplied,
+// app.v_tyre_awaiting_cost (CFL-002), and codesToMark to
+// app.v_tyre_code_to_mark (B22), which also gives each row's flag and the
+// count; the views are the rules, with no copy here (TYRE-99). Depot scope is deliberately unapplied,
 // unlike listVehicles: widening or narrowing this read is TYRE-76's open
 // question, not this slice's (D6). Do not "fix" this in passing.
 func listTyres(s *store.Store) http.HandlerFunc {
@@ -111,6 +118,7 @@ func listTyres(s *store.Store) http.HandlerFunc {
 		q := r.URL.Query()
 		code, on := q.Get("code"), q.Get("on")
 		awaitingOnly := q.Get("awaitingCost") == "true"
+		codesOnly := q.Get("codesToMark") == "true"
 		if (code == "") != (on == "") {
 			writeError(ctx, w, http.StatusBadRequest, codeBadRequest,
 				"a code lookup names both code and on (FR-TYR-042 resolves by date)")
@@ -126,6 +134,7 @@ func listTyres(s *store.Store) http.HandlerFunc {
 		}
 
 		var out []tyreJSON
+		var codesToMark int
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
@@ -142,19 +151,24 @@ func listTyres(s *store.Store) http.HandlerFunc {
 			               t.retread_count, s.name, b.name, p.name,
 			               t.received_date::text, (v.tyre_id IS NOT NULL),
 			               t.purchase_price::text, t.rand_per_mm::text, t.casing_value::text,
-			               t.receipt_id::text
+			               t.receipt_id::text, (m.tyre_id IS NOT NULL)
 			          FROM app.tyre t
 			          LEFT JOIN app.tyre_size    s ON s.id = t.size_id
 			          LEFT JOIN app.tyre_brand   b ON b.id = t.brand_id
 			          LEFT JOIN app.tyre_pattern p ON p.id = t.pattern_id
-			          LEFT JOIN app.v_tyre_awaiting_cost v ON v.tyre_id = t.id`
+			          LEFT JOIN app.v_tyre_awaiting_cost v ON v.tyre_id = t.id
+			          LEFT JOIN app.v_tyre_code_to_mark  m ON m.tyre_id = t.id`
 			var args []any
 			switch {
 			case code != "":
 				sql += ` WHERE t.id IN (SELECT app.tyre_for_code($1, $2::date))`
 				args = append(args, code, on)
+			case awaitingOnly && codesOnly:
+				sql += ` WHERE v.tyre_id IS NOT NULL AND m.tyre_id IS NOT NULL`
 			case awaitingOnly:
 				sql += ` WHERE v.tyre_id IS NOT NULL`
+			case codesOnly:
+				sql += ` WHERE m.tyre_id IS NOT NULL`
 			}
 			sql += ` ORDER BY t.received_date DESC NULLS LAST, t.display_code`
 			rows, err := tx.Query(ctx, sql, args...)
@@ -168,17 +182,25 @@ func listTyres(s *store.Store) http.HandlerFunc {
 				if err := rows.Scan(&row.id, &row.displayCode, &row.state, &row.status,
 					&row.retreadCount, &row.sizeName, &row.brandName, &row.patternName,
 					&row.receivedDate, &row.awaitingCost,
-					&row.purchasePrice, &row.randPerMm, &row.casingValue, &row.receiptID); err != nil {
+					&row.purchasePrice, &row.randPerMm, &row.casingValue, &row.receiptID,
+					&row.codePending); err != nil {
 					return fmt.Errorf("scanning tyre: %w", err)
 				}
 				out = append(out, tyreJSONFor(row, canSeeMoney))
 			}
-			return rows.Err()
+			if err := rows.Err(); err != nil {
+				return fmt.Errorf("listing tyres: %w", err)
+			}
+			// The filter's own badge: the whole queue, whatever is filtered.
+			if err := tx.QueryRow(ctx, `SELECT count(*) FROM app.v_tyre_code_to_mark`).Scan(&codesToMark); err != nil {
+				return fmt.Errorf("counting codes to mark: %w", err)
+			}
+			return nil
 		})
 		if !ok {
 			return
 		}
-		writeJSON(ctx, w, map[string]any{"tyres": out})
+		writeJSON(ctx, w, map[string]any{"tyres": out, "codesToMark": codesToMark})
 	}
 }
 
