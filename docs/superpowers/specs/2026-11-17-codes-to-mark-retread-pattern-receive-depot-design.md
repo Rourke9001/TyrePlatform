@@ -2,15 +2,15 @@
 
 Date: 2026-11-17. Tickets: TYRE-99 (the launch key), carrying TYRE-102
 (with TYRE-420 folded in) and TYRE-450, all under epic TYRE-55. Run queue
-row 1 (`docs/implementation-order.md`, The run queue). Status: draft for
-the owner's approval.
+row 1 (`docs/implementation-order.md`, The run queue). Status: approved by
+the owner on 17 Nov 2026 (U230).
 
 Owner rulings this rests on: U147 (21 Oct 2026) answers B22, B23, B39 and
 B40; TYRE-99 comment 13204 (24 Sep 2026) on what `brand_pending` means;
-and five answers given in this run on 17 Nov 2026: U224 (who marks), U225
+and six answers given in this run on 17 Nov 2026: U224 (who marks), U225
 (a return with no retread pattern to choose), U226 (which set-aside items
-are fixed), U227 (the pattern in the tyre's history) and U228 (the price
-check).
+are fixed), U227 (the pattern in the tyre's history), U228 (the price
+check) and U229 (the raw price write is ticketed, not fixed here).
 
 Requirements this touches: FR-TYR-035, FR-TYR-040, FR-TYR-042 and
 FR-TYR-004 as amended by errata D12 (display codes); FR-FIT-021,
@@ -138,7 +138,8 @@ Each point changes the work as the tickets describe it.
   can then price again. The defect is older than PR #139 and sits under
   its item R10b. Closing it means moving `set_tyre_cost` and the three
   receipt functions to the write list, several times this spec's database
-  work. It is put to the owner with this spec (Open for the owner).
+  work. The owner ruled it out of this PR and it is ticketed as TYRE-489
+  (U229).
 
 ## Anti-goals
 
@@ -478,18 +479,18 @@ standing reading for every asset write, not a new conflict.
 - BAC's provisioning file lists its retreader's patterns before the first
   retread return is logged (U225).
 
-## Open for the owner
+## Ruled by the owner at approval
 
-One question from the builder check, which only the owner can answer.
+One question came from the builder check, and the owner answered it with
+the approval (U229, 17 Nov 2026).
 
 The app role can still change a tyre's price by a raw `UPDATE` (Non-goals,
 last item). This spec rewrites the grant on `app.tyre`, so a reviewer may
-class that older defect as on this branch's path, and a finding that lets
-through an action a control is there to hold is blocking. The
-recommendation is to leave it out of this PR and raise one ticket for it,
-as TYRE-467 was raised for `app.combination`. The app reaches the database
-only through the API, which never issues that statement, so the exposure
-is a raw session with the app login.
+class that older defect as on this branch's path. The owner ruled that it
+is not fixed in this PR. It is TYRE-489, raised as TYRE-467 was for
+`app.combination`. The app reaches the database only through the API,
+which never issues that statement, so the exposure is a raw session with
+the app login.
 
 ## Lead's calls
 
@@ -586,7 +587,7 @@ the scoped re-review list, in the order of the PR body.
 | R8 | "No imported history" for a NULL horizon | Not a bug: activation stamps the horizon before any sign-in |
 | R9 | P15 and check 8b coverage | Not a bug: the gaps hide none |
 | R10a | Raw insert into `tenant_consent` | Bug, fixed (row 1) |
-| R10b | Raw insert of a receipt in a final state | Not a bug on its own; the defect under it is a raw write to `app.tyre`, put to the owner with this spec (Open for the owner) |
+| R10b | Raw insert of a receipt in a final state | Not a bug on its own; the defect under it is a raw write to `app.tyre`, ticketed as TYRE-489 (U229) |
 | R11 | `tenant_days_since` runs per row | Not a bug: performance |
 | R12 | `receive_tyres` keeps its own rate rule | Not a bug: same outcome for every input |
 | R13 | `formatMm` misses; CaptureStart's browser-clock days | Already fixed: TYRE-443 (8094e8ac), U164, TYRE-342 (edf8ad12) |
