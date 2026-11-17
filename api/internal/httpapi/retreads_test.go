@@ -22,6 +22,9 @@ type retreadJobBody struct {
 	DepotName   string `json:"depotName"`
 	SentAt      string `json:"sentAt"`
 	DaysOut     int    `json:"daysOut"`
+	// The tyre's current pattern, which the return form pre-selects (B23).
+	PatternID   *string `json:"patternId"`
+	PatternName *string `json:"patternName"`
 }
 
 // plantOpenRetreadJob plants a retreader depot, a tyre AT_RETREADER, and the
@@ -214,6 +217,70 @@ func TestLogRetreadReturnPropagates(t *testing.T) {
 		  WHERE retread_job_id = $1 AND source = 'RETREADER' AND value = $2::numeric`,
 		jobID, casingValue).Scan(&valuations))
 	require.Equal(t, 1, valuations)
+}
+
+// B23 (TYRE-102): the return form pre-selects the casing's own pattern, so
+// the queue carries it, and null for a casing with none.
+func TestRetreadJobsCarryTheTyresPattern(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "retread-pattern-read")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	jobID, tyreID, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 3)
+	var patternID, patternName string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT p.id::text, p.name FROM app.tyre t JOIN app.tyre_pattern p ON p.id = t.pattern_id WHERE t.id = $1`,
+		tyreID).Scan(&patternID, &patternName))
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	read := func() retreadJobBody {
+		t.Helper()
+		rec := get(t, h, "/api/retread-jobs?open=true", tenantID.String(), controller.String())
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var jobs []retreadJobBody
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &jobs))
+		require.Len(t, jobs, 1)
+		require.Equal(t, jobID.String(), jobs[0].ID)
+		return jobs[0]
+	}
+	job := read()
+	require.NotNil(t, job.PatternID, "the job carries no patternId")
+	require.NotNil(t, job.PatternName, "the job carries no patternName")
+	require.Equal(t, patternID, *job.PatternID)
+	require.Equal(t, patternName, *job.PatternName)
+
+	_, err := admin.Exec(ctx, `UPDATE app.tyre SET pattern_id = NULL WHERE id = $1`, tyreID)
+	require.NoError(t, err)
+	job = read()
+	require.Nil(t, job.PatternID)
+	require.Nil(t, job.PatternName)
+}
+
+// B23, U225: a return names the retread pattern the casing came back on,
+// and the tyre carries it from then on.
+func TestLogRetreadReturnStoresTheNamedPattern(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "retread-pattern-write")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "5.0")
+	jobID, tyreID, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 3)
+	var named uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.tyre_pattern (tenant_id, name, applies_to) VALUES ($1, $2, 'RETREAD') RETURNING id`,
+		tenantID, "RETREAD-NAMED-"+uuid.NewString()[:8]).Scan(&named))
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	body := fmt.Sprintf(
+		`{"returnedOn":%q,"casingAccepted":true,"reportReference":"RPT-PAT",`+
+			`"retreadCost":"2500.00","postTreadMm":"12.0","casingValue":"800.00","newPatternId":%q}`,
+		tenantToday(t, ctx, admin, tenantID), named.String())
+	rec := post(t, h, "/api/retread-jobs/"+jobID.String()+"/return", tenantID.String(), controller.String(), body)
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+
+	var stored uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx, `SELECT pattern_id FROM app.tyre WHERE id = $1`, tyreID).Scan(&stored))
+	require.Equal(t, named, stored)
 }
 
 // D6: Log Retread is the capability's first write, and it is the one thing
