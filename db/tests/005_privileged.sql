@@ -28,8 +28,9 @@
 -- migration (TYRE-369).
 --
 -- P13 sets a fleet's units to psi, bar and miles, and P14 edits a consent
--- row, as postgres, which no grant binds, to watch tenant_metric_units and
--- tenant_consent_written_once refuse it. P15 plants Second Fleet's receipts
+-- row and inserts one dated in the future, as postgres, which no grant
+-- binds, to watch tenant_metric_units, tenant_consent_written_once and
+-- tenant_consent_not_future_dated refuse it (000062). P15 plants Second Fleet's receipts
 -- directly and calls the receipt moves, set_tyre_cost, receive_tyres and
 -- record_consent as
 -- postgres bound to another fleet, so only the functions' own tenant
@@ -848,7 +849,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== P14. TYRE-283: tenant_consent_written_once refuses a superuser''s UPDATE of a consent row, which no grant does (FR-TEN-022)'
+\echo '== P14. TYRE-283: tenant_consent_written_once refuses a superuser''s UPDATE of a consent row, which no grant does, and tenant_consent_not_future_dated a row dated in the future (FR-TEN-022, TYRE-99)'
 BEGIN;
 DO $$
 DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
@@ -870,7 +871,17 @@ BEGIN
   IF got IS DISTINCT FROM 'true:P14 MSA v1' THEN
     RAISE EXCEPTION 'FAIL P14: the consent row reads % after the refused UPDATE', got;
   END IF;
-  RAISE NOTICE 'PASS  P14 a superuser cannot edit a consent row';
+  msg := NULL;
+  BEGIN
+    INSERT INTO app.tenant_consent (tenant_id, purpose_code, granted, notice_version, occurred_at)
+    VALUES (t2, 'SERVICE_DELIVERY', false, 'P14 MSA v9', now() + interval '1 minute');
+  EXCEPTION WHEN sqlstate 'TY027' THEN msg := SQLERRM;
+  END;
+  IF msg IS DISTINCT FROM 'consent is recorded as given now or earlier, never at a future time' THEN
+    RAISE EXCEPTION 'FAIL P14: a superuser''s consent row dated in the future was answered %',
+      COALESCE('TY027 "' || msg || '"', 'by an insert');
+  END IF;
+  RAISE NOTICE 'PASS  P14 a superuser cannot edit a consent row or insert one dated in the future';
 END $$;
 ROLLBACK;
 
