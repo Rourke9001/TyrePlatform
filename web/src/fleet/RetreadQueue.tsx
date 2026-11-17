@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useId, useState } from "react";
 
+import { fetchTyreCatalogue, type TyrePattern } from "../api/catalogue";
 import { getDevTenantId } from "../api/devTenant";
 import {
   fetchRetreadJobs,
@@ -13,10 +14,12 @@ import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { PageHeader } from "../ui/PageHeader";
+import { Select } from "../ui/Select";
 import { TextInput } from "../ui/TextInput";
 import { TableScroll } from "../ui/DataTable";
 import { RefusalAlert } from "./RefusalAlert";
-import { retreadJobsKey, tyresKey } from "./unit/queryKeys";
+import { byNaturalCode } from "./unit/naturalOrder";
+import { retreadJobsKey, tyreCatalogueKey, tyresKey } from "./unit/queryKeys";
 import { useFormMutation } from "./useFormMutation";
 import "./fleet.css";
 
@@ -31,6 +34,8 @@ const RETURN_WORDING = {
 const INCOMPLETE_RETURN =
   "An outcome, a report reference and a returned-on date are all required before a return can be logged.";
 
+const PATTERN_NEEDED = "Choose the retread pattern the casing came back on.";
+
 // An absent optional is an omitted key, never "": the numeric cast rejects
 // an empty/all-space string as 22P02, a code this screen cannot speak.
 // required stops a genuinely empty submit; whitespace still satisfies it,
@@ -44,22 +49,30 @@ type Outcome = "accepted" | "rejected";
 
 // A per-job return form, kept out of the map: each row owns its own field
 // state, and a cleared-on-success form must not disturb the row beside it.
-// newPatternId is not offered: no pattern-list read exists yet, so a raw
-// uuid box would not be usable.
+// B23, U225 (TYRE-102): an accepted casing comes back on an active retread
+// pattern, the one it went out on pre-selected while it is still one, and
+// app.log_retread_return refuses any other (000062). patterns is null until
+// the catalogue has loaded.
 function RetreadReturnRow({
   job,
   tenantKey,
   sentOnDisplay,
+  patterns,
   onSuccess,
   onStart,
 }: {
   job: RetreadJob;
   tenantKey: string;
   sentOnDisplay: string;
+  patterns: TyrePattern[] | null;
   onSuccess?: () => void;
   onStart?: () => void;
 }) {
   const [outcome, setOutcome] = useState<Outcome | "">("");
+  // null until the user picks, so the pre-selection stays derived and holds
+  // when the catalogue answers after the jobs.
+  const [patternChoice, setPatternChoice] = useState<string | null>(null);
+  const hintId = useId();
   const [returnedOn, setReturnedOn] = useState("");
   const [reportReference, setReportReference] = useState("");
   const [retreadCost, setRetreadCost] = useState("");
@@ -75,6 +88,7 @@ function RetreadReturnRow({
     invalidate: [retreadJobsKey(tenantKey), tyresKey(tenantKey)],
     onSuccess: () => {
       setOutcome("");
+      setPatternChoice(null);
       setReturnedOn("");
       setReportReference("");
       setRetreadCost("");
@@ -84,11 +98,22 @@ function RetreadReturnRow({
     },
   });
 
+  const kept = patterns?.some((p) => p.id === job.patternId) === true ? job.patternId : null;
+  const patternId = patternChoice ?? kept ?? "";
+  const noRetreadPattern = patterns !== null && patterns.length === 0;
+  const patternBlocked = outcome === "accepted" && (patterns === null || noRetreadPattern);
+  const wentOutOn = kept === null ? job.patternName : null;
+
   function submit(e: FormEvent) {
     e.preventDefault();
     const reference = reportReference.trim();
     if (outcome === "" || returnedOn === "" || reference === "") {
       setRefused(INCOMPLETE_RETURN);
+      return;
+    }
+    if (patternBlocked) return;
+    if (outcome === "accepted" && patternId === "") {
+      setRefused(PATTERN_NEEDED);
       return;
     }
     setRefused("");
@@ -104,6 +129,8 @@ function RetreadReturnRow({
         retreadCost: omitIfBlank(retreadCost),
         postTreadMm: omitIfBlank(postTreadMm),
         casingValue: omitIfBlank(casingValue),
+        // Sent only when it differs: none sent keeps the casing's own.
+        ...(patternId === job.patternId ? {} : { newPatternId: patternId }),
       });
     } else {
       logReturn.submit({
@@ -196,10 +223,36 @@ function RetreadReturnRow({
                 onChange={(e) => setCasingValue(e.target.value)}
                 required
               />
+              {noRetreadPattern && (
+                <p className="fleet-hint">
+                  This fleet has no retread pattern yet. Ask an administrator to add the
+                  retreader&apos;s patterns, then log the return.
+                </p>
+              )}
+              {patterns !== null && !noRetreadPattern && (
+                <>
+                  <Select
+                    aria-label={`Pattern for ${job.displayCode}`}
+                    value={patternId}
+                    onChange={(e) => setPatternChoice(e.target.value)}
+                    required
+                    aria-describedby={wentOutOn === null ? undefined : hintId}
+                    options={[
+                      { value: "", label: "Choose the retread pattern" },
+                      ...patterns.map((p) => ({ value: p.id, label: p.name })),
+                    ]}
+                  />
+                  {wentOutOn !== null && (
+                    <p className="fleet-hint" id={hintId}>
+                      {`Went out on ${wentOutOn}. Choose the pattern it came back on.`}
+                    </p>
+                  )}
+                </>
+              )}
             </>
           )}
 
-          <Button type="submit" disabled={outcome === "" || logReturn.isPending}>
+          <Button type="submit" disabled={outcome === "" || patternBlocked || logReturn.isPending}>
             {logReturn.isPending ? "Logging…" : "Log return"}
           </Button>
         </form>
@@ -223,6 +276,17 @@ export function RetreadQueue() {
   const [closedCode, setClosedCode] = useState<string | null>(null);
 
   const jobs = useQuery({ queryKey: retreadJobsKey(tenantKey), queryFn: fetchRetreadJobs });
+  // The read Receive uses. FR-CFG-004: a retread comes back on a pattern
+  // that applies to retreads, so a new-tyre one is never offered.
+  const catalogue = useQuery({
+    queryKey: tyreCatalogueKey(tenantKey),
+    queryFn: fetchTyreCatalogue,
+  });
+  const patterns = catalogue.data
+    ? catalogue.data.patterns
+        .filter((p) => p.appliesTo !== "NEW")
+        .sort((a, b) => byNaturalCode(a.name, b.name))
+    : null;
 
   return (
     <section aria-labelledby="retreads-heading" className="fleet-page tr-stack">
@@ -235,6 +299,14 @@ export function RetreadQueue() {
       {closedCode !== null && <p role="status">{`The return for ${closedCode} was logged.`}</p>}
 
       {jobs.isPending && <p>Loading…</p>}
+
+      {catalogue.isError && catalogue.data === undefined && (
+        <Banner
+          tone="critical"
+          title="The tyre catalogue could not be loaded. Check your connection, then retry."
+          action={<Button onClick={() => void catalogue.refetch()}>Retry</Button>}
+        />
+      )}
 
       {jobs.isError && (
         <Banner
@@ -272,6 +344,7 @@ export function RetreadQueue() {
                     job={job}
                     tenantKey={tenantKey}
                     sentOnDisplay={asDate(job.sentAt)}
+                    patterns={patterns}
                     onSuccess={() => setClosedCode(job.displayCode)}
                     onStart={() => setClosedCode(null)}
                   />

@@ -14,6 +14,10 @@ export interface RetreadJob {
   depotName: string;
   sentAt: string;
   daysOut: number;
+  // The casing's current pattern, null when it has none: the return form
+  // pre-selects it while it is an active retread pattern (B23, TYRE-102).
+  patternId: string | null;
+  patternName: string | null;
 }
 
 // fetchRetreadJobs is the retread queue read. open=true is always sent:

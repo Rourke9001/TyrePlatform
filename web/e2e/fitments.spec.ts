@@ -346,6 +346,9 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await job.getByLabel(`Retread cost for ${stockB}`).fill("2500.00");
   await job.getByLabel(`Post-tread for ${stockB}`).fill("16");
   await job.getByLabel(`Casing value for ${stockB}`).fill("800");
+  // B23, U225: stockB went out on SBX Drive, a new-tyre pattern, so the
+  // return names the retread pattern it came back on.
+  await job.getByLabel(`Pattern for ${stockB}`).selectOption({ label: "SBX Retread" });
   await Promise.all([
     posted(page, /^\/api\/retread-jobs\/[^/]+\/return$/),
     job.getByRole("button", { name: "Log return" }).click(),
@@ -363,6 +366,12 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
       .getByRole("row")
       .filter({ hasText: stockB })
       .getByRole("cell", { name: "IN_STOCK", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: stockB })
+      .getByRole("cell", { name: "SBX Retread", exact: true }),
   ).toBeVisible();
   const register = (await apiGet(page, "/api/tyres")) as {
     tyres: { displayCode: string; retreadCount: number }[];
