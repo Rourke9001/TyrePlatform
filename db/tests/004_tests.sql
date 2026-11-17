@@ -4127,7 +4127,7 @@ BEGIN
   -- sequential from the counter
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
   BEGIN
-    PERFORM app.receive_tyres(cat1 || '{"display_code":"HAND-1"}'::jsonb);
+    PERFORM app.receive_tyres(pg_temp.at_depot(cat1 || '{"display_code":"HAND-1"}'::jsonb));
     RAISE EXCEPTION 'FAIL: hand-typed code accepted under GENERATED';
   EXCEPTION WHEN sqlstate 'TY011' THEN
     -- The catalogue refusals are TY011 too (FR-TYR-031), so the message
@@ -4141,7 +4141,7 @@ BEGIN
   -- received_date is pinned to the past, not tenant_today(): near a UTC day
   -- boundary tenant_today() can land ahead of now(), which would let a later
   -- disposal stamped at now() sort before this receipt.
-  SELECT * INTO r FROM app.receive_tyres(cat1 || '{"new_tread_mm":"25.0","received_date":"2026-08-25"}'::jsonb);
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(cat1 || '{"new_tread_mm":"25.0","received_date":"2026-08-25"}'::jsonb));
   a := r.tyre_id;
   IF r.display_code !~ '^BAC-\d{5}$' THEN
     RAISE EXCEPTION 'FAIL: issued code % is not the ADR-0008 scheme', r.display_code;
@@ -4181,7 +4181,7 @@ BEGIN
   END;
 
   -- Bulk issue is sequential and atomic
-  SELECT count(DISTINCT display_code) INTO n FROM app.receive_tyres(cat1 || '{"quantity":3}'::jsonb);
+  SELECT count(DISTINCT display_code) INTO n FROM app.receive_tyres(pg_temp.at_depot(cat1 || '{"quantity":3}'::jsonb));
   IF n <> 3 THEN RAISE EXCEPTION 'FAIL: bulk receive issued % codes, expected 3', n; END IF;
   RAISE NOTICE 'PASS  39e bulk receive issues distinct sequential codes';
 
@@ -4218,7 +4218,7 @@ BEGIN
   INSERT INTO app.tyre_pattern (id, tenant_id, name, applies_to)
   VALUES (md5('t39t2pt')::uuid, '22222222-2222-2222-2222-222222222222', 'T39 NEW', 'NEW');
   BEGIN
-    PERFORM app.receive_tyres(cat2);
+    PERFORM app.receive_tyres(pg_temp.at_depot(cat2));
     RAISE EXCEPTION 'FAIL: FREE receive without a code accepted';
   EXCEPTION WHEN sqlstate 'TY011' THEN
     IF SQLERRM <> 'this fleet brands its own tyres; enter the code branded on the sidewall' THEN
@@ -4226,14 +4226,14 @@ BEGIN
     END IF;
     RAISE NOTICE 'PASS  39i FREE requires the tenant''s code';
   END;
-  SELECT tyre_id INTO b FROM app.receive_tyres(cat2 || '{"display_code":"CA123-11","received_date":"2026-01-10"}'::jsonb);
+  SELECT tyre_id INTO b FROM app.receive_tyres(pg_temp.at_depot(cat2 || '{"display_code":"CA123-11","received_date":"2026-01-10"}'::jsonb));
   BEGIN
-    PERFORM app.receive_tyres(cat2 || '{"display_code":"CA123-11"}'::jsonb);
+    PERFORM app.receive_tyres(pg_temp.at_depot(cat2 || '{"display_code":"CA123-11"}'::jsonb));
     RAISE EXCEPTION 'FAIL: second active tyre with the same code accepted';
   EXCEPTION WHEN unique_violation THEN RAISE NOTICE 'PASS  39j duplicate active code refused by the DB';
   END;
   PERFORM app.dispose_tyre(b, 'SCRAPPED', 'worn out', NULL, '2026-06-01T08:00:00Z');
-  SELECT tyre_id INTO c FROM app.receive_tyres(cat2 || '{"display_code":"CA123-11","received_date":"2026-06-15"}'::jsonb);
+  SELECT tyre_id INTO c FROM app.receive_tyres(pg_temp.at_depot(cat2 || '{"display_code":"CA123-11","received_date":"2026-06-15"}'::jsonb));
   IF (SELECT app.tyre_for_code('CA123-11', '2026-03-01')) IS DISTINCT FROM b
      OR (SELECT app.tyre_for_code('CA123-11', '2026-07-01')) IS DISTINCT FROM c THEN
     RAISE EXCEPTION 'FAIL: dated code lookup did not resolve historical reuse';
@@ -4289,8 +4289,8 @@ BEGIN
   -- tyre disposed afterwards would sit in the valuation estate for good
   -- (FR-VAL-022). Refused outright.
   BEGIN
-    PERFORM app.receive_tyres(
-      cat2 || format('{"display_code":"FUTURE-1","received_date":"%s"}', current_date + 30)::jsonb);
+    PERFORM app.receive_tyres(pg_temp.at_depot(
+      cat2 || format('{"display_code":"FUTURE-1","received_date":"%s"}', current_date + 30)::jsonb));
     RAISE EXCEPTION 'FAIL: a receive dated in the future was accepted';
   EXCEPTION WHEN sqlstate 'TY011' THEN
     IF SQLERRM <> 'a tyre is received on or before today, never on a future date' THEN
@@ -4304,7 +4304,7 @@ BEGIN
   -- least(date, now()) and never outruns a disposal moments later. This
   -- check only discriminates part of the day; a deterministic version needs
   -- an injected clock, not worth the seam.
-  SELECT tyre_id INTO e FROM app.receive_tyres(cat2 || '{"display_code":"CLAMP-1"}'::jsonb);
+  SELECT tyre_id INTO e FROM app.receive_tyres(pg_temp.at_depot(cat2 || '{"display_code":"CLAMP-1"}'::jsonb));
   PERFORM app.dispose_tyre(e, 'SCRAPPED', 'audit', NULL, now());
   IF app.tyre_in_estate_asof(e, current_date + 365) THEN
     RAISE EXCEPTION 'FAIL: a disposed tyre is back in the estate, its receipt outranks its disposal';
@@ -4345,8 +4345,8 @@ BEGIN
   RAISE NOTICE 'PASS  39r a fitted tyre is still costable';
 
   -- The disposal side of the same ordering invariant 39p guards on receipt.
-  SELECT tyre_id INTO d FROM app.receive_tyres(
-    cat2 || '{"display_code":"BACKDATE-1","received_date":"2026-02-01"}'::jsonb);
+  SELECT tyre_id INTO d FROM app.receive_tyres(pg_temp.at_depot(
+    cat2 || '{"display_code":"BACKDATE-1","received_date":"2026-02-01"}'::jsonb));
   BEGIN
     PERFORM app.dispose_tyre(d, 'SCRAPPED', 'audit', NULL, now() + interval '1 day');
     RAISE EXCEPTION 'FAIL: a disposal dated in the future was accepted';
@@ -9800,9 +9800,9 @@ BEGIN
                                     warning_threshold_mm, max_retreads, effective_from)
   VALUES (pol, bac, 6.0, 8.0, 1, now());
 
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
     'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
-    'purchase_price', '4319.91', 'cost_source', 'INVOICE'));
+    'purchase_price', '4319.91', 'cost_source', 'INVOICE')));
   SELECT t.rand_per_mm INTO rate FROM app.tyre t WHERE t.id = r.tyre_id;
   IF rate IS DISTINCT FROM app.rand_per_mm(4319.91, 25.0, 6.0) THEN
     RAISE EXCEPTION 'FAIL 63b: receive_tyres stored % where the 6.0 in force gives % (4.0 gives %)',
@@ -10658,7 +10658,7 @@ BEGIN
   LOOP
     got := NULL;
     BEGIN
-      PERFORM app.receive_tyres(c.payload);
+      PERFORM app.receive_tyres(pg_temp.at_depot(c.payload));
     EXCEPTION WHEN sqlstate 'TY011' THEN got := SQLERRM;
     END;
     IF got IS DISTINCT FROM c.want THEN
@@ -10691,9 +10691,9 @@ BEGIN
   -- NFR-USE-006: a branded pattern with its brand omitted stores the
   -- pattern's brand. 6969.69 is a price no fixture tyre carries, so 69c can
   -- find the row.
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
     'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
-    'purchase_price', '6969.69', 'cost_source', 'INVOICE'));
+    'purchase_price', '6969.69', 'cost_source', 'INVOICE')));
   SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
   IF t.size_id IS DISTINCT FROM sz1 OR t.pattern_id IS DISTINCT FROM pt1
      OR t.brand_id IS DISTINCT FROM br1 THEN
@@ -10707,24 +10707,24 @@ BEGIN
   END IF;
 
   -- The pattern's own brand sent explicitly is accepted.
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
     'size_id', sz1, 'pattern_id', pt1, 'brand_id', br1, 'new_tread_mm', '25.0',
-    'purchase_price', '6969.69', 'cost_source', 'INVOICE'));
+    'purchase_price', '6969.69', 'cost_source', 'INVOICE')));
   IF (SELECT brand_id FROM app.tyre WHERE id = r.tyre_id) IS DISTINCT FROM br1 THEN
     RAISE EXCEPTION 'FAIL 69b: the pattern''s own brand, sent, was not stored';
   END IF;
 
   -- A pattern with no brand keeps the brand sent.
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', ptu, 'brand_id', br2, 'new_tread_mm', '25.0'));
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', ptu, 'brand_id', br2, 'new_tread_mm', '25.0')));
   IF (SELECT brand_id FROM app.tyre WHERE id = r.tyre_id) IS DISTINCT FROM br2 THEN
     RAISE EXCEPTION 'FAIL 69b: an unbranded pattern did not keep the brand sent';
   END IF;
 
   -- A BOTH pattern is receivable; no brand stays NULL (NFR-PRO-002); an
   -- unpriced receive is UNKNOWN, unrated and awaiting cost (FR-TYR-041).
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', ptb, 'new_tread_mm', '25.0'));
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', ptb, 'new_tread_mm', '25.0')));
   SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
   IF t.brand_id IS NOT NULL OR t.cost_source <> 'UNKNOWN' OR t.purchase_price IS NOT NULL
      OR t.rand_per_mm IS NOT NULL THEN
@@ -10738,8 +10738,8 @@ BEGIN
   -- U128's control: UNKNOWN sent explicitly with no price is the one
   -- combination that means "no price yet", so it is accepted. Without this,
   -- 69a's "a source with no price" row could pass by refusing every source.
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', ptb, 'new_tread_mm', '25.0', 'cost_source', 'UNKNOWN'));
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', ptb, 'new_tread_mm', '25.0', 'cost_source', 'UNKNOWN')));
   IF (SELECT cost_source FROM app.tyre WHERE id = r.tyre_id) <> 'UNKNOWN' THEN
     RAISE EXCEPTION 'FAIL 69b: an unpriced receive naming UNKNOWN did not store UNKNOWN';
   END IF;
@@ -10749,9 +10749,9 @@ BEGIN
   -- reproduces from the stored price. A 2dp price cannot fail this. The
   -- rounding is the same whatever the source, and an estimate must equal
   -- the price list's figure (75g), so this is an invoice price.
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
     'size_id', sz1, 'pattern_id', ptu, 'new_tread_mm', '25.0',
-    'purchase_price', '6969.695', 'cost_source', 'INVOICE'));
+    'purchase_price', '6969.695', 'cost_source', 'INVOICE')));
   SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
   IF t.purchase_price <> 6969.70
      OR t.rand_per_mm IS DISTINCT FROM
@@ -10762,10 +10762,10 @@ BEGIN
   -- The rate bound's control: a rate just under 10^8 fits numeric(12,4)
   -- and is stored, so 69a's rate row could not pass by refusing every
   -- large price.
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
     'size_id', sz1, 'pattern_id', ptu,
     'new_tread_mm', (app.current_removal_threshold_mm() + 0.1)::text,
-    'purchase_price', '9999999.99', 'cost_source', 'INVOICE'));
+    'purchase_price', '9999999.99', 'cost_source', 'INVOICE')));
   IF (SELECT rand_per_mm FROM app.tyre WHERE id = r.tyre_id) IS DISTINCT FROM 99999999.9000 THEN
     RAISE EXCEPTION 'FAIL 69b: a rate just under the bound stored %, not 99999999.9000',
       (SELECT rand_per_mm FROM app.tyre WHERE id = r.tyre_id);
@@ -11677,9 +11677,9 @@ BEGIN
   -- tyre: app.receive_tyres inserts it, and app.set_tyre_cost updates one
   -- received before receipts existed, planted here with no receipt, since
   -- a received tyre is priced on its receipt (000059).
-  SELECT r.tyre_id INTO ta FROM app.receive_tyres(jsonb_build_object(
+  SELECT r.tyre_id INTO ta FROM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
     'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
-    'received_date', '2026-08-25')) r;
+    'received_date', '2026-08-25'))) r;
   a := pg_temp.t72_one('tyre', ta, 'INSERT', bac, act);
   IF a.before IS NOT NULL OR a.after->>'state' IS DISTINCT FROM 'IN_STOCK' THEN
     RAISE EXCEPTION 'FAIL 72b: the received tyre is filed with before % and state %', a.before, a.after->>'state';
@@ -12192,8 +12192,8 @@ BEGIN
   base := jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid,
                              'new_tread_mm', '25.0', 'purchase_date', '2001-07-03');
   BEGIN
-    PERFORM app.receive_tyres(base || jsonb_build_object(
-      'received_date', (app.tenant_today(tz) + 1)::text));
+    PERFORM app.receive_tyres(pg_temp.at_depot(base || jsonb_build_object(
+      'received_date', (app.tenant_today(tz) + 1)::text)));
   EXCEPTION WHEN OTHERS THEN
     GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
   END;
@@ -12202,8 +12202,8 @@ BEGIN
     RAISE EXCEPTION 'FAIL 73b: a receive dated the tenant''s tomorrow was answered %',
       COALESCE(st || ' "' || msg || '"', 'by an accepted receive');
   END IF;
-  SELECT * INTO r FROM app.receive_tyres(base || jsonb_build_object(
-    'received_date', app.tenant_today(tz)::text));
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(base || jsonb_build_object(
+    'received_date', app.tenant_today(tz)::text)));
   IF (SELECT t.received_date FROM app.tyre t WHERE t.id = r.tyre_id) IS DISTINCT FROM app.tenant_today(tz) THEN
     RAISE EXCEPTION 'FAIL 73b: the same receive dated the tenant''s today did not land on that day';
   END IF;
@@ -12724,12 +12724,12 @@ BEGIN
   PERFORM set_config('app.actor_id', '', true);
   -- A tyre of 11R22.5, which has no estimate yet.
   got := pg_temp.t74_seed();
-  PERFORM app.receive_tyres(jsonb_build_object(
+  PERFORM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
     'display_code', 'T74E-1',
     'size_id', (SELECT s.id FROM app.tyre_size s WHERE s.name = '11R22.5'),
     'pattern_id', (SELECT p.id FROM app.tyre_pattern p WHERE p.name = 'SP431'),
     'new_tread_mm', '20.0',
-    'received_date', to_char(today - 10, 'YYYY-MM-DD')));
+    'received_date', to_char(today - 10, 'YYYY-MM-DD'))));
   got := got || ' | ' || pg_temp.t74_load(
     '{"casing_estimates": [{"size": "11R22.5", "estimated_value": "1800.00", "effective_from": "2026-01-01"}]}');
   IF got IS DISTINCT FROM 'seeded 10 | TY024 casing_estimates row 1: this fleet already holds tyres of the size ''11R22.5'', so its first casing estimate is dated today (UTC) or later; one effective 2026-01-01 would re-price valuations already computed' THEN
@@ -12849,12 +12849,12 @@ BEGIN
 
   -- Second Fleet is FREE, so the receive names its code. Every instant is
   -- in the past: received ten days back, fitted eight, inspected six.
-  SELECT rt.tyre_id INTO ty FROM app.receive_tyres(jsonb_build_object(
+  SELECT rt.tyre_id INTO ty FROM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
     'display_code', 'T74G-1',
     'size_id', (SELECT s.id FROM app.tyre_size s WHERE s.name = '315/80R22.5'),
     'pattern_id', (SELECT p.id FROM app.tyre_pattern p WHERE p.name = 'SP431'),
     'new_tread_mm', '20.0',
-    'received_date', to_char(today - 10, 'YYYY-MM-DD'))) rt;
+    'received_date', to_char(today - 10, 'YYYY-MM-DD')))) rt;
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
   VALUES (v, t2, 'T74-G', 'CAA747401', cfg, 'TRAILER', 'ACTIVE');
   SELECT p.id INTO pos FROM app.position p
@@ -12947,7 +12947,7 @@ LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $fn$
 DECLARE first_tyre uuid; rc uuid;
 BEGIN
-  SELECT q.tyre_id INTO first_tyre FROM app.receive_tyres(p_payload) q LIMIT 1;
+  SELECT q.tyre_id INTO first_tyre FROM app.receive_tyres(pg_temp.at_depot(p_payload)) q LIMIT 1;
   SELECT t.receipt_id INTO rc FROM app.tyre t WHERE t.id = first_tyre;
   RETURN rc;
 END $fn$;
@@ -13258,8 +13258,8 @@ BEGIN
   PERFORM set_config('app.actor_id', md5('controller1')::text, true);
   PERFORM pg_temp.t75_prices();
 
-  SELECT * INTO r FROM app.receive_tyres(base || jsonb_build_object(
-    'purchase_price', '4319.91', 'cost_source', 'PRICE_LIST_ESTIMATE'));
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(base || jsonb_build_object(
+    'purchase_price', '4319.91', 'cost_source', 'PRICE_LIST_ESTIMATE')));
   SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
   IF t.purchase_price IS DISTINCT FROM 4319.91 OR t.cost_source IS DISTINCT FROM 'PRICE_LIST_ESTIMATE'
      OR t.rand_per_mm IS DISTINCT FROM app.rand_per_mm(4319.91, 25.0, 4.0) THEN
@@ -13294,14 +13294,14 @@ BEGIN
      base || jsonb_build_object('purchase_price', '-1.00', 'cost_source', 'INVOICE'),
      'TY011 a purchase price is an amount of zero or more, not -1.00')
   ) v(what, payload, want) LOOP
-    got := pg_temp.t75_try(format('SELECT app.receive_tyres(%L::jsonb)', e.payload));
+    got := pg_temp.t75_try(format('SELECT app.receive_tyres(pg_temp.at_depot(%L::jsonb))', e.payload));
     IF got IS DISTINCT FROM e.want THEN
       RAISE EXCEPTION 'FAIL 75g: % was answered %', e.what, got;
     END IF;
   END LOOP;
 
-  SELECT * INTO r FROM app.receive_tyres(base || jsonb_build_object(
-    'purchase_price', '4100.00', 'cost_source', 'INVOICE', 'invoice_number', ' INV-0042 '));
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(base || jsonb_build_object(
+    'purchase_price', '4100.00', 'cost_source', 'INVOICE', 'invoice_number', ' INV-0042 ')));
   SELECT c.* INTO rc FROM app.tyre_receipt c JOIN app.tyre x ON x.receipt_id = c.id WHERE x.id = r.tyre_id;
   IF rc.price_state IS DISTINCT FROM 'INVOICED' OR rc.invoice_number IS DISTINCT FROM 'INV-0042' THEN
     RAISE EXCEPTION 'FAIL 75g: an invoice receive''s receipt is % holding %', rc.price_state, rc.invoice_number;
@@ -13311,7 +13311,7 @@ BEGIN
   -- The ids are read first: a statement that joins the receive's result to
   -- app.tyre reads a snapshot taken before the receive's own inserts.
   SELECT array_agg(q.tyre_id) INTO ids
-    FROM app.receive_tyres(base || jsonb_build_object('quantity', 3, 'depot_id', dp1)) q;
+    FROM app.receive_tyres(pg_temp.at_depot(base || jsonb_build_object('quantity', 3, 'depot_id', dp1))) q;
   SELECT count(DISTINCT x.receipt_id) || '/' || count(*) || '/' || count(x.receipt_id) INTO got
     FROM app.tyre x WHERE x.id = ANY (ids);
   IF got IS DISTINCT FROM '1/3/3' THEN
@@ -13344,12 +13344,12 @@ BEGIN
   PERFORM pg_temp.t75_prices();
   -- Each receive's tyre is read in a statement of its own, after the one
   -- that inserted it (75g).
-  SELECT q.tyre_id INTO ty FROM app.receive_tyres(base || jsonb_build_object('quantity', 2)) q LIMIT 1;
+  SELECT q.tyre_id INTO ty FROM app.receive_tyres(pg_temp.at_depot(base || jsonb_build_object('quantity', 2))) q LIMIT 1;
   SELECT x.receipt_id INTO unpriced FROM app.tyre x WHERE x.id = ty;
-  SELECT q.tyre_id INTO staged FROM app.receive_tyres(base) q;
+  SELECT q.tyre_id INTO staged FROM app.receive_tyres(pg_temp.at_depot(base)) q;
   SELECT x.receipt_id INTO staged FROM app.tyre x WHERE x.id = staged;
   SELECT q.tyre_id INTO listed
-    FROM app.receive_tyres(base || jsonb_build_object('purchase_price', '4319.91', 'cost_source', 'PRICE_LIST_ESTIMATE')) q;
+    FROM app.receive_tyres(pg_temp.at_depot(base || jsonb_build_object('purchase_price', '4319.91', 'cost_source', 'PRICE_LIST_ESTIMATE'))) q;
   SELECT x.receipt_id INTO listed FROM app.tyre x WHERE x.id = listed;
   -- The staged receipt's tyre carries an estimate, so only the invoice
   -- number rule can refuse its move.
@@ -13424,9 +13424,9 @@ DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', md5('controller1')::text, true);
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
     'size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid, 'new_tread_mm', '25.0',
-    'received_date', '2026-10-01'));
+    'received_date', '2026-10-01')));
   got := pg_temp.t75_try(format('SELECT app.set_tyre_cost(%L, 4319.91, ''INVOICE'')', r.tyre_id));
   IF got IS DISTINCT FROM 'TY013 this tyre was received on a receipt, so its price is recorded on the receipt for the whole set; open the receipt to record it' THEN
     RAISE EXCEPTION 'FAIL 75i: costing a received tyre was answered %', got;
@@ -15549,13 +15549,6 @@ END $$;
 ROLLBACK;
 
 \echo '== 76z. nothing section 76 planted outlives its rollback'
-DROP FUNCTION pg_temp.t76_due(uuid, timestamptz);
-DROP FUNCTION pg_temp.t76_try(text);
-DROP FUNCTION pg_temp.t76_could(jsonb, uuid);
-DROP FUNCTION pg_temp.t76_capture(uuid[], timestamptz, timestamptz);
-DROP FUNCTION pg_temp.t76_expect(text, uuid, timestamptz, text);
-DROP FUNCTION pg_temp.t76_who(uuid, timestamptz);
-DROP FUNCTION pg_temp.t76_units();
 DO $$
 DECLARE got text := '';
         tid uuid;
@@ -15577,6 +15570,107 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS  76z section 76 leaves no residue';
 END $$;
+
+\echo '== 79. TYRE-450: a receive names an active depot or store of the fleet, required when it has one (B39, FR-TYR-040 as amended, rule 1; as BAC and Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        t2   constant uuid := '22222222-2222-2222-2222-222222222222';
+        d1   constant text := 'TY011 no such active depot or store in this fleet; choose the depot or store that takes the stock';
+        d2   constant text := 'TY011 a receive names the depot or store that takes the stock; choose one';
+        base constant jsonb := jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid,
+                                                  'new_tread_mm', '25.0', 'received_date', '2026-10-01');
+        closed uuid; rt uuid; bs uuid; st uuid; ids uuid[]; got text; e record;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  INSERT INTO app.depot (tenant_id, name, type, active) VALUES (bac, 'T79 CLOSED', 'DEPOT', false)
+  RETURNING id INTO closed;
+  INSERT INTO app.depot (tenant_id, name, type) VALUES (bac, 'T79 RETREADER', 'RETREADER') RETURNING id INTO rt;
+  INSERT INTO app.depot (tenant_id, name, type) VALUES (bac, 'T79 ROADSIDE', 'BREAKDOWN_SUPPLIER')
+  RETURNING id INTO bs;
+
+  -- One message for a missing, foreign, inactive or wrong-type depot, so the
+  -- refusal is no oracle for another fleet's ids.
+  FOR e IN SELECT * FROM (VALUES
+    ('an unknown depot', base || jsonb_build_object('depot_id', md5('t79-none')::uuid), d1),
+    ('another fleet''s depot', base || jsonb_build_object('depot_id', md5('depot2')::uuid), d1),
+    ('an inactive depot', base || jsonb_build_object('depot_id', closed), d1),
+    ('a retreader', base || jsonb_build_object('depot_id', rt), d1),
+    ('a breakdown supplier', base || jsonb_build_object('depot_id', bs), d1),
+    ('no depot in a fleet that has one', base, d2)
+  ) v(what, payload, want) LOOP
+    got := pg_temp.t76_try(format('SELECT app.receive_tyres(%L::jsonb)', e.payload));
+    IF got IS DISTINCT FROM e.want THEN
+      RAISE EXCEPTION 'FAIL 79: % was answered %', e.what, got;
+    END IF;
+  END LOOP;
+
+  INSERT INTO app.depot (tenant_id, name, type) VALUES (bac, 'T79 STORE', 'STORE') RETURNING id INTO st;
+  -- The ids are read first: a statement that joins the receive's result to
+  -- app.tyre reads a snapshot taken before the receive's own inserts.
+  SELECT array_agg(q.tyre_id) INTO ids
+    FROM app.receive_tyres(base || jsonb_build_object('quantity', 2, 'depot_id', st)) q;
+  SELECT count(*) || '/' || count(*) FILTER (WHERE x.current_depot_id = st AND c.depot_id = st) INTO got
+    FROM app.tyre x JOIN app.tyre_receipt c ON c.id = x.receipt_id WHERE x.id = ANY (ids);
+  IF got IS DISTINCT FROM '2/2' THEN
+    RAISE EXCEPTION 'FAIL 79: a receive at an active store reads tyres/at the store %', got;
+  END IF;
+  got := pg_temp.t76_try(format('SELECT app.receive_tyres(%L::jsonb)',
+                                base || jsonb_build_object('depot_id', md5('depot1')::uuid)));
+  IF got IS DISTINCT FROM 'ok' THEN
+    RAISE EXCEPTION 'FAIL 79: a receive at the fleet''s own depot was answered %', got;
+  END IF;
+
+  -- A fleet with no active depot or store is not asked for one. Second
+  -- Fleet seeds no catalogue, so it gets its own, as section 39's does.
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  INSERT INTO app.tyre_size (id, tenant_id, name) VALUES (md5('t79t2sz')::uuid, t2, '315/80R22.5');
+  INSERT INTO app.tyre_pattern (id, tenant_id, name, applies_to) VALUES (md5('t79t2pt')::uuid, t2, 'T79 NEW', 'NEW');
+  got := pg_temp.t76_try(format('SELECT app.receive_tyres(%L::jsonb)', jsonb_build_object(
+           'size_id', md5('t79t2sz')::uuid, 'pattern_id', md5('t79t2pt')::uuid, 'new_tread_mm', '25.0',
+           'display_code', 'T79-FREE-1')));
+  IF got IS DISTINCT FROM d2 THEN
+    RAISE EXCEPTION 'FAIL 79: no depot while Second Fleet''s depot is active was answered %', got;
+  END IF;
+  UPDATE app.depot SET active = false WHERE id = md5('depot2')::uuid;
+  SELECT array_agg(q.tyre_id) INTO ids FROM app.receive_tyres(jsonb_build_object(
+    'size_id', md5('t79t2sz')::uuid, 'pattern_id', md5('t79t2pt')::uuid, 'new_tread_mm', '25.0',
+    'display_code', 'T79-FREE-1')) q;
+  SELECT count(*) || '/' || count(*) FILTER (WHERE x.current_depot_id IS NULL AND c.depot_id IS NULL) INTO got
+    FROM app.tyre x JOIN app.tyre_receipt c ON c.id = x.receipt_id WHERE x.id = ANY (ids);
+  IF got IS DISTINCT FROM '1/1' THEN
+    RAISE EXCEPTION 'FAIL 79: a receive in a fleet with no active depot reads tyres/with no depot %', got;
+  END IF;
+  RAISE NOTICE 'PASS  79 a missing, foreign, inactive, retreader or breakdown depot is refused alike, none is refused while the fleet has one, an active store or depot is stored on the receipt and its tyres, and a fleet with none receives without one';
+END $$;
+ROLLBACK;
+
+\echo '== 79z. nothing section 79 planted outlives its rollback'
+DO $$
+DECLARE got text := ''; tid uuid;
+BEGIN
+  FOREACH tid IN ARRAY ARRAY['11111111-1111-1111-1111-111111111111',
+                             '22222222-2222-2222-2222-222222222222']::uuid[] LOOP
+    PERFORM set_config('app.tenant_id', tid::text, true);
+    got := got || (SELECT count(*) FROM app.tyre_receipt) || '/'
+               || (SELECT count(*) FROM app.tyre t WHERE t.receipt_id IS NOT NULL) || '/'
+               || (SELECT count(*) FROM app.depot d WHERE d.name LIKE 'T79 %' OR NOT d.active) || ' ';
+  END LOOP;
+  IF got IS DISTINCT FROM '0/0/0 0/0/0 ' THEN
+    RAISE EXCEPTION 'FAIL 79z: receipts/received tyres/planted or inactive depots per fleet read %, not the fixture''s 0/0/0 0/0/0', got;
+  END IF;
+  RAISE NOTICE 'PASS  79z section 79 leaves no residue';
+END $$;
+
+-- The shared prelude's helpers (db/tests/helpers.sql), dropped once the
+-- last section that calls them has run.
+DROP FUNCTION pg_temp.t76_due(uuid, timestamptz);
+DROP FUNCTION pg_temp.t76_try(text);
+DROP FUNCTION pg_temp.t76_could(jsonb, uuid);
+DROP FUNCTION pg_temp.t76_capture(uuid[], timestamptz, timestamptz);
+DROP FUNCTION pg_temp.t76_expect(text, uuid, timestamptz, text);
+DROP FUNCTION pg_temp.t76_who(uuid, timestamptz);
+DROP FUNCTION pg_temp.t76_units();
 
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

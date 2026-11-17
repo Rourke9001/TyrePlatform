@@ -30,9 +30,9 @@
 -- P13 sets a fleet's units to psi, bar and miles, and P14 edits a consent
 -- row and inserts one dated in the future, as postgres, which no grant
 -- binds, to watch tenant_metric_units, tenant_consent_written_once and
--- tenant_consent_not_future_dated refuse it (000062). P15 plants Second Fleet's receipts
--- directly and calls the receipt moves, set_tyre_cost, receive_tyres and
--- record_consent as
+-- tenant_consent_not_future_dated refuse it (000062). P15 plants Second
+-- Fleet's receipts directly and calls the receipt moves, set_tyre_cost,
+-- receive_tyres, its depot included (000062), and record_consent as
 -- postgres bound to another fleet, so only the functions' own tenant
 -- predicates keep them in the bound one, then edits a receipt and a tyre's
 -- receipt link to watch both receipt triggers refuse a superuser
@@ -228,9 +228,9 @@ BEGIN
 
   got := NULL;
   BEGIN
-    PERFORM app.receive_tyres(jsonb_build_object(
+    PERFORM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
       'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
-      'purchase_price', '4319.91', 'cost_source', 'INVOICE'));
+      'purchase_price', '4319.91', 'cost_source', 'INVOICE')));
   EXCEPTION WHEN sqlstate 'TY011' THEN got := SQLERRM;
   END;
   IF got IS DISTINCT FROM 'this fleet has no removal threshold configured, so a priced tyre cannot be rated; configure the removal threshold first, or receive the tyre without its price' THEN
@@ -239,8 +239,8 @@ BEGIN
   END IF;
 
   -- An unpriced tyre lands in the awaiting-cost backlog (FR-TYR-041).
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0'));
+  SELECT * INTO r FROM app.receive_tyres(pg_temp.at_depot(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0')));
   SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
   IF t.purchase_price IS NOT NULL OR t.rand_per_mm IS NOT NULL OR t.cost_source <> 'UNKNOWN' THEN
     RAISE EXCEPTION 'FAIL P4: an unpriced receive stored price %, rate %, source %',
@@ -952,11 +952,14 @@ BEGIN
     ('a pattern', jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', pt2),
                   'that pattern is not in this fleet''s active catalogue; choose another, or ask an administrator to add it'),
     ('a brand',   jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid, 'brand_id', br2),
-                  'that brand is not in this fleet''s active catalogue; choose another, leave it blank, or ask an administrator to add it')
+                  'that brand is not in this fleet''s active catalogue; choose another, leave it blank, or ask an administrator to add it'),
+    ('a depot',   jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid,
+                                     'depot_id', md5('depot2')::uuid),
+                  'no such active depot or store in this fleet; choose the depot or store that takes the stock')
   ) v(what, payload, want) LOOP
     st := NULL; msg := NULL;
     BEGIN
-      PERFORM app.receive_tyres(e.payload || jsonb_build_object('new_tread_mm', '25.0', 'received_date', '2026-10-01'));
+      PERFORM app.receive_tyres(pg_temp.at_depot(e.payload || jsonb_build_object('new_tread_mm', '25.0', 'received_date', '2026-10-01')));
     EXCEPTION WHEN OTHERS THEN
       GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
     END;
