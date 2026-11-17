@@ -290,7 +290,12 @@ review read the whole PR, and with the range as its target, three of three
 read only the range, in about half the time and cost. The target is still
 text the model reads, not a limit Claude Code enforces, so three runs do not
 prove it holds every time. A review that reads a wider diff costs items to
-dispose of, never a missed bug, since the wider diff holds the range, and
-the spike saw none read a narrower one. So the transcript check goes with
-its rerun and its stop, and so do the upstream ref, its assertions and the
-push rule. This amends U221; TYRE-488 holds the spike's figures.
+dispose of, and it can leave a bug in the range unreported. When more
+findings survive than its limit, `/code-review` keeps only the most severe
+across everything it read, so a bug in the range can be cut. On the same
+commits, the spike's whole-PR control put seven of its eight items on the
+PR's earlier commits, where the run that named the range put all nine on
+the round's two files. The spike saw none read a narrower diff. On the
+spike's result, U222 drops the transcript check with its rerun and its
+stop, and the upstream ref, its assertions and the push rule go with it.
+This amends U221; TYRE-488 holds the spike's figures.
