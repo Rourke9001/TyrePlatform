@@ -90,3 +90,48 @@ BEGIN
   RETURNING id INTO new_id;
   RETURN new_id;
 END $$;
+
+-- 000059's rate rule, restated: the bound's refusal is true on the invoice,
+-- list-price and per-tyre routes alike, and names what it rated (R3).
+CREATE OR REPLACE FUNCTION app.costed_rand_per_mm(p_retread_count int, p_new_tread_mm numeric,
+                                       p_current_rate numeric, p_price numeric, p_subject text)
+RETURNS numeric
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  -- A parameter's typmod is discarded, so the cents round here before the
+  -- divide and the stored rate reproduces from the stored price
+  -- (docs/lessons.md, 2026-09-01).
+  price numeric(12,2) := p_price;
+  thr   numeric;
+  rate  numeric;
+BEGIN
+  IF p_retread_count <> 0 THEN
+    RETURN p_current_rate;
+  END IF;
+  thr := app.current_removal_threshold_mm();
+  IF thr IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY013',
+      MESSAGE = format('this fleet has no removal threshold configured, so %s''s cost cannot be rated; configure the removal threshold first, then record the cost',
+                       p_subject);
+  END IF;
+  IF p_new_tread_mm IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY013',
+      MESSAGE = format('%s has no new tread recorded, so its cost cannot be rated; leave it awaiting its cost until its new tread is recorded',
+                       p_subject);
+  END IF;
+  IF p_new_tread_mm <= thr THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY013',
+      MESSAGE = format('%s''s new tread of %s mm does not exceed the removal threshold of %s mm, so its cost cannot be rated; check the removal threshold configured',
+                       p_subject, p_new_tread_mm, thr);
+  END IF;
+  -- The one permitted implementation (db/CLAUDE.md, FR-VAL-006). The bound
+  -- is rand_per_mm's numeric(12,4), tested on the rate the column stores.
+  rate := app.rand_per_mm(price, p_new_tread_mm, thr);
+  IF rate >= 100000000 THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY013',
+      MESSAGE = format('%s''s price of %s over %s mm of usable tread is a rate above what the register carries; check the price and the new tread recorded for it',
+                       p_subject, price, p_new_tread_mm - thr);
+  END IF;
+  RETURN rate;
+END $$;
