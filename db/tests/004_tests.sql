@@ -13286,7 +13286,13 @@ BEGIN
     ('an invoice number with an estimate',
      base || jsonb_build_object('purchase_price', '4319.91', 'cost_source', 'PRICE_LIST_ESTIMATE',
                                 'invoice_number', 'INV-1'),
-     'TY011 an invoice number is recorded with an invoice price; enter the price from the invoice, or leave the invoice number blank')
+     'TY011 an invoice number is recorded with an invoice price; enter the price from the invoice, or leave the invoice number blank'),
+    ('a NaN price',
+     base || jsonb_build_object('purchase_price', 'NaN', 'cost_source', 'INVOICE'),
+     'TY011 a purchase price is an amount of zero or more, not NaN'),
+    ('a negative price',
+     base || jsonb_build_object('purchase_price', '-1.00', 'cost_source', 'INVOICE'),
+     'TY011 a purchase price is an amount of zero or more, not -1.00')
   ) v(what, payload, want) LOOP
     got := pg_temp.t75_try(format('SELECT app.receive_tyres(%L::jsonb)', e.payload));
     IF got IS DISTINCT FROM e.want THEN
