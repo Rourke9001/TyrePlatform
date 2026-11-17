@@ -21,7 +21,6 @@ type codeMarkedRequest struct {
 	MarkedOn *string `json:"markedOn"`
 }
 
-// markTyreCode marks one tyre.
 func markTyreCode(s *store.Store) http.HandlerFunc {
 	return markCodes(s, "tyreID",
 		`SELECT m.tyre_id, m.display_code FROM app.mark_code_on_sidewall($1::uuid, NULL::uuid, $2::date) m`)

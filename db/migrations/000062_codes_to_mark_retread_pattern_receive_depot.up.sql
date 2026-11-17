@@ -27,8 +27,7 @@ CREATE TRIGGER tenant_consent_not_future_dated
 BEFORE INSERT ON app.tenant_consent
 FOR EACH ROW EXECUTE FUNCTION app.tenant_consent_is_not_future_dated();
 
--- 000059's writer, restated: the U144 refusal dates the latest record in the
--- fleet's timezone (X5).
+-- 000059's writer, restated for its U144 refusal's timezone (X5).
 CREATE OR REPLACE FUNCTION app.record_consent(p_purpose text, p_granted boolean, p_notice_version text,
                                    p_occurred_at timestamptz DEFAULT now())
 RETURNS uuid
@@ -449,9 +448,9 @@ GRANT UPDATE (id, tenant_id, display_code, size_id, brand_id, pattern_id, status
 COMMENT ON COLUMN app.tyre.brand_pending IS
   'True while a code the platform issued at Receive waits to be marked on the sidewall (B22, FR-TYR-035 as amended). Set by app.receive_tyres under GENERATED; cleared only by app.mark_code_on_sidewall, which runs as app_writer (000062, ADR-0024).';
 
--- The one rule for the queue, shaped like v_tyre_awaiting_cost (000012):
--- pending and still in the fleet. app.mark_code_on_sidewall marks exactly
--- these rows, and the register joins this view rather than repeat it.
+-- The one rule for the queue: pending and still in the fleet (B22).
+-- app.mark_code_on_sidewall marks exactly these rows, and the register joins
+-- this view rather than repeat it.
 CREATE VIEW app.v_tyre_code_to_mark WITH (security_invoker = true) AS
 SELECT t.tenant_id,
        t.id AS tyre_id,
@@ -497,8 +496,8 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such receipt in this fleet';
   END IF;
 
-  -- Back-dated to the day of receipt and no earlier, never forward, as
-  -- receive_tyres and dispatch_tyre treat their days (spec, Lead's call 8).
+  -- A marking is dated today or earlier, and never before its tyre's
+  -- receipt (spec, Lead's call 8).
   d := COALESCE(p_marked_on, today);
   IF d > today THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012',
@@ -565,9 +564,9 @@ GRANT SELECT, INSERT ON app.tyre_event TO app_writer;
 -- The receipt check.
 GRANT SELECT ON app.tyre_receipt TO app_writer;
 
--- The hand-over, as 000061 and db/CLAUDE.md (Adding a function) require:
 -- OWNER TO needs the new owner to hold CREATE on the schema at that moment
--- only, and the ACL is set before the owner changes.
+-- only, and the ACL is set before the owner changes (db/CLAUDE.md, Adding a
+-- function).
 REVOKE ALL ON FUNCTION app.mark_code_on_sidewall(uuid, uuid, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.mark_code_on_sidewall(uuid, uuid, date) TO app_rw;
 GRANT CREATE ON SCHEMA app TO app_writer;
@@ -782,11 +781,10 @@ BEGIN
     END IF;
 
     -- U225 (FR-FIT-021, FR-CFG-004, FR-CFG-007): an accepted casing leaves
-    -- on an active pattern of the fleet that applies to retreads, named or
-    -- kept, the list the return form offers (loadCataloguePatterns,
-    -- tyre_catalogue.go) and the catalogue checks receive_tyres runs (000059).
-    -- Kept only while still active (spec, Lead's call 12). After the cap, so
-    -- every earlier refusal keeps its order.
+    -- on an active pattern of the fleet that applies to retreads, named, or
+    -- kept while still active (spec, Lead's call 12): the list the return
+    -- form offers (loadCataloguePatterns). Checked after the cap so every
+    -- earlier refusal keeps its order.
     IF p_new_pattern_id IS NOT NULL THEN
       SELECT p.applies_to INTO pt_use FROM app.tyre_pattern p
        WHERE p.id = p_new_pattern_id AND p.tenant_id = app.current_tenant_id() AND p.active
