@@ -53,15 +53,14 @@ and `/pipeline` both do to limit a review to `<from>...HEAD`. On Claude Code
 round changed, and nothing in its reply said which diff it had read. The
 reviewer caught it in the fork's transcript and read the two hunks by hand.
 
-**The rule:** never take a range-limited `/code-review` on trust, and never
-judge the diff it read by the files its items cite: a whole-PR diff holds
-the round's files too, and four of those eight items cited one. Read the
-`git diff` commands the fork ran in its transcript, as `/review-pr` step 2
-and `/pipeline` Review loop step 4 say. One that printed hunks from anywhere
-but `<from>` means it read another diff. Under `/pipeline` that, or a
-transcript you cannot read, is step 4's rerun. Under `/review-pr` read the
-range's hunks yourself every time, and say in the report which diff the
-fork read, or that its transcript could not be read.
+**The rule:** never limit `/code-review` to a range through the branch's
+upstream. Pass the range as its target, both ends as full shas:
+`/code-review <level> <from>...<head>`, as `scripts/pipeline-review.sh` and
+`/review-pr` step 2 do. In a spike on 17 Nov 2026 (TYRE-488) the review
+read the whole PR with no target and the upstream set, and read only the
+range in three of three runs that named it. Never judge the diff a review
+read by the files its items cite: a whole-PR diff holds the round's files
+too, and four of those eight items cited one.
 
 ## 2026-11-14 - A routine kept the connector it was created with, so its Jira steps had no tool once the connector was re-added (TYRE-481, #217)
 

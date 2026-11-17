@@ -148,6 +148,11 @@ Runs for every job that is not docs-only, because the implementer's own
 final review is a self-review. It runs on the local branch, before the
 push, so the PR opens already reviewed.
 
+*Superseded in part by owner ruling U222 (17 Nov 2026, TYRE-488). A review
+gets its range as `/code-review`'s target, not through the branch's
+upstream, and the lead no longer checks the upstream ref or the files the
+findings cite; ADR-0023's amendment of that date gives the reason.*
+
 The range a review reads is set through the branch's upstream, the diff
 `/code-review` documents as its default and the one the 9 Nov spike ran. The
 lead checks the upstream ref before each review and the cited files after

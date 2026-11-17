@@ -135,6 +135,8 @@ and a fresh fixer each round (Option B).
   PR still cited files in its range (docs/lessons.md, 2026-11-17), so the
   lead reads which diff the review ran in its transcript instead, by
   `pipeline.md`, Review loop step 4.)*
+  *(Amended 2026-11-17 by TYRE-488, U222. The review gets the range as its
+  target; see the amendment below.)*
 
 The owner's rulings of 9 Nov 2026 set the loop's rules. Each lives in
 CLAUDE.md, not here:
@@ -272,3 +274,22 @@ the review's own process (TYRE-476); for the lead, a teammate and a
 subagent it is checked on the next run's transcripts. The lead stays on
 Fable: cache reads cost the same on both models, so Opus there would save
 about a twentieth of the run.
+
+**Amended 2026-11-17 (TYRE-488, U222):** a review gets its range as
+`/code-review`'s target, `<from>...<head>` with both ends as full shas, and
+the branch's upstream no longer carries it. The upstream reached the review
+only as a line in its prompt, and on Claude Code 2.1.326 every manual
+re-review read the whole PR; U221's transcript check caught that after the
+fact, at the cost of a rerun and an owner stop. `/code-review` documents a
+Git revision range as a target
+(https://code.claude.com/docs/en/code-review-local.md, Choose what to
+review). A spike on 17 Nov 2026 ran four Opus reviews of merged ranges
+under `claude -p`: with no target and the upstream at the round's start,
+the review read the whole PR, and with the range as its target, three of
+three read only the range, in about half the time and cost. The target is
+still text the model reads, not a limit Claude Code enforces, so three runs
+do not prove it holds every time. A review that strays costs items to
+dispose of, never a missed bug, since the whole PR holds the range. So the
+transcript check goes with its rerun and its stop, and so do the upstream
+ref, its assertions and the push rule. This amends U221; TYRE-488 holds the
+spike's figures.
