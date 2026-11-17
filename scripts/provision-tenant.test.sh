@@ -4,7 +4,8 @@
 # sweep stay defined on the fixture (TYRE-374). make db-provision-test runs it
 # locally and the CI database job runs it last. Step 16 replays 000060's data
 # step on a third (TYRE-326). Step 17 migrates a fourth as a stand-in for
-# tyreadmin, and proves 000061 up, down and up again there (TYRE-472).
+# tyreadmin, and proves 000061 and 000062 up, down and up again there
+# (TYRE-472, TYRE-99).
 #
 # Environment, set by both callers:
 #   PSQL         a superuser psql command naming no database; SQL goes in on
@@ -213,8 +214,9 @@ $MIGRATE -database "postgres://postgres:postgres@$PG_HOSTPORT/tyre_trip_migratio
 must_run 16 tyre_trip_migration postgres db/tests/migration/000060_after.sql
 ok 16 "000060's data step on the shape staging holds"
 
-# 17. 000061 as a role shaped like tyreadmin (TYRE-472, spec section 9): not a
-# superuser, so PostgreSQL's ownership rules bind it as they bind tyreadmin.
+# 17. 000061 and 000062 as a role shaped like tyreadmin (TYRE-472, TYRE-99,
+# spec section 9): not a superuser, so PostgreSQL's ownership rules bind it
+# as they bind tyreadmin.
 # It must bypass RLS because it joins app_writer, and suite check 8e requires
 # every member to. app_rw, app_login and app_writer already exist in the
 # cluster, so it gets what PostgreSQL gives a role's creator: ADMIN, no SET,
@@ -248,12 +250,22 @@ run tyre_standin postgres "$work/catalogue.sql" -At >"$work/cat-down.txt"
 diff "$work/cat-60.txt" "$work/cat-down.txt" || fail 17 "000061's down did not restore 60's catalogue"
 standin_migrate goto 61
 must_run 17 tyre_standin postgres db/tests/migration/000061_after.sql
+# 000062 the same way: its down restores 61's catalogue (TYRE-99).
+cat db/tests/helpers.sql db/tests/migration/000062_catalogue.sql >"$work/catalogue62.sql"
+run tyre_standin postgres "$work/catalogue62.sql" -At >"$work/cat62-61.txt"
+standin_migrate goto 62
+run tyre_standin postgres "$work/catalogue62.sql" -At >"$work/cat62-62.txt"
+grep -qF 'function app.mark_code_on_sidewall(uuid,uuid,date) owner=app_writer definer=t ' "$work/cat62-62.txt" \
+  || fail 17 "000062's up did not hand app.mark_code_on_sidewall to app_writer"
+standin_migrate goto 61
+run tyre_standin postgres "$work/catalogue62.sql" -At >"$work/cat62-down.txt"
+diff "$work/cat62-61.txt" "$work/cat62-down.txt" || fail 17 "000062's down did not restore 61's catalogue"
 standin_migrate up
 must_run 17 tyre_standin postgres db/seeds/002_seed_configurations.sql
 must_run 17 tyre_standin postgres db/seeds/003_seed_fixture.sql
 cat db/tests/helpers.sql db/tests/migration/000061_standin.sql >"$work/standin.sql"
 must_run 17 tyre_standin postgres "$work/standin.sql"
-ok 17 "000061 up, down and up again as $S, and the three functions run as app_writer, in $((SECONDS - t17))s"
+ok 17 "000061 and 000062 up, down and up again as $S, and the write-list functions run as app_writer, in $((SECONDS - t17))s"
 
 # 18. Clean up only on success, so a failure leaves the databases to inspect;
 # the next run drops them first. DROP ROLE refuses a role that granted a
