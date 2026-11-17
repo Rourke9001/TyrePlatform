@@ -146,10 +146,13 @@ DECLARE
   tz    text;
   qty   int  := COALESCE((payload->>'quantity')::int, 1);
   hand  text := NULLIF(btrim(COALESCE(payload->>'display_code','')), '');
+  -- The price as sent, unrounded, so a refusal names the figure the caller
+  -- sent rather than its cent rounding (spec section 10, row 2).
+  raw   numeric := (payload->>'purchase_price')::numeric;
   -- numeric(12,2) on the local, not on the argument, so the cents round
   -- before app.rand_per_mm divides and the stored rate reproduces from the
   -- stored price (FR-VAL-006; the reasoning is 000031:25-30).
-  price numeric(12,2) := (payload->>'purchase_price')::numeric;
+  price numeric(12,2) := raw;
   tread numeric(4,1)  := (payload->>'new_tread_mm')::numeric;
   -- An omitted source reads as UNKNOWN; the checks below hold UNKNOWN to
   -- an unpriced receive and never impute a source to a priced one.
@@ -316,7 +319,7 @@ BEGIN
   -- price would otherwise reach the CHECK as a canned 23514 (X12).
   IF price = 'NaN' OR price < 0 THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',
-      MESSAGE = format('a purchase price is an amount of zero or more, not %s', price);
+      MESSAGE = format('a purchase price is an amount of zero or more, not %s', raw);
   END IF;
 
   -- A recorded cost is never corrected (D5, TY013), so a priced receive
