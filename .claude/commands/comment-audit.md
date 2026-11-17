@@ -7,7 +7,7 @@ job is the judgment calls a regex cannot make.
 
 1. Read `docs/comments.md` in full first — including the explicit exceptions,
    so you do not flag an allowed gloss or a bare divider.
-2. `git diff develop...HEAD` and collect every ADDED or MODIFIED comment line.
+2. `git diff origin/develop...HEAD` and collect every ADDED or MODIFIED comment line.
    Untouched comments are out of scope; this is not a licence to re-audit the
    whole repo.
 3. Judge each against the standard:
@@ -21,3 +21,8 @@ job is the judgment calls a regex cannot make.
    suggested rewrite (or deletion). If everything passes, say so plainly.
 5. Only edit comments the user asks you to fix. A finding you are unsure
    about is a question for the user, not a silent pass and not a silent edit.
+   Under `make pipeline` the implementer runs steps 1 to 3 on its own branch
+   and fixes what it finds, so the fixes are in the PR the review loop reads.
+   It leaves a comment it is unsure about as it is and sends it to the lead
+   as an item that is not a bug, which the lead sets aside in the PR body
+   (`/pipeline`, Implementation; TYRE-485, U219).

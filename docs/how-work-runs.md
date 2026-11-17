@@ -134,7 +134,9 @@ path and walks the stages by hand.
 4. **Implement.** Use `superpowers:subagent-driven-development` against the
    plan. Under `make pipeline` the implementer uses
    `superpowers:executing-plans` instead, because a teammate cannot collect
-   its subagents' results (ADR-0018, ADR-0023). Run `make check`. Under
+   its subagents' results (ADR-0018, ADR-0023), and runs `/comment-audit`'s
+   pass on its own comments and fixes them before it reports ready (U219).
+   Run `make check`. Under
    `/ticket` the PR opens now; under `make pipeline` it opens after the
    review loop.
 5. **Code review.** Every PR that is not docs-only gets this stage. A diff
