@@ -47,7 +47,7 @@ commit that deleted it.
 
 **What happened:** the re-review of PR #223's fix round ran `/code-review high`
 in a worktree whose upstream was set to the round's `before`, as `/review-pr`
-and `/pipeline` both do to limit a review to `<from>...HEAD`. On Claude Code
+and `/pipeline` both did to limit a review to `<from>...HEAD`. On Claude Code
 2.1.326 the fork printed the upstream's name and then ran
 `git diff origin/develop...HEAD`. It returned eight items, none on a line the
 round changed, and nothing in its reply said which diff it had read. The

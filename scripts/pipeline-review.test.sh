@@ -5,13 +5,21 @@
 # on Windows.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-script="$here/pipeline-review.sh"
-root=$(cd "$here/.." && pwd)
-# HEAD stands in for the round's start, since a shallow CI checkout holds no
-# parent. The script is given a short sha and must pass both ends in full.
-head=$(git -C "$root" rev-parse HEAD)
 work=$(cd "$(mktemp -d)" && pwd)
 trap 'rm -rf "$work"' EXIT
+# The script resolves its checkout as its own ../ and the stub pins that
+# directory, so a copy in a repo of two commits gives the launch a start that
+# differs from its end, which the real checkout cannot, being shallow in CI.
+root="$work/repo"
+mkdir -p "$root/scripts"
+git init -q "$root"
+gitc() { git -C "$root" -c user.name=t -c user.email=t@example.com -c core.hooksPath=/dev/null -c commit.gpgsign=false "$@"; }
+gitc commit -q --allow-empty -m c1
+gitc commit -q --allow-empty -m c2
+c1=$(git -C "$root" rev-parse HEAD~1)
+c2=$(git -C "$root" rev-parse HEAD)
+cp "$here/pipeline-review.sh" "$root/scripts/"
+script="$root/scripts/pipeline-review.sh"
 # A checkout path can hold a space, so the state directory's does.
 state="$work/state dir"
 mkdir -p "$work/bin" "$state"
@@ -62,7 +70,7 @@ canned() { jq "$@" "$work/base.json" >"$work/out.json"; }
 review() {
   local k=$1 out; shift
   rm -f "$work/called"
-  out=$(cd "$work" && env STUB_OUT="$work/out.json" "$@" bash "$script" "state dir" "$k" "${head:0:12}" <<<"caller input" 2>&1)
+  out=$(cd "$work" && env STUB_OUT="$work/out.json" "$@" bash "$script" "state dir" "$k" "${c1:0:12}" <<<"caller input" 2>&1)
   rc=$?
   last=${out##*$'\n'}
   last=${last//$'\r'/}
@@ -120,7 +128,7 @@ refused() {
 canned .
 passes "a result with findings" 0 "models claude-opus-5-5, findings 2"
 want=$(printf '%s\n' 6 -p --model opus --output-format json \
-  "/code-review high --max-findings default $head...$head" unset /code-review opus 1 "$root" "stdin 1")
+  "/code-review high --max-findings default $c1...$c2" unset /code-review opus 1 "$root" "stdin 1")
 if [ "$(cat "$work/called")" = "$want" ]; then
   echo "PASS: the child's arguments, environment, checkout and stdin"; else
   echo "FAIL: the child was started as: $(cat "$work/called")"; fails=$((fails + 1)); fi
@@ -298,11 +306,11 @@ done
 refused "no arguments" bash "$script"
 refused "one argument" bash "$script" "state dir"
 refused "two arguments" bash "$script" "state dir" 0
-refused "a review id that is a path" bash "$script" "state dir" ../x "$head"
-refused "a review id that is not a round" bash "$script" "state dir" 4 "$head"
-refused "a review id that only starts with minor" bash "$script" "state dir" minor-1 "$head"
-refused "a missing state directory" bash "$script" nowhere 0 "$head"
-refused "a time bound that is not a number" PIPELINE_REVIEW_TIMEOUT=soon bash "$script" "state dir" 0 "$head"
+refused "a review id that is a path" bash "$script" "state dir" ../x "$c1"
+refused "a review id that is not a round" bash "$script" "state dir" 4 "$c1"
+refused "a review id that only starts with minor" bash "$script" "state dir" minor-1 "$c1"
+refused "a missing state directory" bash "$script" nowhere 0 "$c1"
+refused "a time bound that is not a number" PIPELINE_REVIEW_TIMEOUT=soon bash "$script" "state dir" 0 "$c1"
 refused "a from that is not a hex sha" bash "$script" "state dir" 0 HEAD~1
 refused "a from that is an option" bash "$script" "state dir" 0 --all
 refused "a from that names no commit" bash "$script" "state dir" 0 0000000000000000000000000000000000000000

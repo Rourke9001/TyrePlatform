@@ -189,6 +189,11 @@ The review moves into `scripts/pipeline-review.sh`, because its checks are
 mechanical and a script can be tested where a paragraph of the playbook
 cannot.
 
+*Superseded in part on 17 Nov 2026 (TYRE-488, U222): the script also takes
+the range's start, `<from>`, and passes `<from>...<head>` as `/code-review`'s
+target, both ends as full shas; the lead no longer sets the range through the
+branch's upstream. ADR-0023's amendment of that date gives the reason.*
+
 **What the script does.** It takes the state directory and the review id
 `<k>`. From the checkout, it runs:
 

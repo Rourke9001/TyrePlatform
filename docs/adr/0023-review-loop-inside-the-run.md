@@ -2,11 +2,11 @@
 
 - **Status:** Accepted (owner, 9 Nov 2026, with U191 to U195). Its PR is
   #208. It supersedes ADR-0018's stage 5
-  decision and its push stop. Amended 10 Nov 2026 (TYRE-476, U205), 14 Nov 2026 (TYRE-481, U212), 16 Nov 2026 (TYRE-484, U215) and 17 Nov 2026 (TYRE-485, U219, U221).
+  decision and its push stop. Amended 10 Nov 2026 (TYRE-476, U205), 14 Nov 2026 (TYRE-481, U212), 16 Nov 2026 (TYRE-484, U215) and 17 Nov 2026 (TYRE-485, U219, U221; TYRE-488, U222).
 - **Date:** 2026-11-09
 - **Deciders:** Rourke (owner)
-- **Related:** ADR-0018 · TYRE-470, TYRE-395, TYRE-476, TYRE-484, TYRE-485 · U123, U124, U125, U146,
-  U191 to U195, U205, U215, U219, U221 · spec `docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`
+- **Related:** ADR-0018 · TYRE-470, TYRE-395, TYRE-476, TYRE-484, TYRE-485, TYRE-488 · U123, U124, U125, U146,
+  U191 to U195, U205, U215, U219, U221, U222 · spec `docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`
 
 ## Context
 
@@ -279,17 +279,18 @@ about a twentieth of the run.
 `/code-review`'s target, `<from>...<head>` with both ends as full shas, and
 the branch's upstream no longer carries it. The upstream reached the review
 only as a line in its prompt, and on Claude Code 2.1.326 every manual
-re-review read the whole PR; U221's transcript check caught that after the
-fact, at the cost of a rerun and an owner stop. `/code-review` documents a
-Git revision range as a target
+re-review read the whole PR. U221 added a check that read the review's
+transcript afterwards, at the cost of a rerun and an owner stop under
+`/pipeline` and a by-hand hunk read under `/review-pr`. `/code-review`
+documents a Git revision range as a target
 (https://code.claude.com/docs/en/code-review-local.md, Choose what to
-review). A spike on 17 Nov 2026 ran four Opus reviews of merged ranges
-under `claude -p`: with no target and the upstream at the round's start,
-the review read the whole PR, and with the range as its target, three of
-three read only the range, in about half the time and cost. The target is
-still text the model reads, not a limit Claude Code enforces, so three runs
-do not prove it holds every time. A review that strays costs items to
-dispose of, never a missed bug, since the whole PR holds the range. So the
-transcript check goes with its rerun and its stop, and so do the upstream
-ref, its assertions and the push rule. This amends U221; TYRE-488 holds the
-spike's figures.
+review). A spike on 17 Nov 2026 ran four Opus reviews of merged ranges under
+`claude -p`: with no target and the upstream at the round's start, the
+review read the whole PR, and with the range as its target, three of three
+read only the range, in about half the time and cost. The target is still
+text the model reads, not a limit Claude Code enforces, so three runs do not
+prove it holds every time. A review that reads a wider diff costs items to
+dispose of, never a missed bug, since the wider diff holds the range, and
+the spike saw none read a narrower one. So the transcript check goes with
+its rerun and its stop, and so do the upstream ref, its assertions and the
+push rule. This amends U221; TYRE-488 holds the spike's figures.
