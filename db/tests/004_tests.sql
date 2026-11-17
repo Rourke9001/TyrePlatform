@@ -12952,7 +12952,7 @@ BEGIN
   RETURN rc;
 END $fn$;
 
-\echo '== 75a. app.record_consent writes one row for the bound fleet with no actor, refuses each bad input and a time not after the purpose''s latest record (U144) as TY027, and the app role can neither edit nor delete a row (FR-TEN-022, OR-LEG-005, ADR-0012; as Second Fleet, rolled back)'
+\echo '== 75a. app.record_consent writes one row for the bound fleet with no actor, refuses each bad input and a time not after the purpose''s latest record (U144) as TY027, and the app role can neither edit nor delete a row, and a raw row dated in the future is refused (FR-TEN-022, OR-LEG-005, ADR-0012; as Second Fleet, rolled back)'
 BEGIN;
 DO $$
 DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
@@ -13040,6 +13040,16 @@ BEGIN
   IF got NOT LIKE '42501 %' THEN
     RAISE EXCEPTION 'FAIL 75a: the app role''s DELETE of a consent row was answered %', got;
   END IF;
+  got := pg_temp.t75_try($q$INSERT INTO app.tenant_consent (tenant_id, purpose_code, granted, notice_version, occurred_at)
+                           VALUES ('22222222-2222-2222-2222-222222222222', 'SERVICE_DELIVERY', false, 'T75 MSA v9', now() + interval '1 minute')$q$);
+  IF got IS DISTINCT FROM 'TY027 consent is recorded as given now or earlier, never at a future time' THEN
+    RAISE EXCEPTION 'FAIL 75a: a raw consent row dated in the future was answered %', got;
+  END IF;
+  got := pg_temp.t75_try($q$INSERT INTO app.tenant_consent (tenant_id, purpose_code, granted, notice_version, occurred_at)
+                           VALUES ('22222222-2222-2222-2222-222222222222', 'SERVICE_DELIVERY', false, 'T75 MSA v9', now())$q$);
+  IF got IS DISTINCT FROM 'ok' THEN
+    RAISE EXCEPTION 'FAIL 75a: a raw consent row dated now() was answered %', got;
+  END IF;
   -- The grant refuses the app role first; P14 proves the trigger behind it.
   IF NOT EXISTS (SELECT 1 FROM pg_trigger tg
                   WHERE tg.tgrelid = 'app.tenant_consent'::regclass
@@ -13048,7 +13058,7 @@ BEGIN
                     AND tg.tgfoid = 'app.tenant_consent_is_written_once()'::regprocedure) THEN
     RAISE EXCEPTION 'FAIL 75a: tenant_consent_written_once is missing, disabled or calls another function';
   END IF;
-  RAISE NOTICE 'PASS  75a the writer records one row with no actor, refuses each bad input as TY027, and the app role cannot edit or delete it';
+  RAISE NOTICE 'PASS  75a the writer records one row with no actor, refuses each bad input as TY027, and the app role cannot edit or delete it, and a raw row dated in the future is refused';
 END $$;
 ROLLBACK;
 
