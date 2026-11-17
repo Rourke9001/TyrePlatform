@@ -7,9 +7,9 @@ set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(cd "$(mktemp -d)" && pwd)
 trap 'rm -rf "$work"' EXIT
-# The script resolves its checkout as its own ../ and the stub pins that
-# directory, so a copy in a repo of two commits gives the launch a start that
-# differs from its end, which the real checkout cannot, being shallow in CI.
+# The launch case needs a range whose two ends differ, and CI's checkout is
+# shallow, so the script runs as a copy inside a repo of two commits: it reads
+# the commits of the checkout it sits in.
 root="$work/repo"
 mkdir -p "$root/scripts"
 git init -q "$root"
