@@ -16,6 +16,7 @@ import { Field } from "../ui/Field";
 import { PageHeader } from "../ui/PageHeader";
 import { Select } from "../ui/Select";
 import { TextInput } from "../ui/TextInput";
+import { priceMisshapen, PRICE_SHAPE_ERROR } from "./priceShape";
 import { byNaturalCode } from "./unit/naturalOrder";
 import { priceEstimateKey, tyreCatalogueKey } from "./unit/queryKeys";
 import "./fleet.css";
@@ -146,6 +147,8 @@ export function ReceiveTyre() {
   const estimateFailed = estimateWanted && estimate.isError && !estimate.isFetching;
   const shownPrice = typed ?? listed?.typicalPrice ?? "";
   const invoicePrice = typed !== null && typed.trim() !== "";
+  // A listed price is the server's own figure, so only a typed one is judged.
+  const priceBad = typed !== null && priceMisshapen(typed);
   const listPrice = typed === null && listed !== null;
   // Decision 22: a failed read is never read as "no list entry", so the
   // receive waits until the read succeeds or the person types a price.
@@ -210,7 +213,7 @@ export function ReceiveTyre() {
     if (!ready) return;
     if (isFree && displayCode.trim() === "") return;
     if (!isFree && quantity.trim() === "") return;
-    if (sizeId === "" || patternId === "" || !treadShaped || priceUnsettled) return;
+    if (sizeId === "" || patternId === "" || !treadShaped || priceUnsettled || priceBad) return;
     setReceived(null);
 
     const body: NewTyres = {
@@ -387,7 +390,7 @@ export function ReceiveTyre() {
         <Card>
           <div className="fleet-fields">
             <div className="fleet-field-group">
-              <Field label="Unit price">
+              <Field label="Unit price" error={priceBad ? PRICE_SHAPE_ERROR : undefined}>
                 <TextInput
                   id="purchasePrice"
                   name="purchasePrice"

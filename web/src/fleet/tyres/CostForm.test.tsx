@@ -20,6 +20,9 @@ const TYRE: Tyre = {
   receiptId: null,
 };
 
+const PRICE_SHAPE_COPY =
+  "Enter the price as digits with a point before the cents, for example 4319.91. Leave out spaces, commas and the currency sign.";
+
 function renderForm() {
   return renderWithActor(<CostForm tyre={TYRE} tenantKey="tenant-a" />);
 }
@@ -104,6 +107,43 @@ describe("setting a tyre's cost", () => {
     await waitFor(() => expect(costCalls()).toHaveLength(1));
     const index = vi.mocked(fetch).mock.calls.findIndex(([i]) => requestedUrl(i).endsWith("/cost"));
     expect(sentBody(index)).toStrictEqual({ price: "1234.50", source: "PRICE_LIST_ESTIMATE" });
+  });
+
+  // U228: a price that is not a readable number is named at the input and
+  // never sent; the typed text is tested, never converted (rule 2).
+  it.each(["4,319.91", "4319.919"])("refuses a typed price of %s in place", async (typed) => {
+    vi.mocked(fetch).mockResolvedValue(respond(201, {}));
+    const { container } = renderForm();
+    const price = screen.getByRole("textbox", { name: /purchase price for POS1/i });
+    await userEvent.type(price, typed);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /cost source for POS1/i }),
+      "INVOICE",
+    );
+
+    const form = container.querySelector("form");
+    if (form === null) throw new Error("expected a form element");
+    fireEvent.submit(form);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(costCalls()).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Set cost" })).toBeDisabled();
+    expect(price).toHaveAttribute("aria-invalid", "true");
+    expect(price).toHaveAccessibleDescription(PRICE_SHAPE_COPY);
+  });
+
+  it.each(["4319.91", "0"])("sends a typed price of %s", async (typed) => {
+    vi.mocked(fetch).mockResolvedValue(respond(201, {}));
+    renderForm();
+    const price = screen.getByRole("textbox", { name: /purchase price for POS1/i });
+    await userEvent.type(price, typed);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /cost source for POS1/i }),
+      "INVOICE",
+    );
+    expect(price).not.toHaveAttribute("aria-invalid", "true");
+    await userEvent.click(screen.getByRole("button", { name: "Set cost" }));
+
+    await waitFor(() => expect(costCalls()).toHaveLength(1));
   });
 
   it("returns to no source after a save, not to INVOICE", async () => {

@@ -36,6 +36,9 @@ const OPEN: OpenReceipt[] = [
 
 type Reply = () => Response | Promise<Response>;
 
+const PRICE_SHAPE_COPY =
+  "Enter the price as digits with a point before the cents, for example 4319.91. Leave out spaces, commas and the currency sign.";
+
 // GET /api/tyre-receipts/open answers `open` every time; each POST takes
 // the next of `moves`. Anything else is a request this screen should not
 // make.
@@ -158,6 +161,41 @@ describe("open receipts", () => {
       },
     ]);
     await waitFor(() => expect(openReads()).toBeGreaterThan(1));
+  });
+
+  // U228: a price that is not a readable number is named at the field and
+  // never sent; the typed text is tested, never converted (rule 2).
+  it.each(["4,319.91", "4319.919"])(
+    "the invoice refuses a unit price of %s in place",
+    async (typed) => {
+      mockApi({ moves: [() => respond(200, { priced: 2, leftFleet: 0 })] });
+      renderScreen();
+      const row = await rowFor("BAC-00010");
+
+      await userEvent.click(within(row).getByRole("button", { name: "Record invoice" }));
+      const price = within(row).getByLabelText("Unit price");
+      await userEvent.type(price, typed);
+      await userEvent.click(within(row).getByRole("button", { name: "Save invoice" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(posts()).toEqual([]);
+      expect(price).toHaveAttribute("aria-invalid", "true");
+      expect(price).toHaveAccessibleDescription(expect.stringContaining(PRICE_SHAPE_COPY));
+    },
+  );
+
+  it.each(["4319.91", "0"])("the invoice sends a unit price of %s as typed", async (typed) => {
+    mockApi({ moves: [() => respond(200, { priced: 2, leftFleet: 0 })] });
+    renderScreen();
+    const row = await rowFor("BAC-00010");
+
+    await userEvent.click(within(row).getByRole("button", { name: "Record invoice" }));
+    await userEvent.type(within(row).getByLabelText("Unit price"), typed);
+    await userEvent.click(within(row).getByRole("button", { name: "Save invoice" }));
+
+    await waitFor(() =>
+      expect(posts()).toEqual([{ url: "/api/tyre-receipts/r1/invoice", body: { price: typed } }]),
+    );
   });
 
   it("apply list price is offered only for an unpriced receipt", async () => {

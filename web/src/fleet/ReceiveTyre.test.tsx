@@ -29,6 +29,9 @@ const CATALOGUE: TyreCatalogue = {
 
 type Reply = () => Response;
 
+const PRICE_SHAPE_COPY =
+  "Enter the price as digits with a point before the cents, for example 4319.91. Leave out spaces, commas and the currency sign.";
+
 const noEstimate: Reply = () => respond(200, { estimate: null });
 
 // One price list answer (FR-CFG-041), Dunlop's own row unless brandSpecific
@@ -615,6 +618,35 @@ describe("receiving tyres into the fleet", () => {
     expect(body.newTreadMm).toBe("25.0");
     expect(body.costSource).toBe("INVOICE");
     expect(body).not.toHaveProperty("quantity");
+  });
+
+  // U228: a price that is not a readable number is named at the field and
+  // never sent; the typed text is tested, never converted (rule 2).
+  it.each(["4,319.91", "4319.919"])("refuses a typed price of %s in place", async (typed) => {
+    mockApi({ receives: [minted("TYRE1")] });
+    const { container } = renderScreen("FREE");
+    await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
+    await chooseEntries();
+    await userEvent.type(screen.getByLabelText(/unit price/i), typed);
+    await forceSubmit(container);
+
+    expect(receivedBodies()).toHaveLength(0);
+    const price = screen.getByLabelText(/unit price/i);
+    expect(price).toHaveAttribute("aria-invalid", "true");
+    expect(price).toHaveAccessibleDescription(expect.stringContaining(PRICE_SHAPE_COPY));
+  });
+
+  it.each(["4319.91", "0"])("sends a typed price of %s as typed", async (typed) => {
+    mockApi({ receives: [minted("TYRE1")] });
+    renderScreen("FREE");
+    await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
+    await chooseEntries();
+    await userEvent.type(screen.getByLabelText(/unit price/i), typed);
+    expect(screen.getByLabelText(/unit price/i)).not.toHaveAttribute("aria-invalid", "true");
+    await submit();
+    await screen.findByRole("status");
+
+    expect(receivedBodies()[0]).toMatchObject({ purchasePrice: typed, costSource: "INVOICE" });
   });
 
   it("sends a typed price as an invoice price, and nothing while the price is blank", async () => {
