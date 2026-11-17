@@ -4,6 +4,7 @@ import { COST_SOURCES, setTyreCost, type CostSource, type Tyre } from "../../api
 import { Button } from "../../ui/Button";
 import { Select } from "../../ui/Select";
 import { TextInput } from "../../ui/TextInput";
+import { priceMisshapen, PRICE_SHAPE_ERROR } from "../priceShape";
 import { RefusalAlert } from "../RefusalAlert";
 import { tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
@@ -36,7 +37,9 @@ export function CostForm({
   // (000031), so a pre-selected INVOICE would stick.
   const [costSource, setCostSource] = useState<CostSource | "">("");
   const hintId = useId();
+  const priceErrorId = useId();
   const sourceMissing = price.trim() !== "" && costSource === "";
+  const priceBad = priceMisshapen(price);
 
   const cost = useFormMutation({
     // Price stays a string end to end (rule 2), never Number()'d, here or
@@ -52,7 +55,7 @@ export function CostForm({
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (price.trim() === "" || costSource === "") return;
+    if (price.trim() === "" || costSource === "" || priceBad) return;
     cost.submit({ price, source: costSource });
   }
 
@@ -65,7 +68,14 @@ export function CostForm({
         onChange={(e) => setPrice(e.target.value)}
         inputMode="decimal"
         required
+        aria-invalid={priceBad}
+        aria-describedby={priceBad ? priceErrorId : undefined}
       />
+      {priceBad && (
+        <p className="fleet-hint" id={priceErrorId}>
+          {PRICE_SHAPE_ERROR}
+        </p>
+      )}
 
       <Select
         aria-label={`Cost source for ${tyre.displayCode}`}
@@ -83,7 +93,10 @@ export function CostForm({
         </p>
       )}
 
-      <Button type="submit" disabled={price.trim() === "" || costSource === "" || cost.isPending}>
+      <Button
+        type="submit"
+        disabled={price.trim() === "" || costSource === "" || priceBad || cost.isPending}
+      >
         {cost.isPending ? "Saving…" : "Set cost"}
       </Button>
 

@@ -4,6 +4,7 @@ import { recordReceiptInvoice, type MoveResult, type OpenReceipt } from "../../a
 import { Button } from "../../ui/Button";
 import { Field } from "../../ui/Field";
 import { TextInput } from "../../ui/TextInput";
+import { priceMisshapen, PRICE_SHAPE_ERROR } from "../priceShape";
 import { RefusalAlert } from "../RefusalAlert";
 import { openReceiptsKey, tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
@@ -38,6 +39,8 @@ export function InvoiceForm({
     onSuccess: onRecorded,
   });
 
+  const priceBad = priceMisshapen(price);
+
   function submit(e: FormEvent) {
     e.preventDefault();
     if (price.trim() === "") {
@@ -45,6 +48,7 @@ export function InvoiceForm({
       return;
     }
     setRefused("");
+    if (priceBad) return;
     // Money stays the typed string (rule 2); the database rounds it.
     const body: InvoiceBody = { price: price.trim() };
     if (invoiceNumber.trim() !== "") body.invoiceNumber = invoiceNumber.trim();
@@ -55,7 +59,7 @@ export function InvoiceForm({
   const id = (field: string) => `${field}-${receipt.id}`;
   return (
     <form onSubmit={submit} className="fleet-row-form fleet-invoice">
-      <Field label="Unit price">
+      <Field label="Unit price" error={priceBad ? PRICE_SHAPE_ERROR : undefined}>
         <TextInput
           id={id("invoicePrice")}
           name="price"
