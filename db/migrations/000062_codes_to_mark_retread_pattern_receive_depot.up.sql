@@ -163,6 +163,7 @@ DECLARE
   pt       uuid;
   pt_brand uuid;
   pt_use   text;
+  dp       uuid := (payload->>'depot_id')::uuid;
   thr      numeric;
   rate     numeric;
   rcv   date;
@@ -283,6 +284,25 @@ BEGIN
     br := pt_brand;
   END IF;
 
+  -- B39 (TYRE-450): the stock lands at a depot or store, the pair
+  -- app.return_tyre_to_stock stocks (000033), required while the fleet has
+  -- one. A missing, foreign, inactive or wrong-type depot shares one
+  -- message, so the refusal is no oracle. Narrowing it to the user's own
+  -- depots is write-side scoping, deferred for every asset write (D8).
+  IF dp IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM app.depot d
+                    WHERE d.id = dp AND d.tenant_id = app.current_tenant_id() AND d.active
+                      AND d.type IN ('DEPOT', 'STORE')) THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY011',
+        MESSAGE = 'no such active depot or store in this fleet; choose the depot or store that takes the stock';
+    END IF;
+  ELSIF EXISTS (SELECT 1 FROM app.depot d
+                 WHERE d.tenant_id = app.current_tenant_id() AND d.active
+                   AND d.type IN ('DEPOT', 'STORE')) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY011',
+      MESSAGE = 'a receive names the depot or store that takes the stock; choose one';
+  END IF;
+
   -- U93, BR-VAL-002: app.rand_per_mm divides by the tread above the removal
   -- threshold, so a tread at or below it is unratable. One resolution
   -- serves this check and the rate below. With no threshold in force there
@@ -363,7 +383,7 @@ BEGIN
   -- resolved above. Its state follows the cost source.
   INSERT INTO app.tyre_receipt (tenant_id, size_id, brand_id, pattern_id, received_date, depot_id,
                                 invoice_number, price_state)
-  VALUES (app.current_tenant_id(), sz, br, pt, rcv, (payload->>'depot_id')::uuid, inv,
+  VALUES (app.current_tenant_id(), sz, br, pt, rcv, dp, inv,
           CASE src WHEN 'INVOICE' THEN 'INVOICED'
                    WHEN 'PRICE_LIST_ESTIMATE' THEN 'ESTIMATED'
                    ELSE 'UNPRICED' END::app.receipt_price_state)
@@ -391,7 +411,7 @@ BEGIN
                           current_depot_id, received_date, receipt_id)
     VALUES (app.current_tenant_id(), code, sz, br, pt, 'NEW', 0,
             (payload->>'purchase_date')::date, price, src, tread, rate,
-            'IN_STOCK', (payload->>'depot_id')::uuid, rcv, rcpt)
+            'IN_STOCK', dp, rcv, rcpt)
     RETURNING id INTO new_id;
 
     -- The vocabulary's first writer (TYRE-48): receipt is the point a tyre

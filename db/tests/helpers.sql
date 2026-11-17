@@ -130,6 +130,22 @@ SET search_path = app, pg_temp AS $fn$
   RETURNING id;
 $fn$;
 
+-- A receive payload at the bound fleet's first active depot or store, unless
+-- it names a depot already: a fleet with one refuses a receive without it
+-- (B39, 000062). It names the tenant because 005 calls it as postgres, which
+-- bypasses RLS. A fleet with none gets a JSON null, which app.receive_tyres
+-- reads as no depot. Section 79 calls app.receive_tyres without it.
+CREATE FUNCTION pg_temp.at_depot(p_payload jsonb) RETURNS jsonb
+LANGUAGE sql
+SET search_path = app, pg_temp AS $fn$
+  SELECT CASE WHEN p_payload ? 'depot_id' THEN p_payload
+              ELSE p_payload || jsonb_build_object('depot_id',
+                     (SELECT d.id FROM app.depot d
+                       WHERE d.tenant_id = app.current_tenant_id() AND d.active
+                         AND d.type IN ('DEPOT', 'STORE')
+                       ORDER BY d.name LIMIT 1)) END
+$fn$;
+
 -- Every privilege app_writer holds in schema app, as 'kind object privilege',
 -- functions it owns aside. app_writer_faults compares it with its list, and
 -- db/tests/migration/000061_catalogue.sql prints it.
