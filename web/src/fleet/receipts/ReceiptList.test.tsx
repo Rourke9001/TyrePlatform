@@ -112,6 +112,24 @@ describe("open receipts", () => {
     ).toBeInTheDocument();
   });
 
+  // R1: a screen reader announces each cell with the row header, which only
+  // reaches the cells after it when it leads the row.
+  it("the row header is the row's first cell", async () => {
+    mockApi();
+    renderScreen();
+
+    await rowFor("BAC-00010");
+    const bodyRows = screen.getAllByRole("row").slice(1);
+    expect(bodyRows).toHaveLength(2);
+    for (const row of bodyRows) {
+      const first = row.firstElementChild;
+      expect(first?.tagName).toBe("TH");
+      expect(first).toHaveAttribute("scope", "row");
+    }
+    expect(bodyRows[0]?.firstElementChild).toHaveTextContent("BAC-00010, BAC-00011");
+    expect(screen.getAllByRole("columnheader")[0]).toHaveTextContent("Codes");
+  });
+
   it("says so when no receipt is open", async () => {
     mockApi({ open: [] });
     renderScreen();
