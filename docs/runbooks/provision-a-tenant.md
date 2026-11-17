@@ -187,7 +187,8 @@ The tech team records consent at onboarding, from the agreement the client
 signed, and again whenever the contract records a change (U143 item 4).
 Provisioning writes the file's records itself; this is for any record
 after that. A withdrawal is a new record with `false`. The ledger is never
-edited: a trigger refuses an `UPDATE` from every role, this one included.
+edited: a trigger refuses an `UPDATE` from every role, this one included,
+and another refuses a row dated after `now()` from every role (000062).
 
 Connect as **Before any SQL** says, then:
 

@@ -93,7 +93,11 @@ Append `-2`, `-3` on collision.
 
 1. Rename `tyre.branded_number` → `tyre.display_code`
 2. Replace `UNIQUE (tenant_id, branded_number)` with a partial unique index over active tyres
-3. Add `brand_pending` and a dated branding event
+3. Add `brand_pending` and a dated branding event. Done: the column and the
+   receipt-time `BRANDED` event (000011, 000031), and its writer (000062,
+   TYRE-99). Pending now means a code the platform issued under GENERATED,
+   waiting until a ManageAssets holder records that it is on the sidewall
+   (B22, U224).
 4. Add the duplicate-active-code exception rule
 5. Amend **DR-002** in the SRS — it currently states global uniqueness
 6. Add the rotation-detected soft prompt to the capture flow

@@ -22,7 +22,9 @@ FK refusals on both tables, each probed as `app_writer`. P23 to P25 hold the
 cases of sections 76e, 76h and 76i that need a past trip or nomination,
 probed as `app_login`. P26 shows the `app_writer` shape check fails on each
 fault it looks for, and P27 that row security binds `app_writer`, beside a
-BYPASSRLS control. Both files load `db/tests/helpers.sql` first, a pg_temp
+BYPASSRLS control. P28 does the same for `app.mark_code_on_sidewall` and
+the three tables it writes, and P29 holds a retread return's pattern to the
+bound fleet under a role that bypasses RLS (TYRE-99). Both files load `db/tests/helpers.sql` first, a pg_temp
 prelude of the helpers they share, so a section cut from either needs it too.
 
 What 005 proves: a block that runs as `postgres` proves nothing about
@@ -109,9 +111,10 @@ review and a suite section before it lands (check 8c). The first is
 runs with RLS off. A new function is executable by PUBLIC by default, so its
 migration revokes EXECUTE from PUBLIC and app_rw: a caller who can execute it
 can attach it as a trigger to a table of its own (section 67, TYRE-346). The
-second is the write list, `app.start_trip`, `app.end_trip` and
-`app.nominate_for_task`, owned by `app_writer`, a NOLOGIN role RLS binds
-(000061, ADR-0024). A new write-list definer:
+second is the write list, `app.start_trip`, `app.end_trip`,
+`app.nominate_for_task` and `app.mark_code_on_sidewall` (000062), owned by
+`app_writer`, a NOLOGIN role RLS binds (000061, ADR-0024). A new write-list
+definer:
 
 - is owned by `app_writer`, handed over with `GRANT CREATE ON SCHEMA app TO
   app_writer` before the `OWNER TO` and `REVOKE CREATE` after it, in the same
@@ -189,13 +192,23 @@ from `app_rw` (000012), and `tenant_consent_written_once` refuses an
 the owning role. `DELETE` stays grant-only, since a tenant's deletion
 cascades through its ledger (DR-014). A change of consent is a new row
 through `app.record_consent`, dated after the purpose's latest row (U144).
+`tenant_consent_not_future_dated` refuses a row dated after `now()` from
+every role (`TY027`, 000062), since it would become the current consent
+and lock out every later record.
 
 `tyre_receipt` is edited in place, but only through `UPDATE (price_state,
 invoice_number)` (000059). `tyre_receipt_moves_once` allows four moves,
 never from a final state and never ahead of its tyres' prices, so the
 receipt's own functions are the way to move one. `tyre.receipt_id` is held
 fixed by the `tyre_receipt_fixed` trigger, since `app_rw` holds `UPDATE` on
-`app.tyre` at table level.
+every `app.tyre` column but `brand_pending`, `receipt_id` included.
+
+`app.tyre.brand_pending` is held by its grant (000062): `app_rw` holds
+`UPDATE` on every other column of `app.tyre`, so only
+`app.mark_code_on_sidewall`, running as `app_writer`, clears the flag, and
+section 77a fails until a new column has its own grant. `app_rw` keeps
+`INSERT`, so a raw insert can still plant a tyre with any flag (TYRE-99
+spec, Non-goals).
 
 A trip ends once (000060). `app_rw` holds neither `INSERT` nor `UPDATE` on
 `app.trip` and no `INSERT` on `app.inspection_task_nomination` (000061), so

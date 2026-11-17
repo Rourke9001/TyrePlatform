@@ -155,7 +155,10 @@ One JSON object. Every section is optional:
 - **Brands** need a `name`.
 - **Patterns** need a `name` and `applies_to`: `NEW`, `RETREAD` or
   `BOTH`. Receipt offers a pattern for a new tyre only when it applies to
-  `NEW` or `BOTH`. `brand` is optional.
+  `NEW` or `BOTH`. `brand` is optional. A fleet that retreads lists its
+  retreader's patterns as `RETREAD` or `BOTH`: an accepted retread return
+  leaves the casing on one, and is refused while the fleet has none (U225,
+  TYRE-102).
 - **Casing estimates** need a `size`, an `estimated_value` and an
   `effective_from`.
 - **Price list** rows need a `size`, a `typical_price` and an

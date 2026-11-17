@@ -187,7 +187,7 @@
   "TY011": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "a receive refused by app.receive_tyres: a received date after the tenant's today (FR-TYR-040 as amended by TYRE-418; TYRE-175), the display-code policy (D12), a quantity outside 1 to 200, a missing size, pattern or new tread, a new tread outside 0 to app.max_tread_mm(), an inactive size, pattern or brand (a pattern's own brand included), a retread-only pattern, a brand the pattern does not belong to, a new tread at or below the removal threshold, a price with no cost source or with UNKNOWN, a cost source other than UNKNOWN with no price (TYRE-318, U128), a price with no removal threshold in force (U129), a rate past what rand_per_mm's numeric(12,4) carries (TYRE-421), an invoice number with any price but an invoice price, or a price list estimate that is not the list's figure or has no list entry in force on the received date (FR-CFG-041, TYRE-283)",
+    "meaning": "a receive refused by app.receive_tyres: a received date after the tenant's today (FR-TYR-040 as amended by TYRE-418; TYRE-175), the display-code policy (D12), a quantity outside 1 to 200, a missing size, pattern or new tread, a new tread outside 0 to app.max_tread_mm(), an inactive size, pattern or brand (a pattern's own brand included), a retread-only pattern, a brand the pattern does not belong to, a new tread at or below the removal threshold, a price with no cost source or with UNKNOWN, a cost source other than UNKNOWN with no price (TYRE-318, U128), a price with no removal threshold in force (U129), a rate past what rand_per_mm's numeric(12,4) carries (TYRE-421), an invoice number with any price but an invoice price, a price list estimate that is not the list's figure or has no list entry in force on the received date (FR-CFG-041, TYRE-283), a NaN or negative price (X12), or a depot that is not an active depot or store of the fleet, or none while it has one (B39, TYRE-450)",
     "raisedBy": ["app.receive_tyres"]
   },
   "TY012": {
@@ -208,6 +208,7 @@
       "app.fitment_instant_ok",
       "app.keep_receipt_estimate",
       "app.log_retread_return",
+      "app.mark_code_on_sidewall",
       "app.nominate_for_task",
       "app.record_receipt_invoice",
       "app.remove_tyre",
@@ -228,7 +229,7 @@
   "TY014": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "a fitment write refused: a closed row is frozen entire, and an open row's removal columns may only move together (rule 3, FR-FIT-014/015, CR-004)",
+    "meaning": "a fitment write refused: a closed row is frozen entire, and an open row's removal columns may only move together (rule 3, FR-FIT-014/015, CR-004); or a retread return's pattern that is not an active retread pattern of the fleet (U225, TYRE-102)",
     "raisedBy": [
       "app.dispatch_tyre",
       "app.fit_tyre",
@@ -343,9 +344,13 @@
   "TY027": {
     "source": "db",
     "httpStatus": null,
-    "meaning": "a consent record refused: by app.record_consent for no tenant bound or one that does not exist, a purpose outside SERVICE_DELIVERY and ANONYMISED_BENCHMARKING, no granted or withdrawn, a notice version missing or blank, no time given, a time after now, or a time not after the purpose's latest record (U144); or by the written-once trigger for any UPDATE of a recorded row, from any role (FR-TEN-022, OR-LEG-005, TYRE-283)",
+    "meaning": "a consent record refused: by app.record_consent for no tenant bound or one that does not exist, a purpose outside SERVICE_DELIVERY and ANONYMISED_BENCHMARKING, no granted or withdrawn, a notice version missing or blank, no time given, a time after now, or a time not after the purpose's latest record (U144); or by the written-once trigger for any UPDATE of a recorded row, from any role (FR-TEN-022, OR-LEG-005, TYRE-283); or by tenant_consent_not_future_dated for a row dated after now, from any role (TYRE-99)",
     "note": "no route writes consent; make record-consent, provision_tenant.py and docs/runbooks/provision-a-tenant.md do, so an entry would carry no test able to fail (ADR-0012, TY008's reasoning)",
-    "raisedBy": ["app.record_consent", "app.tenant_consent_is_written_once"]
+    "raisedBy": [
+      "app.record_consent",
+      "app.tenant_consent_is_not_future_dated",
+      "app.tenant_consent_is_written_once"
+    ]
   },
   "TY028": {
     "source": "db",

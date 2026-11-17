@@ -162,8 +162,8 @@ live schema (ADR-0012):
 | TY007 | 000023 | an unrecognised or cross-tenant `vehicle_id` |
 | TY008 | 000024 (widened 000028) | a configuration or unit-kind change on a unit with history; no route can reach it, so no `submitStatus` entry exists |
 | TY009 | 000025 | `fitment_odometer_matches_unit_kind`, on every fitment write |
-| TY011-013 | 000031, 000053, 000057, 000059 | the tyre lifecycle's refusals |
-| TY014 | 000032 | a fitment write refused |
+| TY011-013 | 000031, 000053, 000057, 000059, 000062 | the tyre lifecycle's refusals |
+| TY014 | 000032, 000062 | a fitment write refused, or a retread return's pattern |
 | TY015 | 000033 | the retread cap |
 | TY016 | 000035 | a unit status transition refused |
 | TY017 | 000037 | a rig write refused |
@@ -176,7 +176,7 @@ live schema (ADR-0012):
 | TY024 | 000058 | a tenant's catalogue file refused; no route can reach it, so no entry exists |
 | TY025 | 000058 | a platform catalogue seed refused; no route can reach it, so no entry exists |
 | TY026 | 000059 | a receipt refused: a move its state does not allow, or a tyre's receipt changed |
-| TY027 | 000059 | a consent record refused; no route can reach it, so no entry exists |
+| TY027 | 000059, 000062 | a consent record refused; no route can reach it, so no entry exists |
 | TY028 | 000060 | a trip write refused: a start or an end, including a due inspection not done on a unit the trip would cover (U148) |
 
 `httpapi.unitSource` is the one place a fleet handler chooses its relation
