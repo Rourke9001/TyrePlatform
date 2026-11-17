@@ -57,8 +57,8 @@ export CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1
 rc=0
 start=$SECONDS
 # The range is the review's target, both ends in full: with no target the
-# review can read a wider diff than the branch's upstream sets (TYRE-488,
-# U222; docs/lessons.md, 2026-11-17).
+# review can read a wider diff than the round (TYRE-488, U222;
+# docs/lessons.md, 2026-11-17).
 # --max-findings default: the skill keeps the last value typed, so a cap set in
 # another session would limit every review unseen (TYRE-476).
 # </dev/null: print mode reads a piped stdin, and the CLI's own warning says to

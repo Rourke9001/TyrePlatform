@@ -511,12 +511,12 @@ nothing, that gate stands and is not run again.
    ends mid-sentence or names files it did not read). Anything that is not
    a review is a finder that returned nothing, so run the script once more.
    A review id gets one such rerun, whichever way it returned nothing.
-   Before the rerun, copy
-   each of `code-review-<k>.json`, `.err` and `.md` that exists to
-   `code-review-<k>-first.json`, `-first.err` and `-first.md`, since the
-   rerun deletes or overwrites all three. A second finder that returned
-   nothing for the same id stops for the owner (The run cannot go on) with
-   both `REVIEW:` lines and the `-first` files. Once the reply is a review,
+   Before the rerun, copy each of `code-review-<k>.json`, `.err` and `.md`
+   that exists to `code-review-<k>-first.json`, `-first.err` and
+   `-first.md`, since the rerun deletes or overwrites all three. A second
+   finder that returned nothing for the same id stops for the owner (The run
+   cannot go on) with both `REVIEW:` lines and the `-first` files. Once the
+   reply is a review,
    build `<state dir>/findings-<k>.md`: copy the result with
    `cp "<state dir>/code-review-<k>.md" "<state dir>/findings-<k>.md"`, so
    the verifier reads the review's findings byte for byte, then append each
