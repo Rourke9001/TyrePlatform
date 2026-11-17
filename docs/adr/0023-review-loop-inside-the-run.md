@@ -2,11 +2,11 @@
 
 - **Status:** Accepted (owner, 9 Nov 2026, with U191 to U195). Its PR is
   #208. It supersedes ADR-0018's stage 5
-  decision and its push stop. Amended 10 Nov 2026 (TYRE-476, U205), 14 Nov 2026 (TYRE-481, U212), 16 Nov 2026 (TYRE-484, U215) and 17 Nov 2026 (TYRE-485, U219).
+  decision and its push stop. Amended 10 Nov 2026 (TYRE-476, U205), 14 Nov 2026 (TYRE-481, U212), 16 Nov 2026 (TYRE-484, U215) and 17 Nov 2026 (TYRE-485, U219, U221).
 - **Date:** 2026-11-09
 - **Deciders:** Rourke (owner)
 - **Related:** ADR-0018 · TYRE-470, TYRE-395, TYRE-476, TYRE-484, TYRE-485 · U123, U124, U125, U146,
-  U191 to U195, U205, U215, U219 · spec `docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`
+  U191 to U195, U205, U215, U219, U221 · spec `docs/superpowers/specs/2026-11-09-autonomous-runs-design.md`
 
 ## Context
 
@@ -131,6 +131,10 @@ and a fresh fixer each round (Option B).
   the files the findings cite after it, because the spike's check could not
   have caught a superset diff, and a review of the wrong diff would end the
   loop falsely.
+  *(Amended 2026-11-17 by TYRE-485, U221. A re-review that read the whole
+  PR still cited files in its range (docs/lessons.md, 2026-11-17), so the
+  lead reads which diff the review ran in its transcript instead, by
+  `pipeline.md`, Review loop step 4.)*
 
 The owner's rulings of 9 Nov 2026 set the loop's rules. Each lives in
 CLAUDE.md, not here:
