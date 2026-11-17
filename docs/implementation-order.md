@@ -1,15 +1,17 @@
 # Implementation order
 
-Re-verified **1 Nov 2026** against `develop` @ `1ab75a2` and the board,
-after the Tread stack (#151 to #154) merged. The plan is the pilot audit's
+Re-verified **17 Nov 2026** against `develop` @ `98d61d27` and the board
+(TYRE-486): every open ticket without the `post-poc` label was read with its
+links and comments. The plan is the pilot audit's
 of 21 Oct 2026 (TYRE-452), which the owner approved that day: U145 (the
 Tread rework), U146 (a bug found on a branch is fixed there) and U147 (the
 board changes, the product answers and the pilot date). U156 moved the
 Tread rework ahead of it on 26 Oct. On 3 Nov the owner placed TYRE-455,
 457 and 458 (U162), and the rulings U161 and U163 raised 459, 460 and 461,
-whose sprints are a default the owner can move. Those changes, staging's
-migrate to 000060 and the restore rehearsal are added here without a full
-re-verification.
+whose sprints are a default the owner can move. From 9 to 17 Nov the
+pipeline ran the design audit's tickets and its own (TYRE-471 to 485), so
+the sprints below did not advance. The run queue is the order work launches
+in.
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase. Where this
@@ -39,6 +41,139 @@ container is restarted immediately before every `make e2e` and never reused
 across two runs, and no test derives a tenant-relative date from the browser
 or CI clock (`docs/lessons.md`, 2026-09-03).
 
+## The run queue
+
+`make pipeline` runs one job at a time in this checkout, so the two lanes of
+the 21 Oct plan are one line here (TYRE-486). Launch the rows top to bottom.
+A row launches only after the row before it has merged, because a new run
+stops while another run's PR is open (`/pipeline`, Before anything). When
+a row's PR merges, close-out deletes the row (its step 5). The rows left
+keep their numbers, so a reference to a row stays right.
+
+The order is the plan's sprint order, with the database and web lanes taken
+in turn. Two things differ from the sprint table below: TYRE-432 moves ahead
+of the other sprint 2 database rows (Two ordering rules), and the tickets
+that later rulings scheduled before the pilot sit after sprint 3. The order
+is a default the owner can change. The last column is not: it holds each
+row's dependencies.
+
+How to read a row:
+
+- **Launch** is the whole command. One key is a large ticket, unless the
+  lead calls it a small fix. Several keys are a small-fix bundle, and the
+  run stops if the lead calls any key not small; launch again without it.
+- **Carries** names the tickets that ride in the same PR. Each pairing comes
+  from the tickets' pilot audit comments of 21 Oct 2026 or a later ruling,
+  and the launch ticket has a "Run queue" comment that restates it. The PR
+  body carries a `Closes` line for each carried key, and the lead moves each
+  at hand-over. `/pipeline` has no rule for a carried key and close-out acts
+  only on the keys a PR names, so check the carried keys after row 1. A
+  "fold" is a ticket that is Done on the board whose work lands here.
+- **Before it starts** names what is not code: an ADR, an answer or an asset
+  from the owner or BAC, a live step, a row that must merge first. A run
+  asks for the first three at its own stops; having them ready shortens the
+  wait.
+- A key with more than one PR, as TYRE-243 and TYRE-152 have, launches again
+  only once the owner has deleted its state directory under
+  `.superpowers/sdd/` and its merged branch (`/pipeline`, Before anything,
+  step 3).
+
+Small fixes are rare in this queue. Read against the code on 17 Nov, only
+TYRE-460 and TYRE-480 are certain small fixes; 457, 461, 115, 363, 311 and
+380 read as small fixes from their tickets. Every other open ticket needs a
+migration, an endpoint, a route or a screen, or is several defects.
+
+**Sprint 1, what is left**
+
+| # | Launch | Carries | Lane | Before it starts |
+|---|---|---|---|---|
+| 1 | `make pipeline T=TYRE-99` | 102 and 450, with the 18 bugs PR #139 set aside (B40); fold 420 | database, API, web | TYRE-99's description has the superseded wording; its comment 13903 holds the replacement |
+| 2 | `make pipeline T=TYRE-371` | none | infrastructure, database, API | an ADR first; an Azure-managed sender domain for the pilot; the job's daily run on staging |
+| 3 | `make pipeline T=TYRE-438` | fold 437's fix | infrastructure | the owner's call to narrow `id-tyre-deploy-prod` or re-accept it; a platform apply. It merges before BAC onboards (B43) |
+| 4 | `make pipeline T=TYRE-334` | folds 333, 339, 340 and 335 | web, capture | two design choices that the spec settles (U168) |
+| 5 | `make pipeline T=TYRE-154` | none | web, capture | the owner supplies the app icon (192 and 512 px, and an apple-touch icon); row 8's favicon uses the same mark |
+
+**Sprint 2**
+
+| # | Launch | Carries | Lane | Before it starts |
+|---|---|---|---|---|
+| 6 | `make pipeline T=TYRE-319` | 323; fold 390 | database, API, web, capture | none |
+| 7 | `make pipeline T=TYRE-325` | none; it adds the void button | API, web | none |
+| 8 | `make pipeline T=TYRE-240` | 176 with fold 278; the behaviour fixes 118, 119, 182, 291, 327 and 328, 330's f8, f15 and f16, the favicon, and B41's back-dating field | web, API | row 5's icon. In Progress on the board with no branch: its Tread ports merged as #153 and #154 |
+| 9 | `make pipeline T=TYRE-243` | slice 1, the lifecycle | database, API, web | none |
+| 10 | `make pipeline T=TYRE-432` | fold 425 | database | none. It merges before BAC's tenant is provisioned (Two ordering rules) |
+| 11 | `make pipeline T=TYRE-152` | its first PR: the server, the queue and the office read | infrastructure, API, web | an ADR first (upload through the API); a role assignment on the photos container |
+| 12 | `make pipeline T=TYRE-287` | none | database, API, web | none. Row 24's FR-RPT-030 report links to it |
+| 13 | `make pipeline T=TYRE-109` | 286 | API, web, database | none. BAC's answer on operating groups shapes the seed, not the build |
+| 14 | `make pipeline T=TYRE-292` | 270 | database | none |
+| 15 | `make pipeline T=TYRE-100` | 372; fold 365 | database, API, web | none |
+
+**Sprint 3**
+
+| # | Launch | Carries | Lane | Before it starts |
+|---|---|---|---|---|
+| 16 | `make pipeline T=TYRE-448` | 285, 152's photo screens and 319's Today screen: the capture slice (U145) | web, capture, API, database | rows 6 and 11 merged. It merges before driver training |
+| 17 | `make pipeline T="TYRE-457 TYRE-460 TYRE-461"` | a small-fix bundle | web | none |
+| 18 | `make pipeline T=TYRE-458` | none | API, web, capture | none. The field needs no migration, because `api/internal/httpapi/capture.go` reads positions in its own query, so the lead may call it a small fix |
+| 19 | `make pipeline T=TYRE-168` | 190's F10, with 189's F4 | database | none. It merges before row 20 |
+| 20 | `make pipeline T=TYRE-322` | none | database, tooling, web | BAC's fuel export; row 19 merged |
+| 21 | `make pipeline T=TYRE-133` | none | database, API, web | row 2 merged, for the daily job |
+| 22 | `make pipeline T=TYRE-243` | slice 2, notifications | database, API, web | row 2 merged; row 9's state directory and branch deleted |
+| 23 | `make pipeline T=TYRE-284` | none | database, API | none |
+| 24 | `make pipeline T=TYRE-320` | fold 290 | API, web | the export ADR first; row 12 merged |
+| 25 | `make pipeline T=TYRE-354` | 363 and 367: the dashboard residuals PR; folds 362 and 355 | API, web, database tests | none |
+| 26 | `make pipeline T=TYRE-459` | none | database | none. It and TYRE-105 in row 33 both restate `app.set_vehicle_status`; the second one rebases |
+
+**Raised since the plan, at Medium.** These have no sprint and sit here by
+default. U173, U180 and U188 say before the pilot for 462, 465 and 466.
+TYRE-464, 468 and 479 have no ruling on timing, only the board's Medium:
+
+| # | Launch | Carries | Lane | Before it starts |
+|---|---|---|---|---|
+| 27 | `make pipeline T=TYRE-465` | none (U180) | web, capture | none |
+| 28 | `make pipeline T=TYRE-466` | none (U188) | web, capture | a design choice that the spec settles |
+| 29 | `make pipeline T=TYRE-464` | none (U178) | web, capture | a note on the Confluence prototype page is in its definition of done |
+| 30 | `make pipeline T=TYRE-462` | none (U173) | database, API, web | none |
+| 31 | `make pipeline T=TYRE-468` | none (U189) | database | none |
+| 32 | `make pipeline T=TYRE-479` | none | process | none |
+
+**Sprint 4**
+
+| # | Launch | Carries | Lane | Before it starts |
+|---|---|---|---|---|
+| 33 | `make pipeline T=TYRE-123` | 120, 121, 244, 131, 113 and 105: the register batch, one migration and one valuation-verifier pass; folds 221, 360 and 310's item 2 | database, API | none. It merges before the measured window |
+| 34 | `make pipeline T=TYRE-245` | 112: the suite PR; folds 246, 294, 316 and 375, 62's suite half and one assertion of 248 | database tests | none |
+| 35 | `make pipeline T=TYRE-140` | 115; fold 141 | web | none |
+| 36 | `make pipeline T=TYRE-159` | none | web | none |
+| 37 | `make pipeline T=TYRE-434` | none | API, database, infrastructure | row 3 merged |
+| 38 | `make pipeline T=TYRE-377` | none | API, database | none |
+| 39 | `make pipeline T=TYRE-76` | none | database, API, web | none. An ADR-0006 amendment rides in the PR |
+| 40 | `make pipeline T=TYRE-441` | 455: one spec (U162) | database, API, web, capture | row 6 merged. 455's SRS errata paste blocks its close |
+| 41 | `make pipeline T=TYRE-243` | slice 3, rule administration | database, API, web | row 22's state directory and branch deleted |
+| 42 | `make pipeline T=TYRE-366` | none | API, web | only if BAC runs two or more operating groups; rows 13 and 14 merged |
+
+**Not a pipeline run.** Each waits on the owner or a live step:
+
+- TYRE-485: PR #223, awaiting its last re-review and the merge. Its last
+  definition-of-done item is checked on row 1's transcripts.
+- TYRE-486: this page's own PR.
+- TYRE-472: merged as #221. It closes on the owner's report that release
+  step 4's queries match on staging, at the first release that carries
+  000061.
+- TYRE-381: merged in #165. It closes on the device check on deployed
+  staging, on Android Chrome and iPhone Safari.
+- TYRE-321: the readiness week: driver training, BAC onboarded on
+  production and the 7-day live run.
+- TYRE-398: narrowed to a signed-in release step in
+  `docs/runbooks/environment-release.md` (B35), written with a release.
+- TYRE-453: during the pilot, after rows 10, 19 and 20, once BAC has keyed
+  its sheets.
+
+**Open with no place yet.** Raised since 1 Nov with no sprint and no ruling
+on timing, all Low, for the owner to place: TYRE-467 (designed after
+ADR-0024, which #221 landed), TYRE-469 (U189), TYRE-480 (a small fix,
+`make pipeline T=TYRE-480`) and TYRE-483 (needs a spec).
+
 ## The pilot plan
 
 BAC's measured window is targeted for about **2 Dec 2026** (U147), after a
@@ -46,13 +181,15 @@ readiness week from 25 Nov. The dates below are estimates from the pace since
 13 Oct (12 code PRs merged in 9 days); the order is the commitment. A window
 from 2 Dec runs into the December holidays; if the date moves earlier, the
 first things out are TYRE-441, 76, 366 and 377. At 1 Nov, past sprint 1's
-dates, trips and Tread had merged and the rest of sprint 1's row had not; the
-dates have not been re-planned.
+dates, trips and Tread had merged and the rest of sprint 1's row had not. At
+17 Nov sprint 1's row still has the run queue's rows 1 to 5 to go, and the
+queue holds 42 runs; the dates have not been re-planned.
 
-Two lanes run side by side because they touch disjoint files. The database
-lane runs one PR after another, because each takes the next migration number
-and suite section: the next free pair is **000062 and section 77**, taken by
-whichever database branch is cut first.
+The table is the 21 Oct plan, kept as the record of what each sprint was to
+unlock; the run queue above decides the order. Its two lanes touch disjoint
+files. The database lane runs one PR after another, because each takes the
+next migration number and suite section: the next free pair is **000062 and
+section 77**, taken by whichever database branch is cut first.
 
 | Sprint | Dates | Web, API and infrastructure lane | Database lane | Unlocks |
 |---|---|---|---|---|
@@ -149,7 +286,10 @@ tenant, created at TYRE-321's live onboarding (U139).
 
 ## Blocked on people, not code
 
-**The owner:** have the SRS Cowork agent paste U166's errata for
+**The owner:** supply the app icon that the run queue's rows 5 and 8 need;
+decide `id-tyre-deploy-prod`'s role for row 3; run TYRE-381's device check
+and TYRE-472's staging check (The run queue, Not a pipeline run). Also have
+the SRS Cowork agent paste U166's errata for
 NFR-BAK-005 and 006 and fix the release log's staging database row
 (`docs/HANDOFF_srs_errata_TYRE-321_U166_2026-11-03.md`, gitignored). Staging is at 60 since
 3 Nov, so its rollback floor is PR #148 (`environment-release.md`, Roll
