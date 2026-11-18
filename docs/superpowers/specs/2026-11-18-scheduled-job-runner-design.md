@@ -244,10 +244,11 @@ Option 1 states what the other way would have cost.
    - ask `app.active_tenant_ids()` again whether the bound tenant is in
      it, and skip the tenant if not, so one suspended, closed or deleted
      after the listing and before this check gets no task (found in
-     review, CR-4). A change committed while the tenant's transaction runs
-     counts as after the run: the steps never read the tenant's state, and
-     a lock on its row that an administrator's `UPDATE` would wait on
-     needs `UPDATE` on `app.tenant`, which `app_rw` does not hold (CR1-1);
+     review, CR-4). A change committed after this check, while the
+     tenant's transaction runs, counts as after the run: the steps never
+     read the tenant's state, and a lock on its row that an
+     administrator's `UPDATE` would wait on needs `UPDATE` on
+     `app.tenant`, which `app_rw` does not hold (CR1-1);
    - run each daily step. Today there is one:
      `SELECT app.generate_inspection_tasks(app.tenant_today((SELECT timezone FROM app.tenant)))`.
      The tenant's day comes from SQL, in the tenant's own zone (rule 6).
