@@ -2371,7 +2371,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== P31. TYRE-371: the app_job grant check names an UPDATE on a reading column, a DELETE on tyre_event, a default privilege, a lost EXECUTE on the listing, a role setting and a parameter privilege, and reads nothing with none staged (rule 3, ADR-0025)'
+\echo '== P31. TYRE-371: the app_job grant check names an UPDATE on a reading column, a DELETE on tyre_event, a default privilege, a lost EXECUTE on the listing, a grant option on it, a role setting and a parameter privilege, and reads nothing with none staged (rules 1 and 3, ADR-0025)'
 BEGIN;
 SET LOCAL ROLE app_login;
 DO $$
@@ -2443,6 +2443,24 @@ BEGIN
     RAISE EXCEPTION 'FAIL P31: app_job without EXECUTE on the listing read %', COALESCE(f, 'no fault');
   END IF;
   RAISE NOTICE 'PASS  P31 a lost EXECUTE on the listing is named as missing';
+END $$;
+ROLLBACK;
+
+-- With the option app_job could grant the listing to app_rw, and so to the
+-- API's login, which the spec's Goals rule out (U239).
+BEGIN;
+GRANT EXECUTE ON FUNCTION app.active_tenant_ids() TO app_job WITH GRANT OPTION;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P31: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_job_grant_faults();
+  IF f IS DISTINCT FROM 'extra: function app.active_tenant_ids() EXECUTE WITH GRANT OPTION; '
+                        'missing: function app.active_tenant_ids() EXECUTE' THEN
+    RAISE EXCEPTION 'FAIL P31: EXECUTE on the listing with grant option read %', COALESCE(f, 'no fault');
+  END IF;
+  RAISE NOTICE 'PASS  P31 a grant option on the listing is named';
 END $$;
 ROLLBACK;
 
