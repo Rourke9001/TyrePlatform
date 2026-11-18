@@ -67,7 +67,7 @@ make db-up          # Postgres 16 in docker, port 5433
 make db-reset       # drop, apply schema, regenerate and load seeds
 make db-test        # the verification suite, as a non-superuser
 make test           # everything: db, api, web
-make lint           # gofmt/prettier check, vet, staticcheck, Bicep lint, actionlint, eslint, tsc, comments, stylelint, Go pins, money paths, bundle
+make lint           # gofmt/prettier check, vet, staticcheck, Bicep lint, actionlint, eslint, tsc, comments, stylelint, Go pins, money paths, job log contract, bundle
 make check          # hooks-install + fmt + lint + test. Run before every commit.
 make pipeline T=TYRE-123  # one job (a ticket, or T="TYRE-1 TYRE-2" for a small-fix bundle) to a reviewed PR
 ```

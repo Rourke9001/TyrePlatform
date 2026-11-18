@@ -204,6 +204,8 @@ jobs:
           node scripts/check-go-pins.mjs
           node scripts/check-money-types.mjs --self-test
           node scripts/check-money-types.mjs
+          node scripts/check-job-log-contract.mjs --self-test
+          node scripts/check-job-log-contract.mjs
           cd api
           gofmt -l . | tee /tmp/fmt && [ ! -s /tmp/fmt ] || { echo "::error::run gofmt"; exit 1; }
           go vet -tags devheader ./...
