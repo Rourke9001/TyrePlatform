@@ -144,8 +144,8 @@ func TestListActiveTenantsListsOnlyActiveTenants(t *testing.T) {
 func TestDailyIssuesEachTenantsTaskFromItsOwnDay(t *testing.T) {
 	ctx := context.Background()
 	s, admin := jobFixtures(t, ctx)
-	// Pago Pago (UTC-11) and Kiritimati (UTC+14) never share a date with UTC
-	// at one instant, so a step that read the day in UTC fails one of them.
+	// At every instant Pago Pago (UTC-11) or Kiritimati (UTC+14) is on
+	// another date than UTC, so a step that read the day in UTC fails one.
 	west := plantFleet(t, ctx, admin, "Pacific/Pago_Pago")
 	east := plantFleet(t, ctx, admin, "Pacific/Kiritimati")
 	var buf bytes.Buffer
