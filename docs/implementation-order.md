@@ -87,7 +87,7 @@ migration, an endpoint, a route or a screen, or is several defects.
 
 | # | Launch | Carries | Lane | Before it starts |
 |---|---|---|---|---|
-| 2 | `make pipeline T=TYRE-371` | none | infrastructure, database, API | an ADR first; an Azure-managed sender domain for the pilot; the job's daily run on staging |
+| 2 | `make pipeline T=TYRE-371` | merged in PR #229, the runner half only; email moved to TYRE-243 (U233) | infrastructure, database, API | the owner's staging steps in `environment-release.md`, The daily job (the job's daily run on staging) |
 | 3 | `make pipeline T=TYRE-438` | fold 437's fix | infrastructure | the owner's call to narrow `id-tyre-deploy-prod` or re-accept it; a platform apply. It merges before BAC onboards (B43) |
 | 4 | `make pipeline T=TYRE-334` | folds 333, 339, 340 and 335 | web, capture | two design choices that the spec settles (U168) |
 | 5 | `make pipeline T=TYRE-154` | none | web, capture | the owner supplies the app icon (192 and 512 px, and an apple-touch icon); row 8's favicon uses the same mark |
@@ -290,7 +290,7 @@ NFR-BAK-005 and 006 and fix the release log's staging database row
 (`docs/HANDOFF_srs_errata_TYRE-321_U166_2026-11-03.md`, gitignored). Staging is at 60 since
 3 Nov, so its rollback floor is PR #148 (`environment-release.md`, Roll
 back). Production stays at 58 until the next promotion, which must migrate
-first. TYRE-371's custom
+first. TYRE-243's email
 sender domain needs the platform domain, which the team registers outside
 Jira.
 
