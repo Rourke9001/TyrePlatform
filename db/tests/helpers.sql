@@ -311,9 +311,11 @@ END $fn$;
 -- What suite section 80 holds of the grants made to app_job itself: NULL
 -- when they are EXECUTE on the tenant listing and nothing else in schema app,
 -- with no default privilege, role setting or parameter privilege naming
--- app_job, else each fault, '; '-joined. app_job's other rights come through
--- app_rw, which check 4 sweeps as the app login, so a grant here is the rule
--- 3 route check 4 cannot see (TYRE-371). P31 in 005 shows each fault can fire.
+-- app_job, else each fault, '; '-joined. Check 4 runs as the app login, so a
+-- grant here can be a rule 3 route it cannot see (TYRE-371). app_job's other
+-- rights come through app_rw and PUBLIC: check 4 sweeps their table and
+-- column write rights, and nothing sweeps their parameter privileges
+-- (TYRE-490). P31 in 005 shows each fault can fire.
 CREATE FUNCTION pg_temp.app_job_grant_faults() RETURNS text
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $fn$
