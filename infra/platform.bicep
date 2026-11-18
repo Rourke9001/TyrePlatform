@@ -16,10 +16,10 @@
 // Revisit before the first commercial contract, per NFR-SEC-014; tracked as
 // TYRE-61.
 //
-// Every apply re-sends pgAdminPassword and devMachineIp, which
-// infra/platform.<env>.bicepparam reads from the apply's environment
-// (runbook, bring-up step 4): a different password changes the admin's, and
-// a stale IP moves the firewall rule.
+// Every apply re-sends pgAdminPassword, devMachineIp and ownerAlertEmail,
+// which infra/platform.<env>.bicepparam reads from the apply's environment
+// (runbook, bring-up step 4): a different password changes the admin's, a
+// stale IP moves the firewall rule, and a different address moves the alert.
 
 @description('Region for everything that stores data (ADR-0002).')
 param location string = 'southafricanorth'
@@ -44,6 +44,9 @@ param deployerObjectId string
 
 @description('Developer machine IP allowed through the PG firewall for migrations and db-test.')
 param devMachineIp string
+
+@description('The owner alert address, read from OWNER_ALERT_EMAIL in the apply environment so it is never committed: the repo is public (ADR-0025).')
+param ownerAlertEmail string
 
 // NFR-BAK-003's 30 days, set in production's param file, also cover
 // NFR-BAK-002's 7 days of point-in-time restore. Staging keeps 7 (ADR-0017).
@@ -175,8 +178,10 @@ resource kvSecretsOfficerForDeployer 'Microsoft.Authorization/roleAssignments@20
 
 // The API identity reads this vault and no other, because kv holds
 // psql-admin-password and tyreadmin bypasses RLS (rule 1, NFR-SEC-004,
-// NFR-SEC-012, TYRE-435). Only database-url goes here, since the API reads
-// all it holds. Same trade as kv above (TYRE-61).
+// NFR-SEC-012, TYRE-435). Only two DSNs go here, since the API identity
+// reads all it holds: database-url (app_login) and job-database-url
+// (app_job, for the daily job, which runs as the API identity, ADR-0025).
+// Same trade as kv above (TYRE-61).
 resource kvApi 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: 'kv-tyre-api-${env}'
   location: location
@@ -191,7 +196,8 @@ resource kvApi 'Microsoft.KeyVault/vaults@2023-07-01' = {
 }
 
 // The owner writes database-url here (runbook, staging's switch-over
-// step 2 and Production bring-up step 5).
+// step 2 and Production bring-up step 5), and job-database-url (runbook,
+// The daily job).
 resource kvApiSecretsOfficerForDeployer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(kvApi.id, deployerObjectId, roleKeyVaultSecretsOfficer)
   scope: kvApi
@@ -341,6 +347,61 @@ resource swa 'Microsoft.Web/staticSites@2023-12-01' = {
   properties: {
     stagingEnvironmentPolicy: 'Enabled'
     allowConfigFileUpdates: true
+  }
+}
+
+// ----------------------------------------------------------------- alerts --
+
+// Production's bring-up may have made this group by hand (runbook,
+// Production bring-up step 6); the template takes it over by name.
+resource ownerAlerts 'Microsoft.Insights/actionGroups@2023-01-01' = {
+  name: 'ag-tyre-owner'
+  location: 'global'
+  tags: tags
+  properties: {
+    groupShortName: 'tyreowner'
+    enabled: true
+    emailReceivers: [ { name: 'owner', emailAddress: ownerAlertEmail } ]
+  }
+}
+
+// One rule for a run that failed after its retry, never started or logged
+// nothing: it fires on a missing success line (NFR-OBS-003, ADR-0025).
+// Fields are parsed, never matched as a substring, because the API logs a
+// caller's key id into the same table (api/internal/bearer/bearer.go).
+resource dailyJobAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: 'alert-tyre-daily-job-${env}'
+  location: location
+  tags: tags
+  kind: 'LogAlert'
+  properties: {
+    description: 'caj-daily-${env} wrote no daily_job_succeeded line in 26 hours (TYRE-371, ADR-0025)'
+    severity: 1
+    enabled: true
+    scopes: [ logs.id ]
+    // Hourly keeps the rule stateful, so it resolves itself. The window is
+    // the two days Azure allows; the query narrows it to 26 hours, a day plus
+    // the run's timeout and ingestion delay.
+    evaluationFrequency: 'PT1H'
+    windowSize: 'P2D'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(26h)
+| extend entry = parse_json(Log_s)
+| where tostring(entry.job) == "daily" and tostring(entry.event) == "daily_job_succeeded"
+'''
+          timeAggregation: 'Count'
+          operator: 'LessThan'
+          threshold: 1
+          failingPeriods: { numberOfEvaluationPeriods: 1, minFailingPeriodsToAlert: 1 }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: { actionGroups: [ ownerAlerts.id ] }
   }
 }
 

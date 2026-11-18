@@ -35,8 +35,9 @@ The subscription must be `5a61b832-e331-4529-95ed-ae7b07a9697d`. If
 CLI's default tenant is the CIAM one, which has no subscription. Both
 environments live in this subscription (ADR-0017).
 
-`KV` is the owner's vault and holds the two passwords; `KVAPI` is the
-API's and holds `database-url` alone (TYRE-435).
+`KV` is the owner's vault and holds the three passwords; `KVAPI` is the
+API's and holds `database-url` and `job-database-url` and nothing else
+(TYRE-435, TYRE-371).
 
 While an environment's Postgres is stopped, its API is down: the API
 pings the database at startup and exits without it. That is accepted for
@@ -73,12 +74,13 @@ prints anything, stop.
 
 2. **Prove the secrets.** This connects to Postgres, so first run **Each
    release** step 1 below: a stopped server or a stale firewall IP fails the
-   connection whatever `database-url` holds. `$KV` must hold the two
-   passwords and `$KVAPI` only `database-url`, and `database-url` must
-   connect as `app_login`, which is not a superuser, does not bypass RLS and
-   is a member of neither `tyreadmin` nor `azure_pg_admin` (CLAUDE.md
-   rule 1). Roles outlive the database drop in step 5, so a hand change
-   from an earlier bring-up would survive it:
+   connection whatever `database-url` holds. `$KV` must hold the three
+   passwords and `$KVAPI` only `database-url` and `job-database-url`.
+   `database-url` must connect as `app_login` and `job-database-url` as
+   `app_job`, neither of which is a superuser, bypasses RLS or is a member
+   of `tyreadmin` or `azure_pg_admin` (CLAUDE.md rule 1). Roles outlive the
+   database drop in step 5, so a hand change from an earlier bring-up would
+   survive it:
 
    ```bash
    [ "$KV" = "kv-tyre-$ENV" ] && [ "$KVAPI" = "kv-tyre-api-$ENV" ] && echo "vaults match $ENV" || echo "vaults do not match $ENV"
@@ -89,20 +91,33 @@ prints anything, stop.
      'psql "$DSN" -At -F " " -c "SELECT current_user, rolsuper, rolbypassrls, pg_has_role(current_user, '"'tyreadmin'"', '"'MEMBER'"'), pg_has_role(current_user, '"'azure_pg_admin'"', '"'MEMBER'"') FROM pg_roles WHERE rolname = current_user;"'
    case "$dsn" in *pool_max_conns*) echo "database-url names pool_max_conns" ;; *) echo "database-url names no pool_max_conns" ;; esac
    case "$dsn" in *"@$PG.postgres.database.azure.com"[:/]*) echo "database-url names $PG" ;; *) echo "database-url does not name $PG" ;; esac
+   dsn=$(az keyvault secret show --vault-name $KVAPI -n job-database-url --query value -o tsv)
+   docker run --rm -e DSN="$dsn" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea sh -c \
+     'psql "$DSN" -At -F " " -c "SELECT current_user, rolsuper, rolbypassrls, pg_has_role(current_user, '"'tyreadmin'"', '"'MEMBER'"'), pg_has_role(current_user, '"'azure_pg_admin'"', '"'MEMBER'"') FROM pg_roles WHERE rolname = current_user;"'
+   case "$dsn" in *pool_max_conns*) echo "job-database-url names pool_max_conns" ;; *) echo "job-database-url names no pool_max_conns" ;; esac
+   case "$dsn" in *"@$PG.postgres.database.azure.com"[:/]*) echo "job-database-url names $PG" ;; *) echo "job-database-url does not name $PG" ;; esac
    unset dsn
    ```
 
    The first line must be `vaults match <env>`. On `vaults do not match`,
    stop and run Before anything again: every read below follows the two
    variables, so a name left in the shell from the other environment
-   proves that environment's vault instead. The first list must show `psql-admin-password` and
-   `pg-app-login-password`, and no `database-url`. The second must show
-   `database-url` and nothing else, because the API can read whatever its
-   vault holds. Then expect `app_login f f f f`. Anything else stops the
+   proves that environment's vault instead. The first list must show `psql-admin-password`,
+   `pg-app-login-password` and `pg-app-job-password`, and neither DSN. The
+   second must show `database-url` and `job-database-url` and nothing else,
+   because the API identity can read whatever its vault holds, and the
+   daily job runs as it. Then expect `app_login f f f f`. Anything else stops the
    bring-up: a revision cannot activate without a working `database-url`.
    Judge a failed connection only after Each release step 1 has run. The
-   last line must be `database-url names psql-tyre-<env>`: an `app_login`
-   on the other environment's server passes the role check too.
+   third line of the `database-url` reads must be `database-url names
+   psql-tyre-<env>`: an `app_login` on the other environment's server
+   passes the role check too.
+
+   The `job-database-url` reads expect the same three verdicts for
+   `app_job`: `app_job f f f f`, `job-database-url names no pool_max_conns`
+   and `job-database-url names psql-tyre-<env>`. On the release that carries
+   TYRE-371, read them only after its migrate and The daily job's step 2:
+   `app_job` exists from 000063, and its password is set after it.
 
    Then expect `database-url names no pool_max_conns`. The `case` prints a
    verdict, never the value. If it prints `database-url names
@@ -145,11 +160,17 @@ prints anything, stop.
 4. **The platform template.** First start the server if it is stopped (an
    apply against a stopped server fails), and read the extension list now in
    force, so the template's value drops nothing added by hand. The password
-   is read from the vault and the IP live, every time, and both reach the
-   template through `infra/platform.$ENV.bicepparam`, which reads them from
-   the apply's environment. Run this whole block, never the apply line
-   alone: alone it fails, because the param file finds none of the three
-   variables.
+   is read from the vault, the IP live and the owner's alert address from
+   the live `ag-tyre-owner`, every time, and all three reach the template
+   through `infra/platform.$ENV.bicepparam`, which reads them from the
+   apply's environment. Run this whole block, never the apply line alone:
+   alone it fails, because the param file finds none of the four variables.
+
+   On the first apply on an environment that has no `ag-tyre-owner` yet,
+   the address read finds nothing: type the owner's alert address after
+   `email=` on the line that follows it, as Production bring-up step 6 has
+   you type one. It is never written to a file, since the repo is public
+   (ADR-0025).
 
    Before any apply that changes `infra/platform.bicep` or a platform param
    file, run the same block once with
@@ -164,18 +185,25 @@ prints anything, stop.
    pw=$(az keyvault secret show --vault-name $KV -n psql-admin-password --query value -o tsv)
    ip=$(curl -s https://api.ipify.org)
    me=$(az ad signed-in-user show --query id -o tsv)
-   echo "ip=$ip me=$me pw-length=${#pw}"   # all three must be non-empty
-   [ -n "$pw" ] && [ -n "$ip" ] && [ -n "$me" ] && \
-     PG_ADMIN_PASSWORD="$pw" DEPLOYER_OBJECT_ID="$me" DEV_MACHINE_IP="$ip" \
+   email=$(az monitor action-group show -g $RG -n ag-tyre-owner --query "emailReceivers[0].emailAddress" -o tsv 2>/dev/null)
+   [ -n "$email" ] || email=   # only when no group exists yet: type the address after the =
+   echo "ip=$ip me=$me pw-length=${#pw} email-length=${#email}"   # all four must be non-empty
+   [ -n "$pw" ] && [ -n "$ip" ] && [ -n "$me" ] && [ -n "$email" ] && \
+     PG_ADMIN_PASSWORD="$pw" DEPLOYER_OBJECT_ID="$me" DEV_MACHINE_IP="$ip" OWNER_ALERT_EMAIL="$email" \
      az deployment group create -g $RG -n platform-$(date +%Y%m%d%H%M) \
        -p infra/platform.$ENV.bicepparam -o none
-   unset pw
+   unset pw email
    az postgres flexible-server parameter show -g $RG -s $PG -n azure.extensions --query value -o tsv
    ```
 
    If the first `parameter show` lists an extension other than `PGCRYPTO` and
    `BTREE_GIST`, stop: add it to `platform.bicep` first. Expect the second to
    print `PGCRYPTO,BTREE_GIST` (order may differ).
+
+   The first what-if after TYRE-371 lists two Creates, `ag-tyre-owner` and
+   `alert-tyre-daily-job-<env>`. On production the group may read as a
+   Modify instead: Production bring-up step 6 made it by hand, and the
+   template takes it over under the same name.
 
    After every platform apply, list the API identity's roles:
 
@@ -672,9 +700,10 @@ before its first platform apply, so the order differs from staging's.
    done
    ip=$(curl -s https://api.ipify.org)
    me=$(az ad signed-in-user show --query id -o tsv)
-   echo "ENV=$ENV RG=$RG ip=$ip me=$me pw-length=${#pw}"   # prod, rg-tyre-prod, then three non-empty values
-   [ "$ENV" = prod ] && [ -n "$pw" ] && [ -n "$ip" ] && [ -n "$me" ] && \
-     PG_ADMIN_PASSWORD="$pw" DEPLOYER_OBJECT_ID="$me" DEV_MACHINE_IP="$ip" \
+   email=   # the owner's alert address, typed after the =, as staging's step 4 says
+   echo "ENV=$ENV RG=$RG ip=$ip me=$me pw-length=${#pw} email-length=${#email}"   # prod, rg-tyre-prod, then four non-empty values
+   [ "$ENV" = prod ] && [ -n "$pw" ] && [ -n "$ip" ] && [ -n "$me" ] && [ -n "$email" ] && \
+     PG_ADMIN_PASSWORD="$pw" DEPLOYER_OBJECT_ID="$me" DEV_MACHINE_IP="$ip" OWNER_ALERT_EMAIL="$email" \
      az deployment group what-if -g $RG -p infra/platform.$ENV.bicepparam
    ```
 
@@ -692,10 +721,12 @@ before its first platform apply, so the order differs from staging's.
    - `kv-tyre-api-prod` and its two role assignments, the API identity's
      Key Vault Secrets User and your Secrets Officer, are Creates in
      `rg-tyre-prod`.
+   - `ag-tyre-owner` and `alert-tyre-daily-job-prod` are Creates in
+     `rg-tyre-prod` (TYRE-371).
    - Every other line is a Create, apart from two Ignores for what steps 1
-     and 2 made: `log-tyre-prod` and `id-tyre-deploy-prod`. The first apply
-     listed 19 Creates. Stop on any Delete or Modify, and on any Create
-     outside `rg-tyre-prod` other than that AcrPull assignment.
+     and 2 made: `log-tyre-prod` and `id-tyre-deploy-prod`. The first apply,
+     before TYRE-371, listed 19 Creates. Stop on any Delete or Modify, and on
+     any Create outside `rg-tyre-prod` other than that AcrPull assignment.
 
    A later re-apply is read the way staging's step 4 says. Then apply:
 
@@ -703,10 +734,11 @@ before its first platform apply, so the order differs from staging's.
    rebuilding the server.**
 
    ```bash
-   [ "$ENV" = prod ] && [ -n "$pw" ] && [ -n "$ip" ] && [ -n "$me" ] && \
-     PG_ADMIN_PASSWORD="$pw" DEPLOYER_OBJECT_ID="$me" DEV_MACHINE_IP="$ip" \
+   [ "$ENV" = prod ] && [ -n "$pw" ] && [ -n "$ip" ] && [ -n "$me" ] && [ -n "$email" ] && \
+     PG_ADMIN_PASSWORD="$pw" DEPLOYER_OBJECT_ID="$me" DEV_MACHINE_IP="$ip" OWNER_ALERT_EMAIL="$email" \
      az deployment group create -g $RG -n platform-$(date +%Y%m%d%H%M) \
        -p infra/platform.$ENV.bicepparam -o none
+   unset email
    az postgres flexible-server parameter show -g $RG -s $PG -n azure.extensions --query value -o tsv
    ```
 
@@ -772,11 +804,13 @@ before its first platform apply, so the order differs from staging's.
    password the closing `unset` has thrown away, and the re-run sets a new
    one and writes both secrets again.
 
-   Then prove the secrets with staging's step 2 block, under `ENV=prod`:
-   the two passwords in `kv-tyre-prod` and no `database-url` there,
-   `database-url` alone in `kv-tyre-api-prod`, `app_login f f f f`,
-   `database-url names no pool_max_conns` and
-   `database-url names psql-tyre-prod`. This proof is not optional.
+   Then set `app_job`'s password and `job-database-url` (The daily job,
+   Production), and prove the secrets with staging's step 2 block, under
+   `ENV=prod`: the three passwords in `kv-tyre-prod` and neither DSN there,
+   `database-url` and `job-database-url` in `kv-tyre-api-prod`,
+   `app_login f f f f`, `database-url names no pool_max_conns` and
+   `database-url names psql-tyre-prod`, and the same three for `app_job`
+   and `job-database-url`. This proof is not optional.
    `tyreadmin` has `rolbypassrls` true (TYRE-305 comment 13834), so an admin
    DSN in `database-url` would run the API outside RLS (CLAUDE.md rule 1).
 
@@ -810,28 +844,22 @@ before its first platform apply, so the order differs from staging's.
    An enabled alert whose conditions are `category` `ServiceHealth` with
    no narrower `incidentType` than `Maintenance`, scoped to the
    subscription, already covers production's server. If none does, create
-   one that emails the address staging's budget alerts go to:
+   one against `ag-tyre-owner`. Step 3's apply declares that group from
+   TYRE-371 on, so the block makes no group of its own:
 
    ```bash
    sub=$(az account show --query id -o tsv)
-   src=""
-   for scope in "/subscriptions/$sub/resourceGroups/rg-tyre-staging" "/subscriptions/$sub"; do
-     az rest --method get --url "$scope/providers/Microsoft.Consumption/budgets/budget-tyre-staging?api-version=2023-05-01" \
-       -o none 2>/dev/null && { src=$scope; break; }
-   done
-   [ -n "$src" ] && az rest --method get \
-     --url "$src/providers/Microsoft.Consumption/budgets/budget-tyre-staging?api-version=2023-05-01" \
-     --query "properties.notifications.*.contactEmails[]" -o tsv | sort -u
-   email=   # type the address the list shows
-   [ -n "$email" ] && \
-     az monitor action-group create -g $RG -n ag-tyre-owner --short-name tyreowner \
-       --action email owner "$email" -o none && \
+   ag=$(az monitor action-group show -g $RG -n ag-tyre-owner --query id -o tsv)
+   [ -n "$ag" ] && \
      az monitor activity-log alert create -g $RG -n alert-tyre-maintenance \
        --condition category=ServiceHealth and properties.incidentType=Maintenance \
-       --scope "/subscriptions/$sub" \
-       --action-group "$(az monitor action-group show -g $RG -n ag-tyre-owner --query id -o tsv)" \
+       --scope "/subscriptions/$sub" --action-group "$ag" \
        --description "Azure planned maintenance, including psql-tyre-prod (NFR-AVL-003)" -o none
    ```
+
+   The address step 3 asks for is the one staging's budget alerts go to.
+   Production's own bring-up, before TYRE-371, made `ag-tyre-owner` by hand
+   here with that address.
 
    Pass each notice for `psql-tyre-prod` to BAC at least 48 hours ahead
    (NFR-AVL-003). The server's own window is Sunday 00:00 to 01:00 UTC,
@@ -873,6 +901,100 @@ before its first platform apply, so the order differs from staging's.
    `true`, 30 and 30; then two `CanNotDelete` locks; then `1`.
 
    Then record the first row (Each release step 5, `ENV=prod`).
+
+## The daily job (TYRE-371)
+
+`caj-daily-<env>` runs `api job daily` at 22:15 UTC, 00:15 in South Africa,
+as `app_job` through `job-database-url` in `$KVAPI` (ADR-0025).
+`infra/app.bicep` names that secret, so a release fails while it is
+missing. `alert-tyre-daily-job-<env>` in `infra/platform.bicep` emails the
+owner when no run has written its `daily_job_succeeded` line in 26 hours:
+a run that failed after its retry, never started or logged nothing.
+
+**Staging, just before the merge.** The secret has to exist before the
+merge's deploy, and the role it names does not exist until staging migrates
+after the merge (U94), so the password is written to the vault now and set
+on the role later. Just before, and not earlier, because until the merge
+`develop`'s vault proof (bring-up step 2) expects `database-url` alone:
+
+```bash
+jobpw=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')
+enc=$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$jobpw")
+echo "ENV=$ENV KV=$KV KVAPI=$KVAPI jobpw-length=${#jobpw} enc-length=${#enc}"   # the environment, its two vaults, then two non-zero lengths
+[ "$KV" = "kv-tyre-$ENV" ] && [ "$KVAPI" = "kv-tyre-api-$ENV" ] && [ -n "$jobpw" ] && [ -n "$enc" ] && \
+  az keyvault secret set --vault-name $KV -n pg-app-job-password --value="$jobpw" -o none && \
+  az keyvault secret set --vault-name $KVAPI -n job-database-url \
+    --value "postgres://app_job:$enc@$PG.postgres.database.azure.com:5432/tyre?sslmode=require" -o none && \
+  echo "pg-app-job-password and job-database-url are set"
+unset jobpw enc
+```
+
+If the block does not print its last line, re-run the whole block. The DSN
+names no `pool_max_conns`: the job sets its pool of 2 in code (ADR-0005,
+2026-11-18 amendment).
+
+**Staging, after the merge's deploy is green.**
+
+1. **Each release**, migrating to 000063. Its step 4 reads `app_job` and
+   the listing; leave the vault proof's `app_job` lines for step 2.
+2. **`app_job`'s password**, set as `tyreadmin` from
+   `pg-app-job-password`, as Production bring-up step 5 sets `app_login`'s.
+   psql interpolates `:'jobpw'` only on stdin, never inside `-c`:
+
+   ```bash
+   pw=$(az keyvault secret show --vault-name $KV -n psql-admin-password --query value -o tsv)
+   jobpw=$(az keyvault secret show --vault-name $KV -n pg-app-job-password --query value -o tsv)
+   echo "KV=$KV pw-length=${#pw} jobpw-length=${#jobpw}"   # the owner's vault, then two non-zero lengths
+   [ "$KV" = "kv-tyre-$ENV" ] && [ -n "$pw" ] && [ -n "$jobpw" ] && \
+     echo "ALTER ROLE app_job PASSWORD :'jobpw';" | \
+     docker run --rm -i -e PGPASSWORD="$pw" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea psql \
+       "host=$PG.postgres.database.azure.com dbname=tyre user=tyreadmin sslmode=require" \
+       -v ON_ERROR_STOP=1 -v jobpw="$jobpw" -q && \
+     echo "app_job's password is set"
+   unset pw jobpw
+   ```
+
+   Then run bring-up step 2's block and expect its `app_job` lines.
+3. **The platform template**, bring-up step 4: its what-if first, which
+   lists two Creates on staging, `ag-tyre-owner` and
+   `alert-tyre-daily-job-staging`, and nothing else; then its apply, typing
+   the alert address the first time.
+4. **The alert fires, then resolves.** No success line exists yet, so the
+   alert's email arrives within the hour of the apply: the proof that it
+   works. Then start a run by hand and list its executions until the
+   newest reads `Succeeded`:
+
+   ```bash
+   az containerapp job start -g $RG -n caj-daily-$ENV -o none
+   az containerapp job execution list -g $RG -n caj-daily-$ENV \
+     --query "[].{name:name, status:properties.status, start:properties.startTime}" -o table
+   ```
+
+   Run **The read** below and expect a `daily_job_started` and a
+   `daily_job_succeeded` line. The "resolved" email follows within the hour.
+5. **Next morning**, run The read again with `ago(12h)` in place of
+   `ago(2h)` and expect the 22:15 UTC run's two lines.
+
+**Production, at its next promotion.** Production migrates before it is
+promoted, so the order is plain. On the `$sha` checkout, under `ENV=prod`:
+Promote to production step 2's migrate; the "just before the merge" block
+and step 2 above; bring-up step 4's what-if and apply, where
+`ag-tyre-owner` may read as a Modify; then Promote to production from
+step 3. Each must succeed before the next, since the promotion's deploy
+fails on a missing `job-database-url`. The alert fires until the first run
+at 22:15 UTC, or a hand start as in step 4, writes its success line.
+
+**The read.** The last two hours of the job's lines, parsed as the alert
+parses them:
+
+```bash
+wsid=$(az monitor log-analytics workspace show -g $RG -n log-tyre-$ENV --query customerId -o tsv)
+az monitor log-analytics query -w "$wsid" -o table --analytics-query "ContainerAppConsoleLogs_CL | where TimeGenerated > ago(2h) | extend entry = parse_json(Log_s) | where tostring(entry.job) == 'daily' | project TimeGenerated, event = tostring(entry.event), tenants = entry.tenants, created = entry.created, failed_tenants = entry.failed_tenants, step = entry.step, sqlstate = entry.sqlstate, error_type = entry.error_type | order by TimeGenerated asc"
+```
+
+A failure line names its tenant, step and SQLSTATE or Go type, never the
+error's text (NFR-PRV-007). Lines reach the workspace a few minutes after
+they are written.
 
 ## Each release
 
@@ -945,7 +1067,7 @@ Production has real data, so it migrates first and is promoted after:
    unset pw enc
    ```
 
-4. **The 000051, 000054, 000061 and 000062 checks, and `database-url`** (TYRE-368 comment 13439, TYRE-299, TYRE-472, TYRE-99). As `tyreadmin`:
+4. **The 000051, 000054, 000061, 000062 and 000063 checks, and both DSNs** (TYRE-368 comment 13439, TYRE-299, TYRE-472, TYRE-99, TYRE-371). As `tyreadmin`:
 
    ```bash
    pw=$(az keyvault secret show --vault-name $KV -n psql-admin-password --query value -o tsv)
@@ -956,7 +1078,11 @@ Production has real data, so it migrates first and is promoted after:
      -c "SELECT has_any_column_privilege('app_login', 'app.threshold_policy', 'UPDATE');" \
      -c "SELECT rolsuper, rolbypassrls, rolcanlogin, rolcreaterole, rolcreatedb, rolreplication FROM pg_roles WHERE rolname = 'app_writer';" \
      -c "SELECT p.proname, p.proowner::regrole, p.prosecdef, p.proacl FROM pg_proc p WHERE p.oid IN ('app.start_trip(uuid,uuid,uuid[])'::regprocedure, 'app.end_trip(uuid)'::regprocedure, 'app.nominate_for_task(uuid,uuid)'::regprocedure, 'app.mark_code_on_sidewall(uuid,uuid,date)'::regprocedure) ORDER BY p.proname;" \
-     -c "SELECT has_any_column_privilege('app_login', 'app.trip', 'INSERT'), has_any_column_privilege('app_login', 'app.trip', 'UPDATE'), has_any_column_privilege('app_login', 'app.inspection_task_nomination', 'INSERT');"
+     -c "SELECT has_any_column_privilege('app_login', 'app.trip', 'INSERT'), has_any_column_privilege('app_login', 'app.trip', 'UPDATE'), has_any_column_privilege('app_login', 'app.inspection_task_nomination', 'INSERT');" \
+     -c "SELECT rolsuper, rolbypassrls, rolcanlogin, rolcreaterole, rolcreatedb, rolreplication FROM pg_roles WHERE rolname = 'app_job';" \
+     -c "SELECT p.proowner::regrole, r.rolsuper OR r.rolbypassrls, p.prosecdef, p.proacl FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner WHERE p.oid = 'app.active_tenant_ids()'::regprocedure;" \
+     -c "SELECT has_function_privilege('app_login', 'app.active_tenant_ids()', 'EXECUTE');" \
+     -c "SELECT count(*) FROM app.tenant WHERE state = 'ACTIVE';"
    unset pw
    ```
 
@@ -978,6 +1104,37 @@ Production has real data, so it migrates first and is promoted after:
    four write-list definers, which only it and `app_rw` execute, and
    `app_login` writes neither table raw (ADR-0024). Anything else stops the
    release.
+
+   The four after them are 000063's, and print exactly this, with `<n>`
+   the count of ACTIVE tenants:
+
+   ```text
+   f|f|t|f|f|f
+   tyreadmin|t|t|{tyreadmin=X/tyreadmin,app_job=X/tyreadmin}
+   f
+   <n>
+   ```
+
+   `app_job` logs in and bypasses no row security; the listing is a definer
+   only it and its owner execute, and `app_login` may not. The `t` after
+   `tyreadmin` is what lets the listing see any tenant: an `f` there means
+   the owner stopped bypassing row security, the function returns nothing,
+   and the job visits nobody with every run green (ADR-0021, ADR-0025).
+   Then read the listing as `app_job`, through `job-database-url`'s own DSN:
+
+   ```bash
+   dsn=$(az keyvault secret show --vault-name $KVAPI -n job-database-url --query value -o tsv)
+   docker run --rm -e DSN="$dsn" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea sh -c \
+     'psql "$DSN" -At -c "SELECT current_user, count(*) FROM app.active_tenant_ids();"'
+   unset dsn
+   ```
+
+   Expect `app_job|<n>`, the same `<n>`. That proves the secret reaches the
+   function. It cannot show a lost bypass, since `app.tenant` is under
+   forced row security and the administrator's own count would read zero
+   too; the owner's `t` above is that check. Anything else stops the
+   release. On the release that carries TYRE-371, this read waits for The
+   daily job's step 2.
 
    Then run the block of One-time bring-up: staging, step 2, under this
    `ENV`, and expect what it lists. Every release proves `database-url`
@@ -1051,6 +1208,9 @@ production's schema yet (TYRE-434).
      and run Each release steps 1 to 4. If step 3's first read shows
      production already at the checkout's highest migration, step 2 changes
      nothing. Stop on anything step 3 stops on. Then `git switch -`.
+   - Before the first promotion that carries TYRE-371, `job-database-url`
+     and `app_job`'s password must exist on production (The daily job,
+     Production), or the deploy fails on the secret.
 
 3. **Fast-forward `main`**, from the owner's own terminal, never through a
    pull request (ADR-0004). A pull request into `main` is closed
@@ -1138,6 +1298,12 @@ routes on that schema (What this order rests on names them). The deploy's
 smoke does not exercise those routes. Production's schema stays below 000060
 until Promote to production's migrate step, so the floor does not apply
 there before it.
+
+A rollback to an image from before TYRE-371 applies today's template, and
+with it `caj-daily-<env>`, with that image. Its `main` ignores `job daily`
+and starts a server, which runs until the job's `replicaTimeout`, fails,
+is retried and fails again, so the daily job's alert fires each night
+until the rollback ends. That alert is expected for this case.
 
 Re-running an old run never rolls back (TYRE-403). A re-run whose commit
 is no longer its branch's head is refused, and going back is only by this

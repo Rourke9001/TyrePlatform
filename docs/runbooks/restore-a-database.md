@@ -33,10 +33,11 @@ az group create -n $TRG -l southafricanorth --tags purpose=restore-rehearsal -o 
 ```
 
 **A real recovery** restores into the environment's own group
-(`TRG=$RG`) under a new name, and then the API has to be pointed at the new
-server: `database-url` in `kv-tyre-api-$ENV` names the server, and the
-restored server keeps `app_login` and its password. That cutover has not
-been rehearsed.
+(`TRG=$RG`) under a new name, and then the API and the daily job have to
+be pointed at the new server: `database-url` and `job-database-url` in
+`kv-tyre-api-$ENV` name the server, and the restored server keeps
+`app_login` and `app_job` and their passwords (TYRE-371). That cutover has
+not been rehearsed.
 
 The restore window is the source's backup retention: 7 days on staging and
 30 on production (`az postgres flexible-server show -g $RG -n $PG --query
