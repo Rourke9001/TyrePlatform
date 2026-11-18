@@ -65,11 +65,15 @@ func (d Daily) Run(ctx context.Context) error {
 
 	failed, created := 0, 0
 	for _, id := range ids {
-		counts, step, err := d.visit(ctx, id)
+		counts, active, step, err := d.visit(ctx, id)
 		if err != nil {
 			failed++
 			log.Error(EventTenantFailed, append([]any{"event", EventTenantFailed, "tenant_id", id.String(), "step", step},
 				failureAttrs(err)...)...)
+			continue
+		}
+		if !active {
+			log.Info(EventTenantSkipped, "event", EventTenantSkipped, "tenant_id", id.String())
 			continue
 		}
 		for i, s := range d.Steps {
@@ -85,17 +89,32 @@ func (d Daily) Run(ctx context.Context) error {
 	return nil
 }
 
+// stillActive asks the listing again under the tenant's lock, so a tenant
+// suspended, closed or deleted after Tenants listed it gets no task
+// (FR-TEN-009, ADR-0025).
+const stillActive = `SELECT EXISTS (SELECT 1 FROM app.active_tenant_ids() AS id WHERE id = app.current_tenant_id())`
+
 // visit runs every step for one tenant in one transaction, so a later step's
 // failure rolls an earlier one back with it. It reports what each step
-// created, or the stage that failed: a step's name, `lock`, or `transaction`
-// for the begin, the tenant binding or the commit.
-func (d Daily) visit(ctx context.Context, tenant uuid.UUID) ([]int, string, error) {
+// created and whether the tenant was still ACTIVE, or the stage that failed:
+// a step's name, `lock`, `state`, or `transaction` for the begin, the tenant
+// binding or the commit.
+func (d Daily) visit(ctx context.Context, tenant uuid.UUID) ([]int, bool, string, error) {
 	stage := "transaction"
 	counts := make([]int, len(d.Steps))
+	active := false
 	err := d.Store.InTenantTx(ctx, tenant, func(tx pgx.Tx) error {
 		stage = "lock"
 		if err := lockTenant(ctx, tx, tenant); err != nil {
 			return err
+		}
+		stage = "state"
+		if err := tx.QueryRow(ctx, stillActive).Scan(&active); err != nil {
+			return fmt.Errorf("re-reading tenant state: %w", err)
+		}
+		if !active {
+			stage = "transaction"
+			return nil
 		}
 		for i, s := range d.Steps {
 			stage = s.Name
@@ -106,7 +125,7 @@ func (d Daily) visit(ctx context.Context, tenant uuid.UUID) ([]int, string, erro
 		stage = "transaction"
 		return nil
 	})
-	return counts, stage, err
+	return counts, active, stage, err
 }
 
 // ListActiveTenants is the one statement the job runs with no tenant bound

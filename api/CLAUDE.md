@@ -117,7 +117,9 @@ starts a server inside a job (ADR-0025). `api job daily` lives in
 pool of 2 set in code, lists the ACTIVE tenants through
 `app.active_tenant_ids()`, the one statement it runs with no tenant bound,
 and runs each tenant's steps in one `InTenantTx` behind a per-tenant
-advisory lock.
+advisory lock. Under the lock it asks the listing again and skips a
+tenant the listing does not name, one that left ACTIVE after the first
+read.
 
 Every line it writes is JSON with `job` and `event` fields, and
 `scripts/check-job-log-contract.mjs` holds the success line to the alert's

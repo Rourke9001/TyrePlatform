@@ -317,8 +317,48 @@ func TestDailyWithNoTenantsSucceeds(t *testing.T) {
 	require.EqualValues(t, 0, ok[0]["created"])
 }
 
-// A tenant deleted between the listing and its visit binds no row: the step
-// reads no zone and no schedule, issues nothing, and the run succeeds.
+// A tenant listed ACTIVE that leaves that state before its turn is skipped:
+// the run asks the listing again inside the tenant's transaction, after the
+// lock. The ACTIVE fleet in the same run is the control.
+func TestDailySkipsATenantThatLeftActiveBeforeItsTurn(t *testing.T) {
+	ctx := context.Background()
+	s, admin := jobFixtures(t, ctx)
+	active := plantFleet(t, ctx, admin, "Africa/Johannesburg")
+	var left []uuid.UUID
+	for _, state := range []string{"SUSPENDED", "CLOSED", "PROVISIONING"} {
+		id := plantFleet(t, ctx, admin, "Africa/Johannesburg")
+		_, err := admin.Exec(ctx, `UPDATE app.tenant SET state = $2::text::app.tenant_state WHERE id = $1`, id, state)
+		require.NoError(t, err)
+		left = append(left, id)
+	}
+
+	var buf bytes.Buffer
+	listed := append([]uuid.UUID{active}, left...)
+	require.NoError(t, Daily{Store: s, Tenants: given(listed...), Steps: DailySteps, Log: logInto(&buf)}.Run(ctx))
+
+	require.Equal(t, 1, taskCount(t, ctx, admin, active))
+	for _, id := range left {
+		require.Zero(t, taskCount(t, ctx, admin, id), "tenant %s left ACTIVE before its turn and still got a task", id)
+	}
+	got := lines(t, &buf)
+	done := withEvent(got, EventTenantDone)
+	require.Len(t, done, 1)
+	require.Equal(t, active.String(), done[0]["tenant_id"])
+	skipped := withEvent(got, EventTenantSkipped)
+	require.Len(t, skipped, len(left))
+	var skippedIDs []any
+	for _, l := range skipped {
+		skippedIDs = append(skippedIDs, l["tenant_id"])
+	}
+	require.ElementsMatch(t, []any{left[0].String(), left[1].String(), left[2].String()}, skippedIDs)
+	ok := withEvent(got, EventSucceeded)
+	require.Len(t, ok, 1)
+	require.EqualValues(t, len(listed), ok[0]["tenants"])
+	require.EqualValues(t, 1, ok[0]["created"])
+}
+
+// A tenant deleted between the listing and its visit is absent from the
+// listing asked again at its turn, so it is skipped, and the run succeeds.
 func TestDailyVisitsAVanishedTenantWithoutFailing(t *testing.T) {
 	ctx := context.Background()
 	s, _ := jobFixtures(t, ctx)
@@ -326,10 +366,11 @@ func TestDailyVisitsAVanishedTenantWithoutFailing(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, Daily{Store: s, Tenants: given(gone), Steps: DailySteps, Log: logInto(&buf)}.Run(ctx))
 	got := lines(t, &buf)
-	done := withEvent(got, EventTenantDone)
-	require.Len(t, done, 1)
-	require.Equal(t, gone.String(), done[0]["tenant_id"])
-	require.EqualValues(t, 0, done[0]["created"])
+	require.Empty(t, withEvent(got, EventTenantDone))
+	require.Empty(t, withEvent(got, EventTenantFailed))
+	skipped := withEvent(got, EventTenantSkipped)
+	require.Len(t, skipped, 1)
+	require.Equal(t, gone.String(), skipped[0]["tenant_id"])
 	ok := withEvent(got, EventSucceeded)
 	require.Len(t, ok, 1)
 	require.EqualValues(t, 1, ok[0]["tenants"])

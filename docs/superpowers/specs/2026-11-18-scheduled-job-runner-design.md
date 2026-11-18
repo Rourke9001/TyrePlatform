@@ -241,6 +241,9 @@ Option 1 states what the other way would have cost.
    - take `pg_advisory_xact_lock` on a key made from a constant for this
      job and the tenant id, so two runs at once take turns per tenant and
      the second sees the first's tasks;
+   - ask `app.active_tenant_ids()` again whether the bound tenant is in
+     it, and skip the tenant if not, so one suspended, closed or deleted
+     after the listing gets no task (found in review, CR-4);
    - run each daily step. Today there is one:
      `SELECT app.generate_inspection_tasks(app.tenant_today((SELECT timezone FROM app.tenant)))`.
      The tenant's day comes from SQL, in the tenant's own zone (rule 6).
@@ -265,6 +268,8 @@ Every line is JSON with a `job` field of `daily` and an `event` field.
 - `daily_job_started`.
 - `daily_job_tenant_done`, with the tenant id, the step and the number of
   tasks created.
+- `daily_job_tenant_skipped`, with the tenant id, for a tenant listed
+  ACTIVE that was not by its turn (section 4).
 - `daily_job_tenant_failed`, with the tenant id, the step, the SQLSTATE
   and the constraint name when the error has one. Never the error's
   message, detail or hint. This schema's own messages name people, such

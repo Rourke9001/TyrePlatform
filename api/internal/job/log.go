@@ -13,12 +13,13 @@ import (
 // Name and EventSucceeded are a contract with infra/platform.bicep's alert,
 // which scripts/check-job-log-contract.mjs holds (ADR-0025).
 const (
-	Name              = "daily" // the `job` field of every line
-	EventStarted      = "daily_job_started"
-	EventTenantDone   = "daily_job_tenant_done"
-	EventTenantFailed = "daily_job_tenant_failed"
-	EventSucceeded    = "daily_job_succeeded"
-	EventFailed       = "daily_job_failed"
+	Name               = "daily" // the `job` field of every line
+	EventStarted       = "daily_job_started"
+	EventTenantDone    = "daily_job_tenant_done"
+	EventTenantFailed  = "daily_job_tenant_failed"
+	EventTenantSkipped = "daily_job_tenant_skipped"
+	EventSucceeded     = "daily_job_succeeded"
+	EventFailed        = "daily_job_failed"
 )
 
 // failureAttrs names a failure by its SQLSTATE and constraint, or by its Go
