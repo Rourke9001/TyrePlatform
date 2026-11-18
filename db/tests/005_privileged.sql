@@ -2371,7 +2371,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== P31. TYRE-371: the app_job grant check names an UPDATE on a reading column, a DELETE on tyre_event, a default privilege and a lost EXECUTE on the listing, and reads nothing with none staged (rule 3, ADR-0025)'
+\echo '== P31. TYRE-371: the app_job grant check names an UPDATE on a reading column, a DELETE on tyre_event, a default privilege, a lost EXECUTE on the listing, a role setting and a parameter privilege, and reads nothing with none staged (rule 3, ADR-0025)'
 BEGIN;
 SET LOCAL ROLE app_login;
 DO $$
@@ -2443,6 +2443,41 @@ BEGIN
     RAISE EXCEPTION 'FAIL P31: app_job without EXECUTE on the listing read %', COALESCE(f, 'no fault');
   END IF;
   RAISE NOTICE 'PASS  P31 a lost EXECUTE on the listing is named as missing';
+END $$;
+ROLLBACK;
+
+-- Replica mode switches off every trigger left at its default, the ones
+-- that hold a voided inspection and a fitment's dates among them, and either
+-- staging below lets app_job's sessions run in it (U237).
+BEGIN;
+ALTER ROLE app_job SET session_replication_role = replica;
+ALTER ROLE app_job IN DATABASE postgres SET session_replication_role = replica;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P31: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_job_grant_faults();
+  IF f IS DISTINCT FROM 'a role setting gives app_job session_replication_role=replica in database postgres; '
+                        'a role setting gives app_job session_replication_role=replica in every database' THEN
+    RAISE EXCEPTION 'FAIL P31: replica mode set on app_job for every database and for postgres read %', COALESCE(f, 'no fault');
+  END IF;
+  RAISE NOTICE 'PASS  P31 a role setting on app_job is named, in every database and in one';
+END $$;
+ROLLBACK;
+
+BEGIN;
+GRANT SET ON PARAMETER session_replication_role TO app_job;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P31: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_job_grant_faults();
+  IF f IS DISTINCT FROM 'a parameter privilege grants app_job SET on session_replication_role' THEN
+    RAISE EXCEPTION 'FAIL P31: SET on session_replication_role read %', COALESCE(f, 'no fault');
+  END IF;
+  RAISE NOTICE 'PASS  P31 a parameter privilege naming app_job is named';
 END $$;
 ROLLBACK;
 
