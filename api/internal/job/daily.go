@@ -90,8 +90,9 @@ func (d Daily) Run(ctx context.Context) error {
 }
 
 // stillActive asks the listing again under the tenant's lock, so a tenant
-// suspended, closed or deleted after Tenants listed it gets no task
-// (FR-TEN-009, ADR-0025).
+// suspended, closed or deleted after Tenants listed it, and before this
+// re-check, gets no task. A change committed while the tenant's transaction
+// runs counts as after the run (spec section 4, FR-TEN-009, ADR-0025).
 const stillActive = `SELECT EXISTS (SELECT 1 FROM app.active_tenant_ids() AS id WHERE id = app.current_tenant_id())`
 
 // visit runs every step for one tenant in one transaction, so a later step's
