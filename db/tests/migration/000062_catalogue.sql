@@ -45,8 +45,8 @@ SELECT line FROM (
   UNION ALL
   SELECT format('migration version=%s dirty=%s', m.version, m.dirty) FROM public.schema_migrations m
   UNION ALL
-  SELECT format('app_writer holds %s', h) FROM pg_temp.app_writer_held() h
+  SELECT format('app_writer holds %s', h) FROM pg_temp.role_held('app_writer') h
   UNION ALL
-  SELECT 'app_writer holds nothing in app' WHERE NOT EXISTS (SELECT 1 FROM pg_temp.app_writer_held())
+  SELECT 'app_writer holds nothing in app' WHERE NOT EXISTS (SELECT 1 FROM pg_temp.role_held('app_writer'))
 ) facts
 ORDER BY line;

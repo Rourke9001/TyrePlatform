@@ -16206,7 +16206,7 @@ DROP FUNCTION pg_temp.t76_expect(text, uuid, timestamptz, text);
 DROP FUNCTION pg_temp.t76_who(uuid, timestamptz);
 DROP FUNCTION pg_temp.t76_units();
 
-\echo '== 80. TYRE-371: app_job logs in, bypasses no row security, is a member of app_rw alone, owns nothing, and the app login holds no membership in it (rule 1, ADR-0025)'
+\echo '== 80. TYRE-371: app_job logs in, bypasses no row security, is a member of app_rw alone, owns nothing, is granted nothing itself but EXECUTE on the tenant listing, and the app login holds no membership in it (rules 1 and 3, ADR-0025)'
 DO $$
 DECLARE
   job oid := (SELECT r.oid FROM pg_roles r WHERE r.rolname = 'app_job');
@@ -16239,12 +16239,16 @@ BEGIN
   IF got IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 80: app_job owns objects: %', got;
   END IF;
+  got := pg_temp.app_job_grant_faults();
+  IF got IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 80: app_job''s own grants are not EXECUTE on app.active_tenant_ids() alone: %', got;
+  END IF;
   -- MEMBER counts any membership, one granting neither INHERIT nor SET too,
   -- so it is stricter than whether the login can SET ROLE app_job.
   IF pg_has_role(current_user, 'app_job', 'MEMBER') THEN
     RAISE EXCEPTION 'FAIL 80: % holds a membership in app_job, so it could act as the role that lists every tenant', current_user;
   END IF;
-  RAISE NOTICE 'PASS  80 app_job logs in, bypasses no row security, is a member of app_rw alone, owns nothing, and app_login holds no membership in it';
+  RAISE NOTICE 'PASS  80 app_job logs in, bypasses no row security, is a member of app_rw alone, owns nothing, is granted nothing itself but EXECUTE on the tenant listing, and app_login holds no membership in it';
 END $$;
 
 \echo ''

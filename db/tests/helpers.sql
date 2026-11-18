@@ -167,13 +167,14 @@ BEGIN
   RETURN found_id;
 END $fn$;
 
--- Every privilege app_writer holds in schema app, as 'kind object privilege',
--- functions it owns aside. app_writer_faults compares it with its list, and
--- db/tests/migration/000061_catalogue.sql prints it.
-CREATE FUNCTION pg_temp.app_writer_held() RETURNS SETOF text
+-- Every privilege granted to p_role itself in schema app, as 'kind object
+-- privilege', functions it owns aside. app_writer_faults and
+-- app_job_grant_faults compare it with their lists, and
+-- db/tests/migration/000061_catalogue.sql prints app_writer's.
+CREATE FUNCTION pg_temp.role_held(p_role name) RETURNS SETOF text
 LANGUAGE sql
 SET search_path = app, pg_temp AS $fn$
-  WITH w AS (SELECT r.oid FROM pg_roles r WHERE r.rolname = 'app_writer')
+  WITH w AS (SELECT r.oid FROM pg_roles r WHERE r.rolname = p_role)
   SELECT format('schema %s %s', n.nspname, a.privilege_type)
     FROM w, pg_namespace n, aclexplode(n.nspacl) a
    WHERE n.nspname = 'app' AND a.grantee = w.oid
@@ -297,9 +298,37 @@ BEGIN
       FROM pg_default_acl d, aclexplode(d.defaclacl) a
      WHERE a.grantee = w ORDER BY 1);
 
-  held := ARRAY(SELECT pg_temp.app_writer_held());
+  held := ARRAY(SELECT pg_temp.role_held('app_writer'));
   faults := faults
     || ARRAY(SELECT 'extra: ' || h FROM unnest(held) h WHERE h <> ALL (want) ORDER BY 1)
     || ARRAY(SELECT 'missing: ' || x FROM unnest(want) x WHERE x <> ALL (held) ORDER BY 1);
   RETURN NULLIF(array_to_string(faults, '; '), '');
+END $fn$;
+
+-- What suite section 80 holds of the grants made to app_job itself: NULL
+-- when they are EXECUTE on the tenant listing and nothing else in schema app,
+-- with no default privilege naming app_job, else each fault, '; '-joined.
+-- app_job's other rights come through app_rw, which check 4 sweeps as the
+-- app login, so a grant here is the rule 3 route check 4 cannot see
+-- (TYRE-371). P31 in 005 shows each fault can fire.
+CREATE FUNCTION pg_temp.app_job_grant_faults() RETURNS text
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE
+  j    oid := (SELECT r.oid FROM pg_roles r WHERE r.rolname = 'app_job');
+  want text[] := ARRAY['function app.active_tenant_ids() EXECUTE'];
+  held text[];
+BEGIN
+  IF j IS NULL THEN
+    RETURN 'no role app_job';
+  END IF;
+  held := ARRAY(SELECT pg_temp.role_held('app_job'));
+  RETURN NULLIF(array_to_string(
+       ARRAY(SELECT 'extra: ' || h FROM unnest(held) h WHERE h <> ALL (want) ORDER BY 1)
+    || ARRAY(SELECT 'missing: ' || x FROM unnest(want) x WHERE x <> ALL (held) ORDER BY 1)
+    || ARRAY(SELECT format('a default privilege grants app_job %s on new objects of type %s',
+                           a.privilege_type, d.defaclobjtype)
+               FROM pg_default_acl d, aclexplode(d.defaclacl) a
+              WHERE a.grantee = j ORDER BY 1),
+    '; '), '');
 END $fn$;
