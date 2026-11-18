@@ -2371,5 +2371,80 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== P31. TYRE-371: the app_job grant check names an UPDATE on a reading column, a DELETE on tyre_event, a default privilege and a lost EXECUTE on the listing, and reads nothing with none staged (rule 3, ADR-0025)'
+BEGIN;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P31: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_job_grant_faults();
+  IF f IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL P31: with nothing staged the grant check reads %', f;
+  END IF;
+  RAISE NOTICE 'PASS  P31 with nothing staged app_job holds EXECUTE on the listing alone';
+END $$;
+ROLLBACK;
+
+BEGIN;
+GRANT UPDATE (tread_mm) ON app.reading_measurement TO app_job;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P31: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_job_grant_faults();
+  IF f IS DISTINCT FROM 'extra: column app.reading_measurement.tread_mm UPDATE' THEN
+    RAISE EXCEPTION 'FAIL P31: an UPDATE on reading_measurement.tread_mm read %', COALESCE(f, 'no fault');
+  END IF;
+  RAISE NOTICE 'PASS  P31 a column grant on a reading is named';
+END $$;
+ROLLBACK;
+
+BEGIN;
+GRANT DELETE ON app.tyre_event TO app_job;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P31: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_job_grant_faults();
+  IF f IS DISTINCT FROM 'extra: table app.tyre_event DELETE' THEN
+    RAISE EXCEPTION 'FAIL P31: a DELETE on tyre_event read %', COALESCE(f, 'no fault');
+  END IF;
+  RAISE NOTICE 'PASS  P31 a table grant on a fitment event is named';
+END $$;
+ROLLBACK;
+
+BEGIN;
+ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT UPDATE ON TABLES TO app_job;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P31: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_job_grant_faults();
+  IF f IS DISTINCT FROM 'a default privilege grants app_job UPDATE on new objects of type r' THEN
+    RAISE EXCEPTION 'FAIL P31: a default UPDATE on new tables read %', COALESCE(f, 'no fault');
+  END IF;
+  RAISE NOTICE 'PASS  P31 a default privilege naming app_job is named';
+END $$;
+ROLLBACK;
+
+BEGIN;
+REVOKE EXECUTE ON FUNCTION app.active_tenant_ids() FROM app_job;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE f text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P31: the probe runs as %', current_user; END IF;
+  f := pg_temp.app_job_grant_faults();
+  IF f IS DISTINCT FROM 'missing: function app.active_tenant_ids() EXECUTE' THEN
+    RAISE EXCEPTION 'FAIL P31: app_job without EXECUTE on the listing read %', COALESCE(f, 'no fault');
+  END IF;
+  RAISE NOTICE 'PASS  P31 a lost EXECUTE on the listing is named as missing';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  PRIVILEGED CONTROLS PASSED  ================'

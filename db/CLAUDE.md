@@ -26,7 +26,9 @@ BYPASSRLS control. P28 does the same for `app.mark_code_on_sidewall` and
 the three tables it writes, and P29 holds a retread return's pattern to the
 bound fleet under a role that bypasses RLS (TYRE-99). P30 plants a tenant in
 each state, which `app_login` cannot, and probes `app_job` after `SET LOCAL
-ROLE`: the tenant listing, and that row security binds it (TYRE-371). Both
+ROLE`: the tenant listing, and that row security binds it (TYRE-371). P31
+plants grants to `app_job` and shows section 80's check of its own grants
+names each, since check 4 sweeps the app login's rights alone. Both
 files load `db/tests/helpers.sql` first, a pg_temp prelude of the helpers
 they share, so a section cut from either needs it too.
 
@@ -141,7 +143,10 @@ tenant listing. Like the first it is owned by the migrating role and runs
 with RLS off, so its body is its only tenant boundary, and check 8c pins
 it. It takes no argument, returns ids only, and only `app_job` may execute
 it. `app_job` is the daily job's login, a member of `app_rw` and nothing
-else, which RLS binds as it binds `app_login` (section 80, P30).
+else, which RLS binds as it binds `app_login` (section 80, P30). Its only
+grant of its own is EXECUTE on the listing, and a new one goes on
+`want` in `pg_temp.app_job_grant_faults` (`db/tests/helpers.sql`), since
+section 80 fails one it does not name (P31).
 
 Every plpgsql routine pins `SET
 search_path = app, pg_temp`, because plpgsql resolves unqualified names
