@@ -1,7 +1,6 @@
 // Package job runs the platform's scheduled work. `api job daily` connects
 // as app_job, lists the ACTIVE tenants and runs each daily step inside one
-// transaction bound to each tenant (ADR-0025, TYRE-371). Nothing outside
-// this package writes a line with a `job` field.
+// transaction bound to each tenant (ADR-0025, TYRE-371).
 package job
 
 import (
@@ -11,15 +10,14 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Every line is JSON with `job` set to Name and `event` set to one of these,
-// and msg equal to the event. The success line is a contract with the alert
-// in infra/platform.bicep, which scripts/check-job-log-contract.mjs holds.
+// Name and EventSucceeded are a contract with infra/platform.bicep's alert,
+// which scripts/check-job-log-contract.mjs holds (ADR-0025).
 const (
-	Name              = "daily" // the `job` field of every line; the alert matches it
+	Name              = "daily" // the `job` field of every line
 	EventStarted      = "daily_job_started"
 	EventTenantDone   = "daily_job_tenant_done"
 	EventTenantFailed = "daily_job_tenant_failed"
-	EventSucceeded    = "daily_job_succeeded" // the alert matches it
+	EventSucceeded    = "daily_job_succeeded"
 	EventFailed       = "daily_job_failed"
 )
 

@@ -28,8 +28,8 @@ var DailySteps = []Step{{
 	SQL:  `SELECT app.generate_inspection_tasks(app.tenant_today((SELECT timezone FROM app.tenant)))`,
 }}
 
-// Daily is one run over the tenants Tenants lists. Tests hand it the tenants
-// they planted, since other packages share the database.
+// Daily is one run over the tenants Tenants lists. Tenants is a function so
+// a test can narrow the run to the tenants it planted (daily_test.go).
 type Daily struct {
 	Store   *store.Store
 	Tenants func(context.Context) ([]uuid.UUID, error)
@@ -37,10 +37,9 @@ type Daily struct {
 	Log     *slog.Logger // Run adds the job field
 }
 
-// lockClass is the first key of the per-tenant advisory lock; the second is
-// hashtext of the tenant id. Azure has no setting that stops two executions
-// overlapping, so two runs take turns per tenant, and a transaction lock
-// needs no connection held for the whole run (ADR-0025, spec Lead's call 4).
+// lockClass keys the per-tenant lock. Azure has no setting that stops two
+// executions of a job overlapping, so two runs take turns per tenant
+// (ADR-0025).
 const lockClass int32 = 371
 
 func lockTenant(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) error {

@@ -204,10 +204,9 @@ func authUUID(getenv func(string) string, name string) (string, error) {
 
 const usage = "usage: api [job daily]"
 
-// main only dispatches. With no argument it serves; `job daily` runs the
-// daily job (ADR-0025). Anything else exits 2 without serving, so a typing
-// mistake in a job's template can never start a server inside the job
-// (spec section 2).
+// main only dispatches (ADR-0025). An argument list other than none or
+// `job daily` exits 2 without serving, so a typing mistake in a job's
+// template never starts a server inside the job (spec section 2).
 func main() {
 	args := os.Args[1:]
 	switch {

@@ -367,8 +367,6 @@ resource ownerAlerts 'Microsoft.Insights/actionGroups@2023-01-01' = {
 
 // One rule for a run that failed after its retry, never started or logged
 // nothing: it fires on a missing success line (NFR-OBS-003, ADR-0025).
-// Fields are parsed, never matched as a substring, because the API logs a
-// caller's key id into the same table (api/internal/bearer/bearer.go).
 resource dailyJobAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
   name: 'alert-tyre-daily-job-${env}'
   location: location
@@ -387,6 +385,8 @@ resource dailyJobAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
     criteria: {
       allOf: [
         {
+          // Fields are parsed, never matched as a substring, because the API
+          // logs a caller's key id into the same table (api/internal/bearer).
           query: '''
 ContainerAppConsoleLogs_CL
 | where TimeGenerated > ago(26h)

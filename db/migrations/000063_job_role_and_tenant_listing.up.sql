@@ -12,8 +12,8 @@
 -- Azure (ADR-0024, Context). scripts/provision-tenant.test.sh step 17 runs
 -- it as one. No password is set here; the runbook sets one per environment.
 
--- A role found in another shape is refused, never altered, as 000061 refuses
--- app_writer: a role that is not a superuser may not name SUPERUSER in ALTER ROLE.
+-- A role found in another shape is refused, never altered: a role that is
+-- not a superuser may not name SUPERUSER in ALTER ROLE.
 DO $$
 DECLARE bad text;
 BEGIN
@@ -32,12 +32,9 @@ BEGIN
 END $$;
 GRANT app_rw TO app_job;
 
--- A definer the migrating role owns, ADR-0021's shape: with no tenant bound,
--- row security hides every tenant from app_job, and an app_writer definer is
--- bound the same way. It takes no argument and returns ids only. Only ACTIVE
--- tenants, since the API refuses every other state at sign-in
--- (api/internal/store/store.go, ErrTenantInactive): a fleet nobody can open
--- gets no tasks. Check 8c pins the body, so it carries no comment.
+-- A definer the migrating role owns: with no tenant bound, row security
+-- hides every tenant from app_job (ADR-0025). Check 8c pins the body, so the
+-- body carries no comment.
 CREATE FUNCTION app.active_tenant_ids() RETURNS SETOF uuid
 LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = app, pg_temp AS $$
@@ -46,4 +43,4 @@ $$;
 REVOKE ALL ON FUNCTION app.active_tenant_ids() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.active_tenant_ids() TO app_job;
 COMMENT ON FUNCTION app.active_tenant_ids() IS
-  'The ids of ACTIVE tenants, for the daily job alone (app_job). Runs with row security off, so its body is its only tenant boundary; check 8c pins it (ADR-0025, TYRE-371).';
+  'The ids of ACTIVE tenants, the only state whose users may sign in (FR-TEN-009, TYRE-376), for the daily job alone (app_job). Runs with row security off, so its body is its only tenant boundary; check 8c pins it (ADR-0025, TYRE-371).';
