@@ -145,9 +145,10 @@ with RLS off, so its body is its only tenant boundary, and check 8c pins
 it. It takes no argument, returns ids only, and only `app_job` may execute
 it. `app_job` is the daily job's login, a member of `app_rw` and nothing
 else, which RLS binds as it binds `app_login` (section 80, P30). Its only
-grant of its own is EXECUTE on the listing, and a new one goes on
-`want` in `pg_temp.app_job_grant_faults` (`db/tests/helpers.sql`), since
-section 80 fails one it does not name (P31).
+grant of its own in schema `app` is EXECUTE on the listing, and no default
+privilege, role setting or parameter privilege names it. A new grant in
+`app` goes on `want` in `pg_temp.app_job_grant_faults`
+(`db/tests/helpers.sql`), since section 80 fails one it does not name (P31).
 
 Every plpgsql routine pins `SET
 search_path = app, pg_temp`, because plpgsql resolves unqualified names
