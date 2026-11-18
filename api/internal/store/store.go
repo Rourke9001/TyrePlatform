@@ -1,9 +1,10 @@
 // Package store owns the database connection and the request-context
-// transaction pattern. Every query in the API goes through InActorTx, which
-// binds the tenant and the actor together and resolves the role from
-// app_user; InTenantTx binds the tenant alone, for work with no actor to
-// resolve. A query on the bare pool has neither bound, and RLS returns it
-// nothing (non-negotiable rule 1, api/CLAUDE.md).
+// transaction pattern. A request's queries go through InActorTx, which binds
+// the tenant and the actor together and resolves the role from app_user; the
+// daily job's go through InTenantTx, which binds the tenant alone, for work
+// with no actor to resolve. A query on the bare pool has neither bound, and
+// RLS returns it nothing; the job's tenant listing is the one statement run
+// there (non-negotiable rule 1, api/CLAUDE.md, ADR-0025).
 package store
 
 import (
@@ -98,9 +99,10 @@ func (s *Store) MaxConns() int32 {
 }
 
 // Pool is for tenant-free work only. Nothing on the request path takes it;
-// its only callers are the tests proving what an unbound query sees. Any
-// tenant-scoped query on it runs with no tenant bound, and RLS returns zero
-// rows, which looks like a data bug and is actually a missing transaction.
+// its callers are the daily job's tenant listing (internal/job) and the
+// tests proving what an unbound query sees. Any tenant-scoped query on it
+// runs with no tenant bound, and RLS returns zero rows, which looks like a
+// data bug and is actually a missing transaction.
 func (s *Store) Pool() *pgxpool.Pool {
 	return s.pool
 }

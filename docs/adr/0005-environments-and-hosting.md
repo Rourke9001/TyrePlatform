@@ -128,3 +128,8 @@ Read off staging on 19 Oct 2026 (TYRE-305 comment 13834):
 `max_connections` 50, `reserved_connections` 5 and
 `superuser_reserved_connections` 10, so 35 user connections, as above. The
 `database-url` secret names no `pool_max_conns`.
+
+**Amended 2026-11-18 (TYRE-371, ADR-0025):** each environment's daily job
+opens a pool of 2, set in code (`api/internal/job`), whatever
+`job-database-url` names. The rolling-deploy peak is 4 x 7 + 2 = 30 of 35,
+leaving 5 for `migrate` and an admin `psql`.
