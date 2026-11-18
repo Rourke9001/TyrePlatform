@@ -55,8 +55,13 @@ second schedule without building either.
   Its due instant and its other open items are TYRE-133's (ADR-0013,
   "One writer is still open").
 - **It is safe to run twice in a row,** because it skips a unit that has
-  an OPEN task or one due inside the interval (the same lines). Two runs
-  at the same moment could both insert, since nothing serialises them.
+  an OPEN task, or a closed one whose due day is less than one interval
+  behind the run's day (the same lines). That second rule holds the next
+  task back for twice the interval once a task is closed, so a weekly
+  schedule closed on time gets a task a fortnight. The review of this
+  branch found it, and the owner left it to TYRE-133 (U235, TYRE-133
+  comment 14306). Two runs at the same moment could both insert, since
+  nothing serialises them.
 - **Its inserts are audited with no actor,** which `app.audit_row_change`
   permits (`db/migrations/000038_inspection_task_write.up.sql:91-94`).
 - **`store.InTenantTx` already binds a tenant with no actor**
