@@ -168,31 +168,34 @@ BEGIN
 END $fn$;
 
 -- Every privilege granted to p_role itself in schema app, as 'kind object
--- privilege', functions it owns aside. app_writer_faults and
--- app_job_grant_faults compare it with their lists, and
--- db/tests/migration/000061_catalogue.sql prints app_writer's.
+-- privilege', functions it owns aside, with ' WITH GRANT OPTION' after one
+-- p_role may grant on, since a role that may re-grant passes its rights on
+-- (U239). app_writer_faults and app_job_grant_faults compare it with their
+-- lists, and db/tests/migration/000061_catalogue.sql prints app_writer's.
 CREATE FUNCTION pg_temp.role_held(p_role name) RETURNS SETOF text
 LANGUAGE sql
 SET search_path = app, pg_temp AS $fn$
-  WITH w AS (SELECT r.oid FROM pg_roles r WHERE r.rolname = p_role)
-  SELECT format('schema %s %s', n.nspname, a.privilege_type)
-    FROM w, pg_namespace n, aclexplode(n.nspacl) a
-   WHERE n.nspname = 'app' AND a.grantee = w.oid
-  UNION
-  SELECT format('%s app.%s %s', CASE c.relkind WHEN 'v' THEN 'view' WHEN 'S' THEN 'sequence' ELSE 'table' END,
-                c.relname, a.privilege_type)
-    FROM w, pg_class c, aclexplode(c.relacl) a
-   WHERE c.relnamespace = 'app'::regnamespace AND c.relkind IN ('r', 'p', 'v', 'S') AND a.grantee = w.oid
-  UNION
-  SELECT format('column app.%s.%s %s', c.relname, t.attname, a.privilege_type)
-    FROM w, pg_attribute t JOIN pg_class c ON c.oid = t.attrelid, aclexplode(t.attacl) a
-   WHERE c.relnamespace = 'app'::regnamespace AND NOT t.attisdropped AND a.grantee = w.oid
-  UNION
-  SELECT format('function app.%s(%s) %s', p.proname, replace(oidvectortypes(p.proargtypes), ', ', ','),
-                a.privilege_type)
-    FROM w, pg_proc p, aclexplode(p.proacl) a
-   WHERE p.pronamespace = 'app'::regnamespace AND p.proowner <> w.oid AND a.grantee = w.oid
-  ORDER BY 1
+  WITH w AS (SELECT r.oid FROM pg_roles r WHERE r.rolname = p_role),
+  g (held, is_grantable) AS (
+    SELECT format('schema %s %s', n.nspname, a.privilege_type), a.is_grantable
+      FROM w, pg_namespace n, aclexplode(n.nspacl) a
+     WHERE n.nspname = 'app' AND a.grantee = w.oid
+    UNION ALL
+    SELECT format('%s app.%s %s', CASE c.relkind WHEN 'v' THEN 'view' WHEN 'S' THEN 'sequence' ELSE 'table' END,
+                  c.relname, a.privilege_type), a.is_grantable
+      FROM w, pg_class c, aclexplode(c.relacl) a
+     WHERE c.relnamespace = 'app'::regnamespace AND c.relkind IN ('r', 'p', 'v', 'S') AND a.grantee = w.oid
+    UNION ALL
+    SELECT format('column app.%s.%s %s', c.relname, t.attname, a.privilege_type), a.is_grantable
+      FROM w, pg_attribute t JOIN pg_class c ON c.oid = t.attrelid, aclexplode(t.attacl) a
+     WHERE c.relnamespace = 'app'::regnamespace AND NOT t.attisdropped AND a.grantee = w.oid
+    UNION ALL
+    SELECT format('function app.%s(%s) %s', p.proname, replace(oidvectortypes(p.proargtypes), ', ', ','),
+                  a.privilege_type), a.is_grantable
+      FROM w, pg_proc p, aclexplode(p.proacl) a
+     WHERE p.pronamespace = 'app'::regnamespace AND p.proowner <> w.oid AND a.grantee = w.oid)
+  SELECT DISTINCT g.held || CASE WHEN g.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END FROM g
+   ORDER BY 1
 $fn$;
 
 -- What suite check 8e holds of app_writer, the owner of the four write-list

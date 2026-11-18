@@ -415,12 +415,15 @@ BEGIN
   END IF;
   -- The tenant listing: a definer the migrating role owns, row security off,
   -- so its body is its only tenant boundary and is pinned here (ADR-0025).
+  -- The acl carries each grant option, since app_job holding one could pass
+  -- the listing to app_rw (U239).
   SELECT format('owner %s, definer %s, returns %s, setof %s, args %s, config %s, acl %s, body %s',
                 p.proowner::regrole, p.prosecdef, p.prorettype::regtype, p.proretset, p.pronargs,
                 p.proconfig, x.acl, p.prosrc) INTO offenders
     FROM pg_proc p
     CROSS JOIN LATERAL (
       SELECT ARRAY(SELECT CASE a.grantee WHEN 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END || ':' || a.privilege_type
+                          || CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END
                      FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a ORDER BY 1) AS acl) x
    WHERE p.oid = lister
      AND (NOT p.prosecdef
