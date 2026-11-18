@@ -2,7 +2,8 @@
 
 Date: 2026-11-18. Ticket: TYRE-371 (epic TYRE-10). Status: drafted by the
 pipeline lead, awaiting the owner's approval. Owner rulings: U147 (B31, B32,
-D:TYRE-371, 21 Oct 2026) and U232 (18 Nov 2026, TYRE-371 comment 14300). The
+D:TYRE-371, 21 Oct 2026), U232 (18 Nov 2026, TYRE-371 comment 14300) and
+U233 (18 Nov 2026, comment 14303). The
 decision record is
 `docs/adr/0025-scheduled-work-runs-as-a-container-apps-job.md`, Proposed
 until this spec is approved.
@@ -20,8 +21,8 @@ controller's hand.
 This spec departs from the ticket and its audit comment in five places.
 
 1. **Email is not built.** The provider U147 B32 chose is being retired,
-   and the owner paused the replacement (U232). Section 11 says what this
-   leaves and what the owner still decides.
+   the owner paused the replacement (U232) and moved the email half to
+   TYRE-243 (U233). Section 11 says what this ticket records.
 2. **The job connects as its own database role, `app_job`,** not as
    `app_login` (B31). Section 3 gives the reason. The owner's approval of
    this spec rules on it, and section 3 says what changes if the owner
@@ -135,7 +136,8 @@ second schedule without building either.
 ## Approaches
 
 ADR-0025 weighs the runner (a Container Apps job, a ticker in the API,
-`pg_cron`, a GitHub schedule) and how the job reaches every tenant (as
+`pg_cron`, a GitHub schedule, and an Azure Functions timer, which the
+owner asked about) and how the job reaches every tenant (as
 `app_login`, as its own role, as the administrator), with each option's
 real downside. This spec builds its decision: a Container Apps job that
 connects as `app_job`.
@@ -476,10 +478,10 @@ Not built. What this ticket records and leaves:
   shareholders meeting this afternoon". Option 2 is Microsoft Graph
   through an Exchange Online mailbox on the owner's domain.
 - The ticket's definition of done asks for an ADR that records the email
-  provider and Bicep that declares it. Those two items are not met by
-  this PR.
-
-Open for the owner at approval, section 14.
+  provider and Bicep that declares it. The owner moved both to TYRE-243
+  (U233: "move the email stuff to 243 as recommned"). TYRE-243 carries a
+  "Folds in" comment (14302) with the research, and this PR closes
+  TYRE-371 without them.
 
 ### 12. Documents
 
@@ -511,17 +513,17 @@ creates nothing and still proves the runner and the alert.
 
 1. **The job's database role** (departure 2). Approving this spec accepts
    `app_job`. Recommended.
-2. **Where the email half lives.** Recommended: it moves to TYRE-243,
-   whose work is the first thing that sends an email, with a "Folds in"
-   comment there, and this PR closes TYRE-371 with its definition of done
-   amended by the owner's ruling. The alternative is that this PR does not
-   close TYRE-371, and the ticket stays open for email.
+2. **The runner.** The owner asked on 18 Nov 2026 whether an Azure
+   Function could do this. ADR-0025's Option E answers it. Approving this
+   spec accepts the Container Apps job.
+
+Where the email half lives was the third item. U233 settled it.
 
 ## Definition of done
 
 1. ADR-0025 is Accepted and indexed. It records the runner, the identity
    it runs as, how the job binds tenant context without a superuser, and
-   that the email provider is not yet chosen.
+   that the email provider is TYRE-243's to choose (U233).
 2. Migration 000063 adds `app_job` and `app.active_tenant_ids()`, and the
    suite and `005_privileged.sql` hold the proofs in section 10.
 3. `infra/app.bicep` declares the job. `infra/platform.bicep` declares the
@@ -645,6 +647,12 @@ is `.superpowers/sdd/2026-11-18-pipeline-TYRE-371/research-docs.md`.
 
 ## Rejected
 
+- **An Azure Functions timer as the runner.** Its timer runs one instance
+  at a time, which saves the advisory lock. It costs a storage account, a
+  hosting plan, a function app, storage role assignments, a second Go
+  program built as a zip, and a second deploy path that ADR-0017's
+  promote-what-staging-ran rule would have to cover. The alert is still
+  ours to write. ADR-0025, Option E.
 - **A deploy-time run of the job.** Non-goals says why.
 - **A separate identity and vault for the job.** It would also hold
   against someone acting as the API's identity, at the cost of a second
