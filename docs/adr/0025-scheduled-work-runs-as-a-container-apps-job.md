@@ -1,11 +1,12 @@
 # ADR-0025: Scheduled work runs as a Container Apps job under its own database role
 
-- **Status:** Proposed (the owner's approval of TYRE-371's spec accepts it)
+- **Status:** Accepted (owner, 18 Nov 2026, U234, with the approval of
+  TYRE-371's spec)
 - **Date:** 2026-11-18
 - **Deciders:** Rourke
 - **Related:** TYRE-371 (this record), TYRE-133, TYRE-243 · ADR-0017,
-  ADR-0021, ADR-0024 · owner rulings U147 (B31, B32, D:TYRE-371), U232 and
-  U233 ·
+  ADR-0021, ADR-0024 · owner rulings U147 (B31, B32, D:TYRE-371), U232,
+  U233 and U234 ·
   FR-EXC-002, FR-INS-052, FR-INS-054, FR-NOT-002, FR-NOT-003, NFR-AVL-006,
   NFR-OBS-003 · CLAUDE.md rule 1 · spec
   `docs/superpowers/specs/2026-11-18-scheduled-job-runner-design.md`
@@ -150,8 +151,8 @@ and nothing else, and is the only role that may execute
 `app.active_tenant_ids()` (Option 2). It then opens one transaction per
 tenant, with that tenant bound, so every read and write runs under row
 security. This departs from B31's "connecting as `app_login`" for the
-reason in the second fact above, and the owner's approval of the spec
-rules on it.
+reason in the second fact above, and the owner accepted it with the spec
+(U234).
 
 A failed or missing run raises an alert from the absence of the job's
 success line in the last day's logs.
