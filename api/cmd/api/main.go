@@ -22,6 +22,7 @@ import (
 
 	"tyreplatform/api/internal/bearer"
 	"tyreplatform/api/internal/httpapi"
+	"tyreplatform/api/internal/job"
 	"tyreplatform/api/internal/store"
 )
 
@@ -201,7 +202,29 @@ func authUUID(getenv func(string) string, name string) (string, error) {
 	return id.String(), nil
 }
 
+const usage = "usage: api [job daily]"
+
+// main only dispatches. With no argument it serves; `job daily` runs the
+// daily job (ADR-0025). Anything else exits 2 without serving, so a typing
+// mistake in a job's template can never start a server inside the job
+// (spec section 2).
 func main() {
+	args := os.Args[1:]
+	switch {
+	case len(args) == 0:
+		serve()
+	case len(args) == 2 && args[0] == "job" && args[1] == "daily":
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		code := job.RunDaily(ctx, os.Getenv, os.Stdout)
+		stop()
+		os.Exit(code)
+	default:
+		fmt.Fprintln(os.Stderr, usage)
+		os.Exit(2)
+	}
+}
+
+func serve() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
