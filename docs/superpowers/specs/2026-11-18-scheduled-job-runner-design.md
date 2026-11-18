@@ -327,9 +327,20 @@ yet. That first email and the "resolved" email after the first good run
 are the proof that the alert works, on staging and again on production.
 
 It lives in the owner's template because the address has no other safe
-source and because it depends only on the workspace, which exists whether
-or not the job has been deployed. `infra/app.bicep` stays free of it, so
-no release can fail on a missing action group.
+source. It depends on the workspace, which exists whether or not the job
+has been deployed, and on `ContainerAppConsoleLogs_CL`, which does not:
+the table appears only once a container in the environment first logs.
+Azure runs a rule's query when it creates the rule, so the rule sets
+`skipQueryValidation`, and a new environment's first platform apply
+succeeds before any container has run
+(https://learn.microsoft.com/en-us/azure/azure-monitor/alerts/alerts-troubleshoot-log).
+Until the table exists the query fails and the rule cannot fire, and
+Azure disables a rule whose query fails for a week (same page), so a new
+environment's first release follows its platform apply within the week.
+With validation off, the fire and resolve of definition of done item 7
+proves the query, and `scripts/check-job-log-contract.mjs` holds its two
+values. `infra/app.bicep` stays free of the rule, so no release can fail
+on a missing action group.
 
 Cost per environment: the job about one US cent a month, and the rule at
 most $1.50 a month.

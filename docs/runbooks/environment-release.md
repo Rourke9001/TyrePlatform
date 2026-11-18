@@ -724,7 +724,10 @@ before its first platform apply, so the order differs from staging's.
      Key Vault Secrets User and your Secrets Officer, are Creates in
      `rg-tyre-prod`.
    - `ag-tyre-owner` and `alert-tyre-daily-job-prod` are Creates in
-     `rg-tyre-prod` (TYRE-371).
+     `rg-tyre-prod` (TYRE-371). The rule's query reads a table that appears
+     only once step 7's API first logs, and Azure disables a rule whose
+     query fails for a week, so reach step 7 within the week or apply this
+     template again after it, which enables the rule.
    - Every other line is a Create, apart from two Ignores for what steps 1
      and 2 made: `log-tyre-prod` and `id-tyre-deploy-prod`. The first apply,
      before TYRE-371, listed 19 Creates. Stop on any Delete or Modify, and on
