@@ -184,8 +184,8 @@ queue holds 41 runs; the dates have not been re-planned.
 The table is the 21 Oct plan, kept as the record of what each sprint was to
 unlock; the run queue above decides the order. Its two lanes touch disjoint
 files. The database lane runs one PR after another, because each takes the
-next migration number and suite section: the next free pair is **000063 and
-section 80**, taken by whichever database branch is cut first.
+next migration number and suite section: the next free pair is **000064 and
+section 81**, taken by whichever database branch is cut first.
 
 | Sprint | Dates | Web, API and infrastructure lane | Database lane | Unlocks |
 |---|---|---|---|---|
