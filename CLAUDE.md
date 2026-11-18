@@ -80,8 +80,9 @@ cent, and the Appendix J exception set. **If it fails, nothing else matters.**
 `make db-test-privileged` runs the one file that stages as `postgres`, and
 `make test` and CI both run it after the suite. It is not the suite: a block
 there that runs as `postgres` proves nothing about isolation, and a probe
-after `SET LOCAL ROLE` to `app_login` or `app_writer` does, which is where
-three rule 1 proofs live since 000061 (`db/CLAUDE.md`).
+after `SET LOCAL ROLE` to `app_login`, `app_writer` or `app_job` does, which
+is where the rule 1 proofs no `app_login` route reaches live, since 000061
+and 000063 (`db/CLAUDE.md`).
 
 ## Architecture
 

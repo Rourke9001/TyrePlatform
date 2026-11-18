@@ -24,16 +24,21 @@ probed as `app_login`. P26 shows the `app_writer` shape check fails on each
 fault it looks for, and P27 that row security binds `app_writer`, beside a
 BYPASSRLS control. P28 does the same for `app.mark_code_on_sidewall` and
 the three tables it writes, and P29 holds a retread return's pattern to the
-bound fleet under a role that bypasses RLS (TYRE-99). Both files load `db/tests/helpers.sql` first, a pg_temp
-prelude of the helpers they share, so a section cut from either needs it too.
+bound fleet under a role that bypasses RLS (TYRE-99). P30 plants a tenant in
+each state, which `app_login` cannot, and probes `app_job` after `SET LOCAL
+ROLE`: the tenant listing, and that row security binds it (TYRE-371). Both
+files load `db/tests/helpers.sql` first, a pg_temp prelude of the helpers
+they share, so a section cut from either needs it too.
 
 What 005 proves: a block that runs as `postgres` proves nothing about
-isolation, and a probe run after `SET LOCAL ROLE` to `app_login` or
-`app_writer`, which asserts `current_user` first, does. Three rule 1 proofs
-live only there, because no `app_login` route reaches them since 000061: the
-WITH CHECK of `trip` and of `inspection_task_nomination` (P27) and section
-34's cross-tenant EXCLUDE probe (P20). `make db-test` stays the suite, and
-`make test` and CI run both on every build (NFR-SEC-005).
+isolation, and a probe run after `SET LOCAL ROLE` to `app_login`,
+`app_writer` or `app_job`, which asserts `current_user` first, does. Five
+rule 1 proofs live only there, because no `app_login` route reaches them:
+since 000061, the WITH CHECK of `trip` and of `inspection_task_nomination`
+(P27) and section 34's cross-tenant EXCLUDE probe (P20); since 000063,
+`app_job`'s own binding and the listing only it may call (P30). `make
+db-test` stays the suite, and `make test` and CI run both on every build
+(NFR-SEC-005).
 
 ## Schema changes are migrations
 
@@ -105,7 +110,7 @@ this is merely a footgun rather than a breach.
 
 ## Adding a function
 
-Invoker rights, always, with two named exceptions, and a new definer needs a
+Invoker rights, always, with three named exceptions, and a new definer needs a
 review and a suite section before it lands (check 8c). The first is
 `app.refresh_governing_tread` (000004, body since 000050, ADR-0021), which
 runs with RLS off. A new function is executable by PUBLIC by default, so its
@@ -130,6 +135,13 @@ definer:
   helper's `want` list, since 8e fails a grant `want` does not name.
 
 A migration that replaces one restates SECURITY DEFINER and the pin.
+
+The third is `app.active_tenant_ids()` (000063, ADR-0025), the daily job's
+tenant listing. Like the first it is owned by the migrating role and runs
+with RLS off, so its body is its only tenant boundary, and check 8c pins
+it. It takes no argument, returns ids only, and only `app_job` may execute
+it. `app_job` is the daily job's login, a member of `app_rw` and nothing
+else, which RLS binds as it binds `app_login` (section 80, P30).
 
 Every plpgsql routine pins `SET
 search_path = app, pg_temp`, because plpgsql resolves unqualified names

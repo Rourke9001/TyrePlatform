@@ -74,3 +74,9 @@ TYRE-437's follow-up narrows the admin role.
 16 Nov 2026 (TYRE-472): the second-definer clause fired. ADR-0024 answered
 it with three definers owned by `app_writer`, a role RLS binds; this
 record's decision stands.
+
+18 Nov 2026 (TYRE-371): `app.active_tenant_ids()` is a second definer the
+migrating role owns, for this record's reason: with no tenant bound, row
+security hides every tenant from a role it binds. ADR-0025 records it, and
+every release reads its owner's bypass attribute; this record's decision
+stands.

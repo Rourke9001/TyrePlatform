@@ -22,8 +22,8 @@ removal threshold** (check 59), with the position sets per rule in check 8.
 `make db-test-privileged` then runs one file that stages as `postgres` what
 `app_login` cannot reach, such as a definer-chain backstop refusing a
 cross-tenant row. It is not the suite: what runs as `postgres` proves nothing
-about RLS, and its probes after `SET LOCAL ROLE` to `app_login` or
-`app_writer` do (`db/CLAUDE.md`).
+about RLS, and its probes after `SET LOCAL ROLE` to `app_login`,
+`app_writer` or `app_job` do (`db/CLAUDE.md`).
 
 If it passes as `postgres` rather than `app_login`, it has proved nothing —
 superusers bypass row-level security. Check 0 inside the suite catches this.

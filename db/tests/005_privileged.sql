@@ -1,7 +1,8 @@
 -- ============================================================================
 -- Privileged negative controls, run as postgres via make db-test-privileged.
 -- What runs as postgres proves nothing about RLS (B7 spec U12), and a probe
--- after SET LOCAL ROLE to app_login or app_writer does; see db/CLAUDE.md.
+-- after SET LOCAL ROLE to app_login, app_writer or app_job does; see
+-- db/CLAUDE.md.
 -- Every block ends in ROLLBACK (TYRE-38). db/tests/helpers.sql loads first,
 -- the pg_temp prelude of the helpers this file shares with 004.
 --
@@ -70,6 +71,10 @@
 -- writes, with P27's BYPASSRLS control (ADR-0024, 000062). P29 shows the
 -- return's pattern check names the bound fleet under a role that bypasses
 -- RLS (000062).
+--
+-- P30 plants a tenant in each state, which app_login cannot, and probes
+-- app_job after SET LOCAL ROLE: the tenant listing only it may call, and
+-- that row security binds app_job as it binds app_login (TYRE-371).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -2301,6 +2306,68 @@ BEGIN
     RAISE EXCEPTION 'FAIL P29: after the refused return the job reads open:state %', got;
   END IF;
   RAISE NOTICE 'PASS  P29 bound to BAC as postgres, a return naming Second Fleet''s pattern is refused and the job stays open';
+END $$;
+ROLLBACK;
+
+\echo '== P30. TYRE-371: as app_job with no tenant bound, app.active_tenant_ids() lists the ACTIVE tenants and no PROVISIONING, SUSPENDED or CLOSED one; unbound, app_job reads no tenant or unit; bound to BAC it reads BAC''s units and none of Second Fleet''s, and its unit for Second Fleet is refused beside the same insert for BAC (rule 1, FR-TEN-004, ADR-0025)'
+BEGIN;
+INSERT INTO app.tenant (id, name, subdomain, state) VALUES
+  (md5('p30-active')::uuid, 'P30 Active', 'p30-active', 'ACTIVE'),
+  (md5('p30-provisioning')::uuid, 'P30 Provisioning', 'p30-provisioning', 'PROVISIONING'),
+  (md5('p30-suspended')::uuid, 'P30 Suspended', 'p30-suspended', 'SUSPENDED'),
+  (md5('p30-closed')::uuid, 'P30 Closed', 'p30-closed', 'CLOSED');
+DO $$
+DECLARE
+  bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+  t2   constant uuid := '22222222-2222-2222-2222-222222222222';
+  others constant uuid[] := ARRAY[md5('p30-provisioning')::uuid, md5('p30-suspended')::uuid, md5('p30-closed')::uuid];
+  -- Read as postgres before the role changes, so it is every ACTIVE tenant.
+  want constant uuid[] := ARRAY(SELECT t.id FROM app.tenant t WHERE t.state = 'ACTIVE' ORDER BY 1);
+  got uuid[]; n int; m int; err text;
+BEGIN
+  SET LOCAL ROLE app_job;
+  IF current_user <> 'app_job' THEN RAISE EXCEPTION 'FAIL P30: the probe runs as %, not app_job', current_user; END IF;
+  PERFORM set_config('app.tenant_id', '', true);
+  got := ARRAY(SELECT id FROM app.active_tenant_ids() id ORDER BY 1);
+  IF got IS DISTINCT FROM want OR NOT md5('p30-active')::uuid = ANY (got) OR got && others THEN
+    RAISE EXCEPTION 'FAIL P30: app.active_tenant_ids() listed %, not the ACTIVE tenants % (P30 Active included, none of %)',
+      got, want, others;
+  END IF;
+  SELECT count(*) INTO n FROM app.tenant;
+  SELECT count(*) INTO m FROM app.vehicle;
+  IF n <> 0 OR m <> 0 THEN
+    RAISE EXCEPTION 'FAIL P30: with no tenant bound app_job read % tenants and % units, not 0 and 0', n, m;
+  END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT count(*) INTO n FROM app.tenant;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL P30: bound to BAC app_job read % tenants, not its own 1', n;
+  END IF;
+  -- The control for the unbound zero: bound, the same read finds BAC's units.
+  SELECT count(*) INTO n FROM app.vehicle WHERE tenant_id = bac;
+  SELECT count(*) INTO m FROM app.vehicle WHERE tenant_id = t2;
+  IF n = 0 OR m <> 0 THEN
+    RAISE EXCEPTION 'FAIL P30: bound to BAC app_job read % of BAC''s units and % of Second Fleet''s, not some and 0', n, m;
+  END IF;
+  BEGIN
+    INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+    VALUES (md5('p30-t2-horse')::uuid, t2, 'P30-H', 'P30H GP', md5(t2::text || 'HORSE_6X4')::uuid, 'HORSE', 'ACTIVE');
+  EXCEPTION WHEN insufficient_privilege THEN
+    GET STACKED DIAGNOSTICS err = MESSAGE_TEXT;
+  END;
+  IF err IS NULL OR err NOT LIKE '%row-level security policy for table "vehicle"%' THEN
+    RAISE EXCEPTION 'FAIL P30: bound to BAC, app_job''s unit for Second Fleet was answered %', COALESCE(err, 'by an accepted row');
+  END IF;
+  -- The control: the same insert for BAC lands (configuration read through
+  -- BAC's own veh1), so the refusal above is the policy and not the grant.
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  SELECT md5('p30-bac-horse')::uuid, bac, 'P30-H', 'P30H GP', v.configuration_id, 'HORSE', 'ACTIVE'
+    FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL P30: bound to BAC, app_job''s unit for BAC inserted % rows, not 1', n;
+  END IF;
+  RAISE NOTICE 'PASS  P30 app_job lists the % ACTIVE tenants and no other state; unbound it reads no tenant or unit; bound to BAC it reads and writes BAC''s units alone', cardinality(want);
 END $$;
 ROLLBACK;
 
