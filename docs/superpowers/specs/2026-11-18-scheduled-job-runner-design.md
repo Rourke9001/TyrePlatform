@@ -508,7 +508,7 @@ Not built. What this ticket records and leaves:
 | `docs/adr/0025-...md` | New. Accepted on approval |
 | `docs/architecture.md` | Index line for 0025. A paragraph on the job under Environments |
 | `docs/adr/0017-...md` | Dated amendment: staging's database stays running (U232) |
-| `docs/adr/0005-...md` | Dated amendment to the pool arithmetic: the job's 2 connections make the peak 30 of 35 |
+| `docs/adr/0005-...md` | Dated amendment to the pool arithmetic: the job's 2 connections make the peak 30 of 35, and 32 when two executions overlap |
 | `docs/adr/0021-...md` | Dated line: the listing function is a second definer the migrating role owns |
 | `docs/runbooks/environment-release.md` | Section 8's steps and the changed vault proof, the stopped-server paragraph, Roll back |
 | `infra/platform.bicep` | The comment at 176-179: the API's vault holds the two DSNs |
@@ -616,7 +616,8 @@ is `.superpowers/sdd/2026-11-18-pipeline-TYRE-371/research-docs.md`.
    says prove isolation.
 10. **The job's pool is 2 connections, set in code.** 4 replicas at 7 is
     28, and 30 of 35 leaves 5 for `migrate` and an administrator session
-    (ADR-0005, TYRE-305 amendment). A DSN typed into a vault is the less
+    (ADR-0005, TYRE-305 amendment). Two executions can overlap (call 4),
+    which makes it 32 and leaves 3. A DSN typed into a vault is the less
     testable place for the number.
 11. **The tenant's day is `app.tenant_today`,** the function every other
     tenant-day read uses (`db/migrations/000015_tenant_local_assignment_predicate.up.sql:16`).

@@ -132,4 +132,6 @@ Read off staging on 19 Oct 2026 (TYRE-305 comment 13834):
 **Amended 2026-11-18 (TYRE-371, ADR-0025):** each environment's daily job
 opens a pool of 2, set in code (`api/internal/job`), whatever
 `job-database-url` names. The rolling-deploy peak is 4 x 7 + 2 = 30 of 35,
-leaving 5 for `migrate` and an admin `psql`.
+leaving 5 for `migrate` and an admin `psql`. Azure lets two executions of
+the job overlap, a scheduled run and a hand start (ADR-0025, Option A), and
+at that edge the peak is 4 x 7 + 2 x 2 = 32, leaving 3.
