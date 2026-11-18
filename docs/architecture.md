@@ -305,6 +305,13 @@ on (U186).
 | Staging | Deploys from `develop` through CI's `deploy-staging` job, which calls `.github/workflows/deploy.yml` with `target` staging. The gate is `scripts/deploy-gate.sh` (ADR-0017). |
 | Production | Deploys from `main` through CI's `deploy-prod` job, the same workflow with `target` prod. `scripts/deploy-guard.sh` refuses a commit not on `develop` and an image staging did not pass (ADR-0017). The owner brings it up after TYRE-435 merges (U141, `docs/runbooks/environment-release.md`, Production bring-up). |
 
+Each environment runs `caj-daily-<env>`, a Container Apps job on the API's
+image (`api job daily`), at 22:15 UTC. It connects as `app_job`, lists the
+ACTIVE tenants through `app.active_tenant_ids()`, and runs each tenant's
+daily steps in one transaction bound to that tenant. An alert on the
+absence of its `daily_job_succeeded` line emails the owner (ADR-0025,
+`docs/runbooks/environment-release.md`, The daily job).
+
 ## Decision record index
 
 | ADR | Title | Status |

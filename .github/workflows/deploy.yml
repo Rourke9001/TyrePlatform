@@ -102,8 +102,8 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      # The owner stops staging's server while idle (ADR-0017); the API
-      # exits at startup without it, so a staging deploy starts it first.
+      # Staging's server stays running (U232) but Azure can stop it, and the
+      # API exits at startup without it, so a staging deploy starts it first.
       # Production's server is never stopped, so anything but Ready fails
       # at once rather than being waited out.
       - name: Database running
