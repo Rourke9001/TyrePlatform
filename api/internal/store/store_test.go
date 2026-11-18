@@ -516,6 +516,52 @@ func TestMaxConnsHonoursDSNOverride(t *testing.T) {
 	require.EqualValues(t, 3, s.MaxConns())
 }
 
+// The job's pool size is set in code (ADR-0025), so a DSN typed into a vault
+// cannot raise it.
+func TestWithMaxConnsWinsOverTheDSN(t *testing.T) {
+	ctx := context.Background()
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	s, err := store.New(ctx, dsn+sep+"pool_max_conns=5", store.WithMaxConns(2))
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+	require.EqualValues(t, 2, s.MaxConns())
+}
+
+// The daily job's per-tenant lock works only if the statement after it sees
+// what the last holder committed, which READ COMMITTED gives (ADR-0025).
+func TestInTenantTxRunsReadCommittedWhateverTheSessionDefault(t *testing.T) {
+	ctx := context.Background()
+	appURL, adminURL := testURLs(t)
+	admin, err := pgx.Connect(ctx, adminURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = admin.Close(context.Background()) })
+	a := plantTenant(t, ctx, admin, "isolation")
+	sep := "?"
+	if strings.Contains(appURL, "?") {
+		sep = "&"
+	}
+	s, err := store.New(ctx, appURL+sep+"default_transaction_isolation=repeatable%20read")
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	var def string
+	require.NoError(t, s.Pool().QueryRow(ctx, `SHOW default_transaction_isolation`).Scan(&def))
+	require.Equal(t, "repeatable read", def, "control: the DSN's default took effect")
+
+	var level string
+	require.NoError(t, s.InTenantTx(ctx, a.id, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SHOW transaction_isolation`).Scan(&level)
+	}))
+	require.Equal(t, "read committed", level)
+}
+
 func setTenantState(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, state string) {
 	t.Helper()
 	_, err := admin.Exec(ctx, `UPDATE app.tenant SET state = $2::app.tenant_state WHERE id = $1`, tenantID, state)

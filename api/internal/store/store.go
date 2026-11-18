@@ -32,7 +32,17 @@ type Store struct {
 	sessions *sessionSet
 }
 
-func New(ctx context.Context, dsn string) (*Store, error) {
+// Option adjusts the pool's configuration after the DSN is parsed, so it
+// wins over anything the DSN names.
+type Option func(*pgxpool.Config)
+
+// WithMaxConns caps the pool from code: the daily job's size is not left to
+// a DSN typed into a vault (ADR-0025, ADR-0005's 2026-11-18 amendment).
+func WithMaxConns(n int32) Option {
+	return func(cfg *pgxpool.Config) { cfg.MaxConns = n }
+}
+
+func New(ctx context.Context, dsn string, opts ...Option) (*Store, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parsing database url: %w", err)
@@ -52,6 +62,9 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 	// named one; only an unsized pool falls back to the recorded default.
 	if !strings.Contains(dsn, "pool_max_conns") {
 		cfg.MaxConns = defaultMaxConns
+	}
+	for _, opt := range opts {
+		opt(cfg)
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -97,7 +110,9 @@ func (s *Store) Pool() *pgxpool.Pool {
 // transaction so a pooled connection cannot carry one tenant's context into
 // the next request (rule 1).
 func (s *Store) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error {
-	tx, err := s.pool.Begin(ctx)
+	// READ COMMITTED is pinned: the daily job's statement after its per-tenant
+	// lock must see what the lock's last holder committed (ADR-0025).
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return fmt.Errorf("beginning tenant transaction: %w", err)
 	}
