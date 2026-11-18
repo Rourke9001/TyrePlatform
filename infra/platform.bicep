@@ -382,6 +382,10 @@ resource dailyJobAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
     // the run's timeout and ingestion delay.
     evaluationFrequency: 'PT1H'
     windowSize: 'P2D'
+    // The table appears only once a container first logs, and Azure runs the
+    // query at creation, so a new environment's first apply would fail on it
+    // (learn.microsoft.com/azure/azure-monitor/alerts/alerts-troubleshoot-log).
+    skipQueryValidation: true
     criteria: {
       allOf: [
         {
