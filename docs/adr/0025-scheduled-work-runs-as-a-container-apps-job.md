@@ -176,8 +176,8 @@ listing function runs with row security off, so its body is the only thing
 that keeps it to ids of ACTIVE tenants. Suite check 8c pins it. If an
 environment's administrator role ever stops bypassing row security, the
 function returns nothing and the job reports success over zero tenants
-(ADR-0021's warning). The release check that compares its count with the
-administrator's is the control. Each environment has a second database
+(ADR-0021's warning). The release check that reads the function owner's
+bypass attribute is the control. Each environment has a second database
 secret to rotate. An attacker who can act as the API's identity can read
 the job's secret. Staging costs its full database compute every month.
 Rolling back to an image from before this record leaves a job whose image

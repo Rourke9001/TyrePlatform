@@ -386,11 +386,16 @@ before the promotion.
 reads as `tyreadmin`: `app_job`'s attributes, which must print
 `f|f|t|f|f|f` for superuser, bypass, login, create role, create database
 and replication; the function's owner, definer flag and ACL; and that
-`app_login` may not execute it. One more read, as `app_job` through
-`job-database-url`'s own DSN, compares
-`SELECT count(*) FROM app.active_tenant_ids()` with the administrator's
-count of ACTIVE tenants. If they differ, the administrator no longer
-bypasses row security and the job is silently visiting nobody (ADR-0021).
+`app_login` may not execute it. The owner read also prints the function
+owner's `rolsuper OR rolbypassrls`, which must be `t`. If it is `f`, the
+owner no longer bypasses row security, the function returns nothing and
+the job is silently visiting nobody (ADR-0021). One more read, as
+`app_job` through `job-database-url`'s own DSN, runs
+`SELECT count(*) FROM app.active_tenant_ids()` beside the administrator's
+count of ACTIVE tenants. That one proves the secret reaches the function.
+It cannot prove the bypass, since `app.tenant` is under forced row
+security and an administrator that lost the bypass would count zero too
+(the planner's correction, lead's call 20).
 
 ### 9. Rolling back
 
@@ -628,6 +633,12 @@ is `.superpowers/sdd/2026-11-18-pipeline-TYRE-371/research-docs.md`.
     (`docs/runbooks/environment-release.md:94-101`). The job runs as the
     API's identity (U147 B31), which reads that vault. From the builder
     check.
+20. **The release check reads the function owner's bypass attribute.**
+    Comparing two counts cannot show a lost bypass, because forced row
+    security binds the administrator's own read of `app.tenant` too
+    (`db/migrations/000001_init.up.sql:557-561`,
+    https://www.postgresql.org/docs/16/ddl-rowsecurity.html). From the
+    planner, 18 Nov 2026, after approval.
 
 ## Left to the builder
 
