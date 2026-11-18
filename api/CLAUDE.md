@@ -45,8 +45,10 @@ default, and `auth.ScopeTenant` is the only thing that widens it — see
 `listVehicles`.
 
 `internal/store.InTenantTx` is for tenant-scoped work with no actor to
-resolve. No handler does any: every handler binds an actor through
-`withActor`. Do not reach for `InTenantTx` to skip a capability check.
+resolve. Its one caller is the daily job (`internal/job`), which binds each
+tenant with no actor. No handler uses it: every handler binds an actor
+through `withActor`. Do not reach for `InTenantTx` to skip a capability
+check.
 
 If you find yourself querying `pool` directly inside a request, stop. That
 query runs with no tenant context and returns nothing — which looks like a
@@ -105,6 +107,26 @@ The one aggregation written in Go's SQL is the estate as-at `GROUP BY` in
 `loadEstate`, and a test pins it to `app.v_estate_valuation` at today, on
 the seed and on a planted tenant with a group for each null case, so the
 copy cannot drift.
+
+## The job subcommand
+
+`main` only dispatches: no argument serves, `job daily` runs the daily job,
+and anything else exits 2 without serving, so a mistyped template never
+starts a server inside a job (ADR-0025). `api job daily` lives in
+`internal/job`. It reads `DATABASE_URL` alone, an `app_job` DSN, opens a
+pool of 2 set in code, lists the ACTIVE tenants through
+`app.active_tenant_ids()`, the one statement it runs with no tenant bound,
+and runs each tenant's steps in one `InTenantTx` behind a per-tenant
+advisory lock.
+
+Every line it writes is JSON with `job` and `event` fields, and
+`scripts/check-job-log-contract.mjs` holds the success line to the alert's
+query in `infra/platform.bicep`. Nothing outside `internal/job` writes a
+line with a `job` field. A failure line carries the SQLSTATE and
+constraint, or the Go type, never the error's text, which in this schema
+can name a person (NFR-PRV-007). A new daily step is an entry in
+`DailySteps`: one SQL statement that returns the rows it created. Which
+day it is for a tenant stays in SQL.
 
 ## Conventions
 

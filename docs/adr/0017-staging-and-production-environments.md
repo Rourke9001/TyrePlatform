@@ -322,3 +322,12 @@ region (SRS errata, TYRE-321). The geo-redundant backup stays: it costs
 nothing at pilot size, and changing it means rebuilding the server.
 
 **Amended 2026-11-13 (TYRE-473, U201):** the `production` environment requires the owner's review (read 13 Nov 2026), so "no required reviewer" and "Not taken: a reviewer click per release" in the approval bullet no longer hold. The `deploy-prod` jobs wait in the run's "Review deployments" box.
+
+**Amended 2026-11-18 (TYRE-371, U232):** staging's database stays running.
+A daily job and the alert on it (ADR-0025) are trustworthy only while the
+database is there: a stopped server fails the nightly run and raises the
+alert. So the Decision bullet "Staging's database is stopped while idle",
+and the Bad entries on stopping it as a manual habit and on a deploy
+waiting for the start, no longer describe staging. The cost is the full
+compute the Bad list already budgets, about R350 to R400 a month. Azure can
+still stop a server, so the staging deploy keeps its start step.

@@ -39,9 +39,11 @@ environments live in this subscription (ADR-0017).
 API's and holds `database-url` and `job-database-url` and nothing else
 (TYRE-435, TYRE-371).
 
-While an environment's Postgres is stopped, its API is down: the API
-pings the database at startup and exits without it. That is accepted for
-staging (ADR-0017). Production's server is never stopped.
+Staging's server is left running (U232, ADR-0017's 2026-11-18 amendment).
+A stopped one takes the API down, since the API pings the database at
+startup and exits without it, and fails the nightly job, which raises its
+alert. Azure can still stop a server, so the staging deploy starts it
+first. Production's server is never stopped.
 
 ## One-time bring-up: staging
 
