@@ -9,8 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A failure line names the error by its code or its Go type and never by its
-// text, which in this schema can name a person (NFR-PRV-007).
+// No error text reaches a failure line (NFR-PRV-007).
 func TestFailureAttrsCarryNoErrorText(t *testing.T) {
 	tests := []struct {
 		name string

@@ -9,9 +9,8 @@ import (
 	"tyreplatform/api/internal/store"
 )
 
-// poolSize is set in code, not in the DSN the vault holds: four API replicas
-// at 7 and this job's 2 make 30 of B1ms's 35 user connections (ADR-0005's
-// 2026-11-18 amendment).
+// poolSize keeps the job inside the server's connection budget beside the
+// API's replicas; the arithmetic is ADR-0005's 2026-11-18 amendment.
 const poolSize int32 = 2
 
 // runDeadline is below infra/app.bicep's replicaTimeout of 600 s, so the run
