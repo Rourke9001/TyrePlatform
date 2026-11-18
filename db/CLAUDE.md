@@ -29,9 +29,9 @@ each state, which `app_login` cannot, and probes `app_job` after `SET LOCAL
 ROLE`: the tenant listing, and that row security binds it (TYRE-371). P31
 plants grants, role settings and a parameter privilege on `app_job` and
 shows section 80's check of them names each, since check 4 sweeps the app
-login's rights alone and no suite file logs in as `app_job`. Both
-files load `db/tests/helpers.sql` first, a pg_temp prelude of the helpers
-they share, so a section cut from either needs it too.
+login's table and column write rights alone and no suite file logs in as
+`app_job`. Both files load `db/tests/helpers.sql` first, a pg_temp prelude
+of the helpers they share, so a section cut from either needs it too.
 
 What 005 proves: a block that runs as `postgres` proves nothing about
 isolation, and a probe run after `SET LOCAL ROLE` to `app_login`,
