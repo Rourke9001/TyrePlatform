@@ -203,14 +203,16 @@ record-consent: db-up ## Record or withdraw a tenant's consent locally (T=<tenan
 ## ---------------------------------------------------------------- api / web
 
 # Go runs in docker (no host toolchain on Windows), joined to the compose
-# network so integration tests reach tyre-pg. app_login's password here is
-# local-only; CI sets its own and staging's lives in Key Vault.
+# network so integration tests reach tyre-pg. app_login's and app_job's
+# passwords here are local-only; CI sets its own and staging's live in Key
+# Vault.
 GO_IMAGE ?= golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb
 GO_RUN   = MSYS_NO_PATHCONV=1 docker run --rm \
   -v "$(CURDIR)/api:/app" -w /app -v tyre-gomodcache:/go/pkg/mod
 GO_DOCKER = $(GO_RUN) --network tyreplatform_default \
   -e TEST_DATABASE_URL="postgres://app_login:dev@tyre-pg:5432/tyre?sslmode=disable" \
   -e TEST_ADMIN_DATABASE_URL="postgres://postgres:postgres@tyre-pg:5432/tyre?sslmode=disable" \
+  -e TEST_JOB_DATABASE_URL="postgres://app_job:dev@tyre-pg:5432/tyre?sslmode=disable" \
   $(GO_IMAGE)
 
 # No -race locally: the race detector needs cgo and a C toolchain, which
@@ -219,7 +221,7 @@ GO_DOCKER = $(GO_RUN) --network tyreplatform_default \
 # -tags devheader on every Go command but the release image (U103).
 .PHONY: api-test
 api-test: ## Go tests (docker; needs db-up for the integration tests)
-	echo "ALTER ROLE app_login PASSWORD 'dev';" | $(PSQL_SUPER) -q
+	echo "ALTER ROLE app_login PASSWORD 'dev'; ALTER ROLE app_job PASSWORD 'dev';" | $(PSQL_SUPER) -q
 	$(GO_DOCKER) go test -tags devheader ./...
 
 # --env-file keeps the credentials out of the Makefile and out of git; the

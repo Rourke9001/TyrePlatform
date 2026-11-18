@@ -193,10 +193,12 @@ jobs:
           psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/002_seed_configurations.sql
           psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/003_seed_fixture.sql
           psql "$PGURL" -q -c "ALTER ROLE app_login PASSWORD 'ci'"
+          psql "$PGURL" -q -c "ALTER ROLE app_job PASSWORD 'ci'"
       - name: Build, vet, staticcheck, test
         env:
           TEST_DATABASE_URL: postgres://app_login:ci@localhost:5433/tyre?sslmode=disable
           TEST_ADMIN_DATABASE_URL: postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable
+          TEST_JOB_DATABASE_URL: postgres://app_job:ci@localhost:5433/tyre?sslmode=disable
         run: |
           node scripts/check-go-pins.mjs --self-test
           node scripts/check-go-pins.mjs
