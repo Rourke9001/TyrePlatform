@@ -1,6 +1,6 @@
 // Production's values for infra/platform.bicep, committed so the what-if and
 // the apply read the same reviewed file and no backup choice is typed by
-// hand (NFR-MNT-007). The apply supplies the three environment variables, so
+// hand (NFR-MNT-007). The apply supplies the four environment variables, so
 // a hand run without them fails rather than sending an empty password.
 using './platform.bicep'
 
@@ -8,6 +8,7 @@ param env = 'prod'
 param pgAdminPassword = readEnvironmentVariable('PG_ADMIN_PASSWORD')
 param deployerObjectId = readEnvironmentVariable('DEPLOYER_OBJECT_ID')
 param devMachineIp = readEnvironmentVariable('DEV_MACHINE_IP')
+param ownerAlertEmail = readEnvironmentVariable('OWNER_ALERT_EMAIL')
 
 param backupRetentionDays = 30
 

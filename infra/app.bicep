@@ -1,8 +1,9 @@
 // The pipeline's half of an environment (U117, ADR-0017): the API container
-// app only, applied on every release by .github/workflows/deploy.yml, so
-// its secret binding and settings cannot drift from this file. Everything
-// it references is owned by infra/platform.bicep. It writes no role
-// assignment, which is what lets the Contributor deploy identity apply it.
+// app and the daily job (ADR-0025), applied on every release by
+// .github/workflows/deploy.yml, so their secret bindings and settings cannot
+// drift from this file. Everything they reference is owned by
+// infra/platform.bicep. It writes no role assignment, which is what lets the
+// Contributor deploy identity apply it.
 
 @description('Region for everything that stores data (ADR-0002).')
 param location string = 'southafricanorth'
@@ -153,6 +154,61 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
       // maxReplicas 2 is the bound the submit rate limiter's per-process
       // counters assume; see ratelimit.go (TYRE-184 F7).
       scale: { minReplicas: minReplicas, maxReplicas: 2 }
+    }
+  }
+}
+
+// The daily job (ADR-0025) runs the release's own image, so the job and the
+// API are always one build. job-database-url must exist before the release
+// that first applies this, or the release fails (runbook, The daily job).
+resource dailyJob 'Microsoft.App/jobs@2024-03-01' = {
+  name: 'caj-daily-${env}'
+  location: location
+  tags: tags
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: { '${apiIdentity.id}': {} }
+  }
+  properties: {
+    environmentId: cae.id
+    configuration: {
+      triggerType: 'Schedule'
+      // Azure reads cron in UTC; 22:15 UTC is 00:15 in South Africa all year,
+      // since it keeps no daylight saving time (U232).
+      scheduleTriggerConfig: {
+        cronExpression: '15 22 * * *'
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+      // One retry (NFR-AVL-006). The run's own deadline, 9 minutes in
+      // api/internal/job, ends it before this timeout does.
+      replicaRetryLimit: 1
+      replicaTimeout: 600
+      registries: [
+        {
+          server: acrLoginServer
+          identity: apiIdentity.id
+        }
+      ]
+      secrets: [
+        // app_job's DSN, never app_login's: only app_job may list tenants (ADR-0025).
+        {
+          name: 'job-database-url'
+          keyVaultUrl: '${kvApi.properties.vaultUri}secrets/job-database-url'
+          identity: apiIdentity.id
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'daily'
+          image: apiImage
+          args: [ 'job', 'daily' ]
+          resources: { cpu: json('0.25'), memory: '0.5Gi' }
+          env: [ { name: 'DATABASE_URL', secretRef: 'job-database-url' } ]
+        }
+      ]
     }
   }
 }

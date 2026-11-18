@@ -270,6 +270,7 @@ infra-lint: ## Bicep lint on both templates (warnings fail), every param file bu
 	@for p in app.staging app.prod platform.staging platform.prod; do \
 	  MSYS_NO_PATHCONV=1 docker run --rm -e API_IMAGE=lint.example/tyre-api:lint -e REVISION_SUFFIX=lint \
 	    -e PG_ADMIN_PASSWORD=lint -e DEPLOYER_OBJECT_ID=00000000-0000-0000-0000-000000000000 -e DEV_MACHINE_IP=192.0.2.1 \
+	    -e OWNER_ALERT_EMAIL=owner@example.invalid \
 	    -v "$(CURDIR)/infra:/src" $(BICEP_IMAGE) build-params $$p.bicepparam --stdout >/dev/null \
 	    || { echo "bicep build-params $$p.bicepparam failed"; exit 1; }; \
 	done
