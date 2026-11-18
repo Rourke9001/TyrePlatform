@@ -378,7 +378,8 @@ END $$;
 -- logic also lives in routines (app.tyre_valuation_asof, TYRE-33), and a
 -- SECURITY DEFINER one owned by the migration superuser would bypass RLS
 -- entirely (FR-TEN-004) and merge green. Each allowlisted routine carries
--- its own tenant backstop, documented at the function.
+-- its own tenant backstop, documented at the function. A third class is
+-- app.active_tenant_ids(), the daily job's tenant listing (ADR-0025).
 DO $$
 DECLARE
   -- The write list: definers owned by app_writer, which RLS binds, so the
@@ -386,11 +387,15 @@ DECLARE
   sigs text[] := ARRAY['app.start_trip(uuid,uuid,uuid[])', 'app.end_trip(uuid)',
                        'app.nominate_for_task(uuid,uuid)', 'app.mark_code_on_sidewall(uuid,uuid,date)'];
   writes oid[];
+  lister oid := to_regprocedure('app.active_tenant_ids()');
   offenders text;
 BEGIN
   SELECT string_agg(s, ', ') INTO offenders FROM unnest(sigs) s WHERE to_regprocedure(s) IS NULL;
   IF offenders IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 8c: write-list function(s) % do not exist; point this section at whatever replaced them', offenders;
+  END IF;
+  IF lister IS NULL THEN
+    RAISE EXCEPTION 'FAIL 8c: app.active_tenant_ids() does not exist; point this section at whatever replaced it';
   END IF;
   writes := ARRAY(SELECT to_regprocedure(s)::oid FROM unnest(sigs) s);
   SELECT string_agg(p.proname, ', ' ORDER BY p.proname) INTO offenders
@@ -403,9 +408,29 @@ BEGIN
      -- 000004 documents the same-tenant backstop it carries in place of RLS
      -- (body since 000050, ADR-0021).
      AND p.proname <> ALL (ARRAY['refresh_governing_tread'])
-     AND p.oid <> ALL (writes);
+     AND p.oid <> ALL (writes)
+     AND p.oid <> lister;
   IF offenders IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: SECURITY DEFINER routine(s) outside the allowlist, RLS does not bind them: %', offenders;
+  END IF;
+  -- The tenant listing: a definer the migrating role owns, row security off,
+  -- so its body is its only tenant boundary and is pinned here (ADR-0025).
+  SELECT format('owner %s, definer %s, returns %s, setof %s, args %s, config %s, acl %s, body %s',
+                p.proowner::regrole, p.prosecdef, p.prorettype::regtype, p.proretset, p.pronargs,
+                p.proconfig, x.acl, p.prosrc) INTO offenders
+    FROM pg_proc p
+    CROSS JOIN LATERAL (
+      SELECT ARRAY(SELECT CASE a.grantee WHEN 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END || ':' || a.privilege_type
+                     FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a ORDER BY 1) AS acl) x
+   WHERE p.oid = lister
+     AND (NOT p.prosecdef
+          OR p.proowner IS DISTINCT FROM (SELECT c.relowner FROM pg_class c WHERE c.oid = 'app.tenant'::regclass)
+          OR p.prorettype <> 'uuid'::regtype OR NOT p.proretset OR p.pronargs <> 0
+          OR p.proconfig IS DISTINCT FROM ARRAY['search_path=app, pg_temp']
+          OR x.acl IS DISTINCT FROM ARRAY(SELECT e FROM unnest(ARRAY['app_job:EXECUTE', p.proowner::regrole::text || ':EXECUTE']) e ORDER BY 1)
+          OR btrim(regexp_replace(p.prosrc, '\s+', ' ', 'g')) <> 'SELECT t.id FROM app.tenant t WHERE t.state = ''ACTIVE''');
+  IF offenders IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 8c: app.active_tenant_ids() is not the listing definer ADR-0025 reviewed: %', offenders;
   END IF;
   SELECT string_agg(format('%s (owner %s, definer %s, returns %s, config %s, acl %s)', s, p.proowner::regrole,
                            p.prosecdef, p.prorettype::regtype, p.proconfig, x.acl), '; ' ORDER BY s) INTO offenders
@@ -424,7 +449,7 @@ BEGIN
   IF offenders IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 8c: a write-list function is not a definer owned by app_writer with its search_path pinned, returning no trigger, executable by app_rw alone: %', offenders;
   END IF;
-  RAISE NOTICE 'PASS  no unreviewed routine runs with RLS bypassed, and the four write-list definers run as app_writer';
+  RAISE NOTICE 'PASS  no unreviewed routine runs with RLS bypassed, the four write-list definers run as app_writer, and the tenant listing is the reviewed definer only app_job executes';
 END $$;
 
 \echo '== 8d. search_path is pinned where names resolve at run time and left open where the planner inlines (TYRE-181)'
@@ -10340,6 +10365,26 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS  67b the definer cannot be attached to a table the login owns';
 END $$;
+
+\echo '== 67c. the app login may not call app.active_tenant_ids(), which app_job may (TYRE-371, ADR-0025)'
+DO $$
+DECLARE got text;
+BEGIN
+  -- The control: the function exists and app_job may run it, so the refusal
+  -- below is the login's grant and not a missing function.
+  IF NOT has_function_privilege('app_job', 'app.active_tenant_ids()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL 67c: app_job may not execute app.active_tenant_ids(), so the refusal below proves nothing';
+  END IF;
+  BEGIN
+    PERFORM app.active_tenant_ids();
+  EXCEPTION WHEN insufficient_privilege THEN
+    got := SQLSTATE;
+  END;
+  IF got IS DISTINCT FROM '42501' THEN
+    RAISE EXCEPTION 'FAIL 67c: % called app.active_tenant_ids() and was answered %', current_user, COALESCE(got, 'by a list');
+  END IF;
+  RAISE NOTICE 'PASS  67c % is refused app.active_tenant_ids() with 42501, and app_job may execute it', current_user;
+END $$;
 DROP FUNCTION pg_temp.names_tenant(text, text, text);
 DROP FUNCTION pg_temp.sans_comments(text);
 
@@ -16160,6 +16205,47 @@ DROP FUNCTION pg_temp.t76_capture(uuid[], timestamptz, timestamptz);
 DROP FUNCTION pg_temp.t76_expect(text, uuid, timestamptz, text);
 DROP FUNCTION pg_temp.t76_who(uuid, timestamptz);
 DROP FUNCTION pg_temp.t76_units();
+
+\echo '== 80. TYRE-371: app_job logs in, bypasses no row security, is a member of app_rw alone, owns nothing, and the app login holds no membership in it (rule 1, ADR-0025)'
+DO $$
+DECLARE
+  job oid := (SELECT r.oid FROM pg_roles r WHERE r.rolname = 'app_job');
+  got text;
+BEGIN
+  IF job IS NULL THEN
+    RAISE EXCEPTION 'FAIL 80: no role app_job';
+  END IF;
+  SELECT format('super %s, bypassrls %s, login %s, createrole %s, createdb %s, replication %s',
+                r.rolsuper, r.rolbypassrls, r.rolcanlogin, r.rolcreaterole, r.rolcreatedb, r.rolreplication) INTO got
+    FROM pg_roles r
+   WHERE r.oid = job
+     AND ROW(r.rolsuper, r.rolbypassrls, r.rolcanlogin, r.rolcreaterole, r.rolcreatedb, r.rolreplication)
+         IS DISTINCT FROM ROW(false, false, true, false, false, false);
+  IF got IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 80: app_job reads %; the daily job connects as it, so it must log in and row security must bind it', got;
+  END IF;
+  -- DISTINCT: PostgreSQL 16 keeps one row per grantor, and step 17 of
+  -- scripts/provision-tenant.test.sh grants the same membership again.
+  got := array_to_string(ARRAY(SELECT DISTINCT m.roleid::regrole::text FROM pg_auth_members m
+                                WHERE m.member = job ORDER BY 1), ', ');
+  IF got IS DISTINCT FROM 'app_rw' THEN
+    RAISE EXCEPTION 'FAIL 80: app_job is a member of [%], not of app_rw alone', got;
+  END IF;
+  -- pg_shdepend records ownership of every object kind in every database of
+  -- the cluster, so a relation, function or schema it owns anywhere shows.
+  SELECT string_agg(format('%s in database %s', d.classid::regclass, COALESCE(db.datname, 'the cluster')), ', ') INTO got
+    FROM pg_shdepend d LEFT JOIN pg_database db ON db.oid = d.dbid
+   WHERE d.refclassid = 'pg_authid'::regclass AND d.refobjid = job AND d.deptype = 'o';
+  IF got IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 80: app_job owns objects: %', got;
+  END IF;
+  -- MEMBER counts any membership, one granting neither INHERIT nor SET too,
+  -- so it is stricter than whether the login can SET ROLE app_job.
+  IF pg_has_role(current_user, 'app_job', 'MEMBER') THEN
+    RAISE EXCEPTION 'FAIL 80: % holds a membership in app_job, so it could act as the role that lists every tenant', current_user;
+  END IF;
+  RAISE NOTICE 'PASS  80 app_job logs in, bypasses no row security, is a member of app_rw alone, owns nothing, and app_login holds no membership in it';
+END $$;
 
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

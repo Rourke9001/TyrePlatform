@@ -27,7 +27,7 @@ PG_DB        ?= tyre
 # PSQL_SUPER/PSQL_APP for a host client. The suite MUST run as app_login:
 # superusers bypass RLS (000001_init.up.sql DEPLOYMENT NOTE). The one
 # exception is db-test-privileged, which stages as postgres and probes as
-# app_login or app_writer (db/CLAUDE.md).
+# app_login, app_writer or app_job (db/CLAUDE.md).
 PSQL_SUPER ?= docker exec -i $(PG_CONTAINER) psql -U postgres -d $(PG_DB)
 PSQL_APP   ?= docker exec -i $(PG_CONTAINER) psql -U app_login -d $(PG_DB)
 
@@ -134,7 +134,7 @@ db-test: ## Run the verification suite as a NON-SUPERUSER (the only valid way)
 
 # The one target that runs as postgres, and never a substitute for db-test.
 # What runs as postgres proves nothing about RLS, and its probes after SET
-# LOCAL ROLE to app_login or app_writer do (db/CLAUDE.md). What it stages and
+# LOCAL ROLE to app_login, app_writer or app_job do (db/CLAUDE.md). What it stages and
 # why is the header of db/tests/005_privileged.sql (TYRE-38, B7 spec U12).
 .PHONY: db-test-privileged
 db-test-privileged: ## Negative controls that need a superuser to STAGE (db/tests/005_privileged.sql)
