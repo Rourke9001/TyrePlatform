@@ -27,8 +27,9 @@ the three tables it writes, and P29 holds a retread return's pattern to the
 bound fleet under a role that bypasses RLS (TYRE-99). P30 plants a tenant in
 each state, which `app_login` cannot, and probes `app_job` after `SET LOCAL
 ROLE`: the tenant listing, and that row security binds it (TYRE-371). P31
-plants grants to `app_job` and shows section 80's check of its own grants
-names each, since check 4 sweeps the app login's rights alone. Both
+plants grants, role settings and a parameter privilege on `app_job` and
+shows section 80's check of them names each, since check 4 sweeps the app
+login's rights alone and no suite file logs in as `app_job`. Both
 files load `db/tests/helpers.sql` first, a pg_temp prelude of the helpers
 they share, so a section cut from either needs it too.
 

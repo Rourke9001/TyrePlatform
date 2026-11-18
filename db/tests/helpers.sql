@@ -307,10 +307,10 @@ END $fn$;
 
 -- What suite section 80 holds of the grants made to app_job itself: NULL
 -- when they are EXECUTE on the tenant listing and nothing else in schema app,
--- with no default privilege naming app_job, else each fault, '; '-joined.
--- app_job's other rights come through app_rw, which check 4 sweeps as the
--- app login, so a grant here is the rule 3 route check 4 cannot see
--- (TYRE-371). P31 in 005 shows each fault can fire.
+-- with no default privilege, role setting or parameter privilege naming
+-- app_job, else each fault, '; '-joined. app_job's other rights come through
+-- app_rw, which check 4 sweeps as the app login, so a grant here is the rule
+-- 3 route check 4 cannot see (TYRE-371). P31 in 005 shows each fault can fire.
 CREATE FUNCTION pg_temp.app_job_grant_faults() RETURNS text
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $fn$
@@ -329,6 +329,18 @@ BEGIN
     || ARRAY(SELECT format('a default privilege grants app_job %s on new objects of type %s',
                            a.privilege_type, d.defaclobjtype)
                FROM pg_default_acl d, aclexplode(d.defaclacl) a
+              WHERE a.grantee = j ORDER BY 1)
+    -- Any setting, since a role setting applies at login and no suite file
+    -- logs in as app_job; session_replication_role = replica switches off
+    -- the triggers that hold history (U237).
+    || ARRAY(SELECT format('a role setting gives app_job %s in %s', c.cfg,
+                           COALESCE('database ' || db.datname, 'every database'))
+               FROM pg_db_role_setting s
+               LEFT JOIN pg_database db ON db.oid = s.setdatabase
+               CROSS JOIN LATERAL unnest(s.setconfig) c(cfg)
+              WHERE s.setrole = j ORDER BY 1)
+    || ARRAY(SELECT format('a parameter privilege grants app_job %s on %s', a.privilege_type, p.parname)
+               FROM pg_parameter_acl p, aclexplode(p.paracl) a
               WHERE a.grantee = j ORDER BY 1),
     '; '), '');
 END $fn$;
