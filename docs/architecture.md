@@ -333,3 +333,4 @@ on (U186).
 | [0022](adr/0022-frontend-layers.md) | The web app is held to four layers: data, transform, domain, presentation | Accepted |
 | [0023](adr/0023-review-loop-inside-the-run.md) | The lead runs the review and fix loop inside the run | Accepted |
 | [0024](adr/0024-trip-writes-run-as-a-definer-rls-binds.md) | Trip and nomination writes run as a definer that row security binds | Accepted |
+| [0025](adr/0025-scheduled-work-runs-as-a-container-apps-job.md) | Scheduled work runs as a Container Apps job under its own database role | Proposed |
