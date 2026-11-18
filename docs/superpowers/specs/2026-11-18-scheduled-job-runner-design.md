@@ -1,12 +1,11 @@
 # A scheduled job runs the daily task generator, and email waits on its provider
 
-Date: 2026-11-18. Ticket: TYRE-371 (epic TYRE-10). Status: drafted by the
-pipeline lead, awaiting the owner's approval. Owner rulings: U147 (B31, B32,
-D:TYRE-371, 21 Oct 2026), U232 (18 Nov 2026, TYRE-371 comment 14300) and
-U233 (18 Nov 2026, comment 14303). The
-decision record is
-`docs/adr/0025-scheduled-work-runs-as-a-container-apps-job.md`, Proposed
-until this spec is approved.
+Date: 2026-11-18. Ticket: TYRE-371 (epic TYRE-10). Status: approved by the
+owner on 18 Nov 2026 (U234). Owner rulings: U147 (B31, B32, D:TYRE-371,
+21 Oct 2026), U232 (18 Nov 2026, TYRE-371 comment 14300), U233 (comment
+14303) and U234. The decision record is
+`docs/adr/0025-scheduled-work-runs-as-a-container-apps-job.md`, Accepted
+with this spec's approval.
 
 Requirements this serves, none of them changed: FR-INS-052 and FR-INS-054
 (a schedule firing produces a task, and schedules skip non-active units),
@@ -24,9 +23,8 @@ This spec departs from the ticket and its audit comment in five places.
    the owner paused the replacement (U232) and moved the email half to
    TYRE-243 (U233). Section 11 says what this ticket records.
 2. **The job connects as its own database role, `app_job`,** not as
-   `app_login` (B31). Section 3 gives the reason. The owner's approval of
-   this spec rules on it, and section 3 says what changes if the owner
-   keeps B31 as written.
+   `app_login` (B31). Section 3 gives the reason, and the owner accepted
+   it with this spec (U234).
 3. **The ticket names `infra/main.bicep`.** The templates are
    `infra/app.bicep`, which the pipeline applies on every release, and
    `infra/platform.bicep`, which the owner applies by hand (U117). The job
@@ -224,10 +222,9 @@ ROLE` fails while any database in the cluster refers to the role
 harness's cluster holds three databases that do. The up's `IF NOT EXISTS`
 guard is what lets up, down and up run.
 
-**If the owner keeps B31 as written,** the change is contained: no
-`app_job`, no second secret, the job reads `database-url`, the function is
-granted to `app_rw`, and suite 67a's rule gains the function as an
-exception. ADR-0025's Option 1 states what that costs.
+The owner was offered B31 as written, with the function granted to
+`app_rw` and no second role, and chose `app_job` (U234). ADR-0025's
+Option 1 states what the other way would have cost.
 
 ### 4. The daily run
 
@@ -509,15 +506,13 @@ promotion, with the same template. Production holds no recurring schedule
 until TYRE-133 gives controllers a way to make one, so its nightly run
 creates nothing and still proves the runner and the alert.
 
-### 14. Open for the owner
+### 14. What the owner ruled at approval
 
-1. **The job's database role** (departure 2). Approving this spec accepts
-   `app_job`. Recommended.
+1. **The job's database role** (departure 2): `app_job` (U234).
 2. **The runner.** The owner asked on 18 Nov 2026 whether an Azure
-   Function could do this. ADR-0025's Option E answers it. Approving this
-   spec accepts the Container Apps job.
-
-Where the email half lives was the third item. U233 settled it.
+   Function could do this. ADR-0025's Option E answers it, and the owner
+   then approved the Container Apps job (U234).
+3. **Where the email half lives:** TYRE-243 (U233).
 
 ## Definition of done
 
