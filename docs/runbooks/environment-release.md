@@ -976,7 +976,11 @@ names no `pool_max_conns`: the job sets its pool of 2 in code (ADR-0005,
    ```
 
    Run **The read** below and expect a `daily_job_started` and a
-   `daily_job_succeeded` line. The "resolved" email follows within the hour.
+   `daily_job_succeeded` line. The "resolved" email follows in about two
+   hours: an hourly rule resolves only once its condition has gone unmet
+   for two evaluations
+   (learn.microsoft.com/azure/azure-monitor/alerts/alerts-create-log-alert-rule,
+   Automatically resolve alerts).
 5. **Next morning**, run The read again with `ago(12h)` in place of
    `ago(2h)` and expect the 22:15 UTC run's two lines.
 
