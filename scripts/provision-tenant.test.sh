@@ -4,8 +4,9 @@
 # sweep stay defined on the fixture (TYRE-374). make db-provision-test runs it
 # locally and the CI database job runs it last. Step 16 replays 000060's data
 # step on a third (TYRE-326). Step 17 migrates a fourth as a stand-in for
-# tyreadmin, and proves 000061 and 000062 up, down and up again there
-# (TYRE-472, TYRE-99).
+# tyreadmin, proves 000061 to 000063 up, down and up again there, and probes
+# the daily job's tenant listing under that owner (TYRE-472, TYRE-99,
+# TYRE-371).
 #
 # Environment, set by both callers:
 #   PSQL         a superuser psql command naming no database; SQL goes in on
@@ -218,16 +219,20 @@ ok 16 "000060's data step on the shape staging holds"
 # spec section 9): not a superuser, so PostgreSQL's ownership rules bind it
 # as they bind tyreadmin.
 # It must bypass RLS because it joins app_writer, and suite check 8e requires
-# every member to. app_rw, app_login and app_writer already exist in the
-# cluster, so it gets what PostgreSQL gives a role's creator: ADMIN, no SET,
-# no INHERIT (https://www.postgresql.org/docs/16/role-attributes.html). goto,
-# never up, so a later migration does not move what this proves.
+# every member to. app_rw, app_login, app_writer and app_job already exist in
+# the cluster, so it gets what PostgreSQL gives a role's creator, as tyreadmin
+# holds on each on Azure: ADMIN, no SET, no INHERIT
+# (https://www.postgresql.org/docs/16/role-attributes.html). goto, never up,
+# so a later migration does not move what this proves.
+# The limit (TYRE-371): step 3 has already created app_job as postgres, so
+# 000063 here runs only the branch of its guard that skips CREATE ROLE. A
+# role that is not a superuser first creates app_job on staging's migrate.
 t17=$SECONDS
 S=tyreadmin_standin
 super -c "DROP DATABASE IF EXISTS tyre_standin WITH (FORCE)"
 super -c "DO \$\$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$S') THEN EXECUTE 'DROP OWNED BY $S'; EXECUTE 'DROP ROLE $S'; END IF; END \$\$"
 super -c "CREATE ROLE $S LOGIN NOSUPERUSER CREATEROLE CREATEDB BYPASSRLS PASSWORD 'standin'"
-for r in app_rw app_login app_writer; do
+for r in app_rw app_login app_writer app_job; do
   super -c "GRANT $r TO $S WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
 done
 super -c "CREATE DATABASE tyre_standin OWNER $S"
@@ -260,12 +265,24 @@ grep -qF 'function app.mark_code_on_sidewall(uuid,uuid,date) owner=app_writer de
 standin_migrate goto 61
 run tyre_standin postgres "$work/catalogue62.sql" -At >"$work/cat62-down.txt"
 diff "$work/cat62-61.txt" "$work/cat62-down.txt" || fail 17 "000062's down did not restore 61's catalogue"
+# 000063 the same way: its down drops the listing and keeps app_job (TYRE-371).
+standin_migrate goto 62
+run tyre_standin postgres db/tests/migration/000063_catalogue.sql -At >"$work/cat63-62.txt"
+standin_migrate goto 63
+run tyre_standin postgres db/tests/migration/000063_catalogue.sql -At >"$work/cat63-63.txt"
+grep -qF "function app.active_tenant_ids() owner=$S definer=t " "$work/cat63-63.txt" \
+  || fail 17 "000063's up did not make app.active_tenant_ids() a definer the migrating role owns"
+standin_migrate goto 62
+run tyre_standin postgres db/tests/migration/000063_catalogue.sql -At >"$work/cat63-down.txt"
+diff "$work/cat63-62.txt" "$work/cat63-down.txt" || fail 17 "000063's down did not restore 62's catalogue"
 standin_migrate up
 must_run 17 tyre_standin postgres db/seeds/002_seed_configurations.sql
 must_run 17 tyre_standin postgres db/seeds/003_seed_fixture.sql
 cat db/tests/helpers.sql db/tests/migration/000061_standin.sql >"$work/standin.sql"
 must_run 17 tyre_standin postgres "$work/standin.sql"
-ok 17 "000061 and 000062 up, down and up again as $S, and the write-list functions run as app_writer, in $((SECONDS - t17))s"
+cat db/tests/helpers.sql db/tests/migration/000063_standin.sql >"$work/standin63.sql"
+must_run 17 tyre_standin postgres "$work/standin63.sql"
+ok 17 "000061 to 000063 up, down and up again as $S, the write-list functions run as app_writer, and app_job lists every ACTIVE tenant, in $((SECONDS - t17))s"
 
 # 18. Clean up only on success, so a failure leaves the databases to inspect;
 # the next run drops them first. DROP ROLE refuses a role that granted a

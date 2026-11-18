@@ -329,7 +329,8 @@ out of the repository, and its SQL calls `app.seed_tenant_catalogue()`
 (`docs/runbooks/provision-a-tenant.md`, TYRE-374). `make db-provision-test`
 proves it, with activation and the demonstration load, on databases of its
 own, never `tyre`, and migrates one of them as a stand-in for `tyreadmin` to
-prove 000061 up, down and up again (TYRE-472).
+prove 000061 to 000063 up, down and up again, and that `app_job` lists every
+ACTIVE tenant through a listing that stand-in owns (TYRE-472, TYRE-371).
 
 `gen_seed_volume.py` is the odd one out among the fixture generators: it
 writes Sandbox Fleet's volume tenant for the dashboard read-path measurement
