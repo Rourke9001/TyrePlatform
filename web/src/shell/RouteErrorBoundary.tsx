@@ -5,6 +5,7 @@ import { useLocation, useMatch } from "react-router";
 import { bounded } from "../api/deadline";
 import { useActor } from "../auth/actorContext";
 import { refreshCaptureContexts } from "../capture/captureContext";
+import { ErrorDiscard } from "../capture/ErrorDiscard";
 import { useStorageFaults, type StorageFaults } from "../capture/storageFaults";
 import { refreshDriverHome } from "../driver/driver.data";
 import { Button } from "../ui/Button";
@@ -82,6 +83,10 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
     this.setState({ failed: false, busy: false, retries });
   }
 
+  // A discard that succeeded is a fresh start: the page remounts on the start
+  // screen, and the count begins again (TYRE-333).
+  private readonly discarded = (): void => this.recover(0);
+
   // The driver's routes are static in the entry chunk, so clearing the error
   // remounts them in place: a reload would strand a driver without signal on
   // the browser's offline page, since there is no service worker (ADR-0009).
@@ -125,13 +130,18 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
         {/* NFR-USE-004: the driver's routes take the glove size. aria-disabled,
             not disabled, so focus stays on the button while it waits. */}
         <Button
-          variant="secondary"
+          variant={escalated ? "primary" : "secondary"}
           size={route !== null ? "glove" : "md"}
+          block={escalated}
           aria-disabled={this.state.busy}
           onClick={this.retry}
         >
           {this.state.busy ? "Trying again…" : "Try again"}
         </Button>
+        {/* Discard can show when the cause is server data, which is accepted:
+            the confirmation names what is lost, and Try again comes first
+            (TYRE-333). */}
+        {escalated && route === "capture" && <ErrorDiscard onDiscarded={this.discarded} />}
       </div>
     );
   }

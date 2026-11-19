@@ -56,7 +56,8 @@
 
 /* aria-disabled keeps the busy retry focusable; it looks disabled. Two
    classes on the button, so it beats Button.css's hover fill. */
-.route-error .tr-btn.tr-btn--secondary[aria-disabled="true"] {
+.route-error .tr-btn.tr-btn--secondary[aria-disabled="true"],
+.route-error .tr-btn.tr-btn--primary[aria-disabled="true"] {
   background: var(--surface-muted);
   color: var(--ink-secondary);
   border-color: var(--line);

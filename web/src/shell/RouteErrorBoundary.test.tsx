@@ -11,10 +11,10 @@ import { CaptureFlow } from "../capture/CaptureFlow";
 import { captureContextQuery, type CaptureContext } from "../capture/captureContext";
 import { DriverHome } from "../driver/DriverHome";
 import { myTasksQuery, myTripQuery } from "../driver/driver.data";
-import { clearDraft, db, startDraft } from "../capture/draft";
+import { clearDraft, db, loadDraft, savePosition, startDraft } from "../capture/draft";
 import type { OutboxEntry } from "../capture/outbox";
 import type { SubmitPayload } from "../capture/payload";
-import { storageRefused, writeFailed } from "../capture/storageFaults";
+import { readStorageFaults, storageRefused, writeFailed } from "../capture/storageFaults";
 import { captureContext, me, requestedUrl, respond, testQueryClient } from "../test/fixtures";
 import { deriveBrandTheme } from "../theme/derive";
 import { ThemeContext } from "../theme/themeContext";
@@ -474,5 +474,111 @@ describe("the second failure in a row (TYRE-340)", () => {
 
     expect(await screen.findByRole("region", { name: "Your trip" })).toHaveTextContent("H1");
     expect(readsOf(api)).toEqual(expect.arrayContaining(["/api/my/tasks", "/api/my/trip"]));
+  });
+});
+
+const outboxEntry = () => outbox().get("u-1");
+
+describe("the discard on the capture error screen (TYRE-333)", () => {
+  // absentCells maps draft.absentSpares, so this draft throws on every resume,
+  // and counting it for the confirmation throws too.
+  it("offers the discard from the second failure, and lands on the start screen with the outbox untouched", async () => {
+    const user = userEvent.setup();
+    serveReads({ [vehicle]: captureContext() });
+    await seedDraft({ patch: { absentSpares: {} } });
+    writeFailed();
+    const read = vi.spyOn(db.drafts, "get");
+    renderAt("/capture/v1", capturePage());
+
+    expect(
+      within(await errorScreen()).queryByRole("button", { name: "Discard this inspection" }),
+    ).toBeNull();
+    await tryAgain(user);
+    const trigger = await screen.findByRole("button", { name: "Discard this inspection" });
+    // Two mounts of the page and the discard's own read at the second
+    // failure. A discard mounted at the first failure would have read too,
+    // before the retry's render, which flushes its pending effects.
+    expect(read).toHaveBeenCalledTimes(3);
+    await user.click(trigger);
+    const confirm = screen.getByRole("group", { name: "Discard the inspection of BAC039SP?" });
+    expect(confirm).toHaveTextContent("Everything entered for it will be lost.");
+    expect(
+      within(await errorScreen())
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Try again", "Keep it", "Discard"]);
+    await user.click(within(confirm).getByRole("button", { name: "Discard" }));
+
+    expect(await screen.findByRole("button", { name: /start inspection/i })).toBeInTheDocument();
+    expect(await loadDraft()).toBeUndefined();
+    expect(await outboxEntry()).toBeDefined();
+    expect(await outbox().count()).toBe(1);
+    expect(readStorageFaults().degraded).toBe(false);
+  });
+
+  it("names what the discard loses when the draft can be counted", async () => {
+    const user = userEvent.setup();
+    const startedAt = new Date(Date.now() - 3_600_000).toISOString();
+    await seedDraft({ startedAt });
+    await savePosition({
+      positionId: "p1",
+      vehicleId: "v1",
+      tyreId: "ty1",
+      treads: [13, 13, 14],
+      pressureKpa: 800,
+      pressureTemperature: "COLD",
+      damageFlag: false,
+      note: null,
+      seconds: 12,
+      warnings: [],
+    });
+    const client = testQueryClient();
+    client.setQueryData(captureContextQuery("v1", startedAt).queryKey, throwingContext);
+    renderAt("/capture/v1", capturePage(), { client });
+    await tryAgain(user);
+
+    await user.click(await screen.findByRole("button", { name: "Discard this inspection" }));
+    expect(
+      screen.getByRole("group", { name: "Discard the inspection of BAC039SP?" }),
+    ).toHaveTextContent("1 captured position will be lost.");
+  });
+
+  it.each([
+    ["with no draft on the phone", () => Promise.resolve()],
+    ["for another driver's draft", () => seedDraft({ driverSubject: "oid-driver-2" })],
+  ])("offers no discard %s", async (_, seed) => {
+    const user = userEvent.setup();
+    await seed();
+    const read = vi.spyOn(db.drafts, "get");
+    renderAt("/capture/v1", capturePage(), { client: cachedThrowing() });
+    await tryAgain(user);
+    await screen.findByText("This page still cannot be shown.");
+    // Two mounts of the page read the draft, then the discard's own read;
+    // once all three have answered, the discard has decided.
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(3));
+    await act(async () => {
+      await Promise.allSettled(read.mock.results.map((r): unknown => r.value));
+    });
+
+    expect(screen.queryByRole("button", { name: "Discard this inspection" })).toBeNull();
+  });
+
+  it("says so when the discard fails, and keeps the error screen", async () => {
+    const user = userEvent.setup();
+    serveReads({ [vehicle]: captureContext() });
+    await seedDraft({ patch: { absentSpares: {} } });
+    renderAt("/capture/v1", capturePage());
+    await tryAgain(user);
+    await user.click(await screen.findByRole("button", { name: "Discard this inspection" }));
+    vi.spyOn(db.drafts, "delete").mockRejectedValue(new Error("storage blocked"));
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+
+    expect(
+      await screen.findByText("Could not discard it. This phone is not saving reliably."),
+    ).toBeInTheDocument();
+    const shown = await errorScreen();
+    expect(shown).toHaveTextContent("This page still cannot be shown.");
+    expect(shown).toHaveTextContent(MAY_BE_MISSING);
+    expect(readStorageFaults().degraded).toBe(true);
   });
 });
