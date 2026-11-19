@@ -5,8 +5,9 @@
 //
 // There is no YAML library at the repo root, so this reads lines and relies on
 // the two-space job indent every workflow here uses, as
-// scripts/check-workflow-timeouts.mjs does. Text it cannot place is refused,
-// never skipped (TYRE-49).
+// scripts/check-workflow-timeouts.mjs does. Text it cannot place is refused
+// (TYRE-49); a job indented deeper than two spaces is not read, and the
+// timeout check refuses its runs-on.
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

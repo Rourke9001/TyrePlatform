@@ -108,9 +108,10 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      # Fails before anything changes when the API identity holds a role
-      # reaching kv-tyre-<env>, whose admin password bypasses RLS (rule 1,
-      # TYRE-438), a rollback included. The web job ships only static files.
+      # Before anything changes, on a rollback too: the API identity must hold
+      # no role reaching kv-tyre-<env>, whose admin password bypasses RLS
+      # (rule 1, TYRE-438). The web job ships only static files, so it does
+      # not repeat it.
       - name: API identity's roles
         run: bash scripts/deploy-roles.sh "$TARGET"
 
@@ -212,8 +213,7 @@ jobs:
     # tree inside its 10 minutes; this job only installs and builds.
     timeout-minutes: 10
     steps:
-      # Built from the image's commit, so a rollback ships that commit's web
-      # too.
+      # Built from the image's commit, so a rollback ships that commit's web too.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.IMAGE_SHA }}
@@ -231,7 +231,8 @@ jobs:
         run: |
           cd web
           # Only esbuild and fsevents carry install scripts, and esbuild's
-          # binary comes from its platform package, so none runs (TYRE-437).
+          # binary comes from its platform package, so skipping them loses
+          # nothing the build needs (TYRE-437).
           npm ci --ignore-scripts
           npm run build
           npm run bundle:check
@@ -277,8 +278,8 @@ jobs:
           ROLLBACK_SHA: ${{ inputs.image_sha }}
         run: bash scripts/deploy-guard.sh commit "$TARGET" "$GITHUB_REF" "$TEMPLATE_SHA" "$GITHUB_RUN_ATTEMPT" "$ROLLBACK_SHA"
 
-      # The config writer and the smoke are the image's commit's, as the dist
-      # web-build made from it is.
+      # The config writer and the smoke run from the image's commit, the one
+      # web-build built the dist from.
       - name: Check out the image's commit
         run: git checkout --quiet --detach "$IMAGE_SHA"
 

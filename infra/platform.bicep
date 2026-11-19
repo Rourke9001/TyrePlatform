@@ -239,19 +239,17 @@ resource kvSecretsForApi 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
 
 // -------------------------------------------------------- deploy identity --
 
-// Made by hand before the first platform apply (runbook, staging's bring-up
-// step 3 and Production bring-up step 2), so its federated credential exists
-// before any deploy.
+// Made by hand, with the federated credential every deploy signs in through,
+// before the first platform apply (runbook, staging's bring-up step 3,
+// Production bring-up step 2).
 resource deployIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
   name: 'id-tyre-deploy-${env}'
 }
 
 // */read plus the writes the deploy makes, and no Postgres write, storage key
 // or authorization write, so a deploy cannot reset tyreadmin's password or
-// read the account keys (rule 1, TYRE-437, TYRE-438, U241). Microsoft's
-// Container Apps guidance is a custom role of the operations needed
-// (docs/superpowers/specs/2026-11-19-deploy-role-check-and-identity-hardening-design.md,
-// section 4.3).
+// read the account keys (rule 1, TYRE-437, TYRE-438, U241; section 4.3 of
+// docs/superpowers/specs/2026-11-19-deploy-role-check-and-identity-hardening-design.md).
 resource deployRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
   name: guid(resourceGroup().id, 'tyre-deploy-role')
   properties: {
