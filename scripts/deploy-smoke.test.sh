@@ -115,6 +115,7 @@ control() {
   answer GET "$WEB/assets/deploy-smoke-missing.js" "" 404 "content-type: text/html" "not found"
   answer GET "$WEB/config.json" "" 200 "content-type: application/json
 Cache-Control: no-cache" "{\"apiOrigin\":\"$API\"}"
+  answer GET "$WEB/manifest.webmanifest" "" 200 "content-type: application/manifest+json" '{"name":"Tyre Track"}'
   answer OPTIONS "$API/api/org/branding" "$WEB" 204 "$API_SECURITY
 access-control-allow-origin: $WEB
 access-control-allow-methods: GET, POST, PATCH
@@ -191,6 +192,18 @@ expect "config.json names another API origin" 1
 
 control; answer GET "$WEB/config.json" "" 200 "content-type: application/json" "{\"apiOrigin\":\"$API\"}"
 expect "config.json without Cache-Control: no-cache" 1
+
+control; answer GET "$WEB/manifest.webmanifest" "" 200 "content-type: application/manifest+json; charset=utf-8" '{"name":"Tyre Track"}'
+expect "the manifest's type carries a parameter" 0
+
+control; answer GET "$WEB/manifest.webmanifest" "" 200 "content-type: application/octet-stream" '{"name":"Tyre Track"}'
+expect "the manifest is served as a download" 1
+
+control; answer GET "$WEB/manifest.webmanifest" "" 200 "content-type: text/html" "$INDEX"
+expect "the manifest is answered with the app" 1
+
+control; answer GET "$WEB/manifest.webmanifest" "" 404 "content-type: text/html" "not found"
+expect "the manifest 404s" 1
 
 # An image from before this CORS: requireActor on the /api sub-router
 # answers before chi's method lookup (httpapi.go).

@@ -26,6 +26,20 @@ function pngSize(file: string): { signature: number[]; size: [number, number] } 
 }
 
 describe("the web-app manifest", () => {
+  it("serves the manifest as JSON and never answers it or an icon with index.html", () => {
+    const config = JSON.parse(
+      readFileSync(resolve(import.meta.dirname, "../staticwebapp.config.json"), "utf8"),
+    ) as {
+      mimeTypes?: Record<string, string>;
+      navigationFallback: { exclude: string[] };
+    };
+    expect(config.mimeTypes).toEqual({ ".webmanifest": "application/manifest+json" });
+    const entry = config.navigationFallback.exclude.find(
+      (e) => e.includes("webmanifest") && e.includes("png"),
+    );
+    expect(entry, "navigationFallback.exclude").toBeDefined();
+  });
+
   it("declares the app as spec section 1's table, no more", () => {
     expect(manifest).toEqual({
       name: "Tyre Track",

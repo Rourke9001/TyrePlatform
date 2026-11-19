@@ -14,6 +14,9 @@
       "headers": { "Cache-Control": "no-cache" }
     }
   ],
+  "mimeTypes": {
+    ".webmanifest": "application/manifest+json"
+  },
   "globalHeaders": {
     "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' __API_ORIGIN__ https://9f571f6c-5e2c-42ad-9cc2-e173ef4a0c19.ciamlogin.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains",

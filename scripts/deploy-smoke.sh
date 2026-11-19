@@ -118,6 +118,23 @@ configuration() {
   one config cache-control no-cache
 }
 
+# Static Web Apps documents no default type for .webmanifest, so the config
+# sets one, and the HTML standard drops a manifest whose type is not a JSON
+# MIME type (TYRE-154). A parameter such as charset is not part of the type.
+web_manifest() {
+  fetch manifest GET "$web/manifest.webmanifest"
+  [ "$code" = 200 ] || { why="GET $web/manifest.webmanifest answered $code"; return 1; }
+  local got
+  got=$(values manifest content-type | tr 'A-Z' 'a-z')
+  [ "$(printf '%s' "$got" | grep -c .)" -eq 1 ] || { why="content-type sent ${got:+more than once}${got:-never}"; return 1; }
+  got=${got%%;*}
+  got=${got%"${got##*[![:space:]]}"}
+  case "$got" in
+    application/json | text/json | */*+json) ;;
+    *) why="the manifest's content-type is '$got', want a JSON type"; return 1 ;;
+  esac
+}
+
 preflight() {
   fetch pre OPTIONS "$api/api/org/branding" "Origin: $web" \
     "Access-Control-Request-Method: GET" "Access-Control-Request-Headers: authorization"
@@ -169,6 +186,7 @@ check() {
 check "the web origin's headers" web_origin
 check "a deep link returns the app and its headers, a missing asset 404s" deep_link
 check "config.json names the API origin" configuration
+check "the web-app manifest is served as JSON" web_manifest
 check "the API answers the web origin's preflight" preflight
 check "a refusal carries CORS and the security headers" refusal
 check "another origin is not allowed" other_origin
