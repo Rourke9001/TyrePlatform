@@ -30,7 +30,7 @@ const marginPermissions = /^['"]?permissions['"]?\s*:(.*)$/;
 // to a repo script is not followed: a script that starts npm is a diff a
 // reviewer reads.
 const packageManager = /\b(npm|npx|pnpm|yarn|corepack|make)\b/;
-const aliasName = /^\*([^\s,[\]{}#]+)\s*(?:$|[,\]}#])/;
+const aliasName = /^\*([^\s,[\]{}]*)/;
 const environmentKey = /^ {4}['"]?environment['"]?\s*:/;
 const uploadAction = /\buses['"]?\s*:\s*['"]?actions\/upload-artifact@/;
 const downloadAction = /\buses['"]?\s*:\s*['"]?actions\/download-artifact@/;
@@ -51,10 +51,10 @@ function closeQuote(line, from, quote) {
   return -1;
 }
 
-// A star is an alias only where a node opens; this reads one that opens a
-// value after ': ', a list item after '- ', or an entry after '[', '{' or ','
-// in a flow collection. A quoted scalar and a block scalar's lines are text,
-// so shell in a run block is never read as one (YAML 1.2.2 7.1, TYRE-438).
+// A star is an alias wherever a node opens: at a line's content, after '- ',
+// '? ' or ': ', or after '[', '{' or ',' in a flow collection, key or value.
+// A quoted scalar and a block scalar's lines are text, so shell in a run
+// block is never read as one (YAML 1.2.2 7.1, TYRE-438).
 function readAlias(line, y) {
   if (/^\s*$/.test(line)) return null;
   const indent = /^ */.exec(line)[0].length;
@@ -62,8 +62,7 @@ function readAlias(line, y) {
     if (indent > y.block || /^\s*#/.test(line)) return null;
     y.block = null;
   }
-  let lineStart = y.quote === null && y.depth === 0;
-  if (lineStart) y.open = true;
+  if (y.quote === null && y.depth === 0) y.open = true;
   let owner = indent;
   let found = null;
   let i = 0;
@@ -90,15 +89,13 @@ function readAlias(line, y) {
     if (y.open) {
       if (c === '*') {
         const m = aliasName.exec(line.slice(i));
-        if (m !== null && !lineStart && found === null) found = m[1];
-        i += /^\*[^\s,[\]{}]*/.exec(line.slice(i))[0].length;
+        if (m[1] !== '' && found === null) found = m[1];
+        i += m[0].length;
         y.open = false;
-        lineStart = false;
         continue;
       }
-      if (c === '-' && gap) {
+      if ((c === '-' || c === '?' || c === ':') && gap) {
         owner = i++;
-        lineStart = false;
         continue;
       }
       if (c === '&' || c === '!') {
@@ -108,7 +105,6 @@ function readAlias(line, y) {
       if (c === '[' || c === '{') {
         y.depth++;
         i++;
-        lineStart = false;
         continue;
       }
       if (y.depth === 0 && (c === '|' || c === '>')) {
@@ -117,7 +113,6 @@ function readAlias(line, y) {
       }
       if (y.depth === 0) owner = i;
       y.open = false;
-      lineStart = false;
       if (c === '"' || c === "'") {
         y.quote = c;
         i++;
@@ -165,7 +160,7 @@ export function check(files) {
       const n = i + 1;
       const alias = readAlias(line, yaml);
       if (alias !== null) {
-        problems.push(`${file}:${n}: a YAML alias '*${alias}', which this check cannot read where it is used; write the value out (TYRE-438)`);
+        problems.push(`${file}:${n}: a YAML alias '*${alias}', which this check cannot read where it is used; write out what it stands for (TYRE-438)`);
       }
       if (/^\s*(#.*)?$/.test(line)) return;
       if (/^\S/.test(line)) {
@@ -407,6 +402,21 @@ if (args.includes('--self-test')) {
       "a token job's run: an alias of npm ci",
       wf(...job('web-build', [], '      - run: &build npm ci'), ...job('web', token, '      - run: *build')),
       ["alias '*build'"],
+    ],
+    [
+      'a permission name aliased as a block key, *k : write, running npm ci',
+      wf(...job('api', ['    permissions:', '      &k id-token: none'], run('true')), ...job('web', ['    permissions:', '      *k : write'], run('npm ci'))),
+      ["alias '*k'"],
+    ],
+    [
+      'a permission name aliased as a flow key, { *k : write }, running npm ci',
+      wf(...job('api', ['    permissions:', '      &k id-token: none'], run('true')), ...job('web', ['    permissions: { *k : write, contents: read }'], run('npm ci'))),
+      ["alias '*k'"],
+    ],
+    [
+      'a permission name aliased as an explicit key, ? *k, running npm ci',
+      wf(...job('api', ['    permissions:', '      &k id-token: none'], run('true')), ...job('web', ['    permissions:', '      ? *k', '      : write'], run('npm ci'))),
+      ["alias '*k'"],
     ],
     ['an anchor with no alias', wf(...job('api', ['    permissions: &tok', '      id-token: write'], run('true'))), null],
     [
