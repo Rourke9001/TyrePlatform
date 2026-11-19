@@ -301,6 +301,10 @@ deploy-guard-test: ## The deploy refusals' cases, on real git history with stub 
 deploy-smoke-test: ## The post-deploy smoke's pass and fail cases, with a stub curl (TYRE-51)
 	bash scripts/deploy-smoke.test.sh
 
+.PHONY: deploy-roles-test
+deploy-roles-test: ## The deploy's check of the API identity's roles, against a stub az that answers as ARM does (TYRE-438)
+	bash scripts/deploy-roles.test.sh
+
 .PHONY: web-bundle
 web-bundle: ## The capture route's JavaScript budget (TYRE-238, ADR-0015), the sign-in library in the entry (U175), no dev identity in the build (TYRE-317), its sign-in values (TYRE-79) and the deploy's web config writer (TYRE-51)
 	node scripts/check-capture-bundle.mjs --self-test
@@ -441,7 +445,7 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bi
 	$(MAKE) web-bundle
 
 .PHONY: test
-test: db-reset db-test db-test-privileged db-provision-test api-test web-test web-production deploy-gate-test deploy-guard-test deploy-smoke-test pipeline-launch-test pipeline-review-test pipeline-wait-test hooks-test guard-check-test ## Every test in the repo
+test: db-reset db-test db-test-privileged db-provision-test api-test web-test web-production deploy-gate-test deploy-guard-test deploy-smoke-test deploy-roles-test pipeline-launch-test pipeline-review-test pipeline-wait-test hooks-test guard-check-test ## Every test in the repo
 
 .PHONY: check
 check: hooks-install fmt lint test ## What CI runs. Run this before you commit.
