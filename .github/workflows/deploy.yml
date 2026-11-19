@@ -102,6 +102,12 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
+      # Fails before anything changes when the API identity holds a role
+      # reaching kv-tyre-<env>, whose admin password bypasses RLS (rule 1,
+      # TYRE-438), a rollback included. The web job ships only static files.
+      - name: API identity's roles
+        run: bash scripts/deploy-roles.sh "$TARGET"
+
       # Staging's server stays running (U232) but Azure can stop it, and the
       # API exits at startup without it, so a staging deploy starts it first.
       # Production's server is never stopped, so anything but Ready fails

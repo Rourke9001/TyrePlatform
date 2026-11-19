@@ -143,6 +143,8 @@ jobs:
         run: make deploy-guard-test
       - name: Deploy smoke cases
         run: make deploy-smoke-test
+      - name: Deploy role check cases
+        run: make deploy-roles-test
       - name: Pipeline launcher cases
         run: make pipeline-launch-test
       - name: Pipeline review script cases
