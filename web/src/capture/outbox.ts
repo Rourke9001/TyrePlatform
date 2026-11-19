@@ -310,13 +310,15 @@ export interface HeldWork {
 // PD-S3: a draft and every outbox entry, whatever its state. The draft is
 // reported apart, because it never sends by itself and the sign-out refusal
 // names a different fix for it (U108).
+// Rejects, unlike heldCount, so a caller can tell a dead store from an empty
+// one (TYRE-154, spec section 4).
 export async function readHeldWork(): Promise<HeldWork> {
   const [draft, entries] = await Promise.all([loadDraft(), table().count()]);
   return { draft: draft !== undefined, entries };
 }
 
-// Rejects, unlike heldCount, so a caller can tell a dead store from an empty
-// one (TYRE-154, spec section 4).
+// A failed read is nothing held, which sign-out relies on (spec section 4,
+// TYRE-317).
 export async function heldCount(): Promise<HeldWork> {
   try {
     return await readHeldWork();
