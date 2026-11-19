@@ -225,7 +225,7 @@ done <"$work/control"
 while IFS=$'\t' read -r _ _ scope _ _; do
   [[ "${scope,,}" != "${group,,}"/providers/* ]] || has_below=1
 done <"$work/all"
-[ "$has_sub" = 1 ] || flag 4 "the Control listing at kv-tyre-$target shows no row at the subscription, which always has one, $cannot"
+[ "$has_sub" = 1 ] || flag 4 "the Control listing at kv-tyre-$target shows no row at the subscription itself, which an Owner held only through a management group or only as a PIM-eligible assignment leaves without one, $cannot"
 [ "$has_deployer" = 1 ] || flag 4 "the Control listing at kv-tyre-$target shows no row of id-tyre-deploy-$target at $rg, $cannot"
 [ "$has_below" = 1 ] || flag 4 "the All listing at $rg shows no row on a resource in it, though kv-tyre-$target always has one, $cannot"
 
