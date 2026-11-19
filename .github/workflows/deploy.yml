@@ -246,7 +246,7 @@ jobs:
           include-hidden-files: true # the dist's .vite/manifest.json ships as it always has
           if-no-files-found: error
           overwrite: true # a second upload of one name in a run fails without it (the action's README)
-          retention-days: 1
+          retention-days: 35 # outlives production's approval wait (scripts/check-workflow-token-jobs.mjs)
 
   web:
     name: Web to Static Web Apps

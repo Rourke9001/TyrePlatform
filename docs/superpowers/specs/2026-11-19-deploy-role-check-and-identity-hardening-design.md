@@ -274,7 +274,11 @@ and runs in `ci.yml` where those three run.
   (`9000827ccba6bdab643e8b6fd33ac0654aef8333`). The upload sets
   `overwrite: true`, because a second upload of the same name in one
   run fails without it (*documented*: the action's README), and a
-  retention of one day.
+  retention of 35 days. `web` downloads the artifact after the
+  `production` environment's approval, and a run can wait up to 35
+  days, approval waits included (*documented*:
+  <https://docs.github.com/en/actions/reference/limits>), so a shorter
+  retention fails a deploy the owner approves late.
 - `ci.yml`'s Frontend job also moves to `npm ci --ignore-scripts`, so
   the pull request's own CI proves the build under that flag before the
   merge deploy relies on it. Only `esbuild` and `fsevents` carry an
@@ -284,7 +288,9 @@ and runs in `ci.yml` where those three run.
 **A check that keeps it so.** `make lint` gains a check, in the infra
 lint beside the workflow timeout check, that fails when a job in
 `deploy.yml` both grants `id-token: write` and runs `npm`, or when
-`id-token: write` appears at workflow level. It has a self-test, as the
+`id-token: write` appears at workflow level. It also fails when an
+artifact upload in a workflow with an environment and a download sets
+`retention-days` under 35, or none. It has a self-test, as the
 timeout check does. Whether it extends
 `scripts/check-workflow-timeouts.mjs` or is a new script is the
 builder's.
