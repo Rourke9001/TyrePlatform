@@ -1,13 +1,16 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
-import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
+import { onlineManager, QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
 import { ActorContext } from "../auth/actorContext";
 import { CaptureFlow } from "../capture/CaptureFlow";
+import { captureContextQuery, type CaptureContext } from "../capture/captureContext";
+import { DriverHome } from "../driver/DriverHome";
+import { myTasksQuery, myTripQuery } from "../driver/driver.data";
 import { clearDraft, db, startDraft } from "../capture/draft";
 import type { OutboxEntry } from "../capture/outbox";
 import type { SubmitPayload } from "../capture/payload";
@@ -289,5 +292,187 @@ describe("the capture error screen and the storage faults (TYRE-339)", () => {
 
     await tryAgain(user);
     expect(await screen.findByText(DEGRADED)).toBeInTheDocument();
+  });
+});
+
+const readsOf = (api: ReturnType<typeof serveReads>) =>
+  api.mock.calls.map(([input]) => requestedUrl(input));
+
+// rigPositions spreads positions, so the real capture page throws on this
+// cached copy on every mount until a fetch replaces it.
+const throwingContext = { ...captureContext(), positions: null } as unknown as CaptureContext;
+const atNow = captureContextQuery("v1").queryKey;
+const vehicle = "/api/capture/vehicles/v1";
+
+function cachedThrowing(): QueryClient {
+  const client = testQueryClient();
+  client.setQueryData(atNow, throwingContext);
+  return client;
+}
+
+// One read held open until the test answers it.
+function holdReads() {
+  let release: (body: unknown) => void = () => undefined;
+  const held = new Promise<Response>((resolve) => {
+    release = (body) => resolve(respond(200, body));
+  });
+  const api = vi.fn(() => held);
+  vi.stubGlobal("fetch", api);
+  return { api, answer: (body: unknown) => release(body) };
+}
+
+describe("the second failure in a row (TYRE-340)", () => {
+  it("tries again at once on the first failure, and fetches the vehicle before the second", async () => {
+    const user = userEvent.setup();
+    const api = serveReads({ [vehicle]: captureContext() });
+    renderAt("/capture/v1", capturePage(), { client: cachedThrowing() });
+
+    const first = await errorScreen();
+    expect(first).toHaveTextContent("This page could not be shown.");
+    expect(first).not.toHaveTextContent("fetches a fresh copy");
+    await tryAgain(user);
+    const second = await errorScreen();
+    expect(second).toHaveTextContent("This page still cannot be shown.");
+    expect(second).toHaveTextContent(
+      "Try again fetches a fresh copy first. Find signal if you can.",
+    );
+    expect(readsOf(api)).toEqual([]);
+
+    await tryAgain(user);
+
+    expect(await screen.findByRole("button", { name: /start inspection/i })).toBeInTheDocument();
+    expect(readsOf(api)).toEqual([vehicle]);
+  });
+
+  it("keeps the copy when the fetch fails, and the page reads it again", async () => {
+    const user = userEvent.setup();
+    serveReads({});
+    const client = cachedThrowing();
+    const { onCaughtError } = renderAt("/capture/v1", capturePage(), { client });
+    await tryAgain(user);
+    await screen.findByText("This page still cannot be shown.");
+
+    await tryAgain(user);
+
+    await waitFor(() => expect(onCaughtError).toHaveBeenCalledTimes(3));
+    expect(client.getQueryData(atNow)).toBe(throwingContext);
+    expect(await errorScreen()).toHaveTextContent("This page still cannot be shown.");
+  });
+
+  // A wait on the paused fetch would run past waitFor's 5 s to the 10 s bound.
+  it("does not hold the retry on a fetch that pauses offline", async () => {
+    const user = userEvent.setup();
+    serveReads({ [vehicle]: captureContext() });
+    const { onCaughtError } = renderAt("/capture/v1", capturePage(), {
+      client: cachedThrowing(),
+    });
+    await tryAgain(user);
+    await screen.findByText("This page still cannot be shown.");
+    onlineManager.setOnline(false);
+    try {
+      await tryAgain(user);
+      await waitFor(() => expect(onCaughtError).toHaveBeenCalledTimes(3));
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  // What the driver sees while the retry waits. A second tap's guard is not
+  // observable here: the library hands a second call the fetch in flight.
+  it("holds Try again busy while the fetch is open, and recovers once when it lands", async () => {
+    const user = userEvent.setup();
+    const { answer } = holdReads();
+    const { onCaughtError } = renderAt("/capture/v1", capturePage(), {
+      client: cachedThrowing(),
+    });
+    await tryAgain(user);
+    await screen.findByText("This page still cannot be shown.");
+    await tryAgain(user);
+
+    const busy = await screen.findByRole("button", { name: "Trying again…" });
+    expect(busy).toHaveAttribute("aria-disabled", "true");
+    await user.click(busy);
+    expect(screen.getByRole("button", { name: "Trying again…" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    answer(captureContext());
+
+    expect(await screen.findByRole("button", { name: /start inspection/i })).toBeInTheDocument();
+    expect(onCaughtError).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets a navigation during the wait win, so the late fetch remounts nothing", async () => {
+    const user = userEvent.setup();
+    const { answer } = holdReads();
+    const client = cachedThrowing();
+    renderAt(
+      "/capture/v1",
+      <>
+        {capturePage()}
+        <Route path="/fleet/tyres" element={<FlakyPage />} />
+      </>,
+      { client },
+    );
+    await tryAgain(user);
+    await screen.findByText("This page still cannot be shown.");
+    await tryAgain(user);
+    await screen.findByRole("button", { name: "Trying again…" });
+
+    await user.click(screen.getByRole("link", { name: "Tyres" }));
+    await screen.findByText("This page could not be shown.");
+    pageBroken = false;
+    answer(captureContext());
+    await waitFor(() => expect(client.getQueryData(atNow)).not.toBe(throwingContext));
+    // Past the data landing the retry is promise callbacks only, which all
+    // run before the next timer fires.
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+
+    expect(screen.getByText("This page could not be shown.")).toBeInTheDocument();
+    expect(screen.queryByText("Page resumed")).toBeNull();
+  });
+
+  // Spec 4: U148 and U182 hold a draft's windowed copy; this is the fetch a
+  // cold reload of the same draft makes, for the same window.
+  it("fetches a draft's windowed copy that was seeded and never fetched", async () => {
+    const user = userEvent.setup();
+    const startedAt = new Date(Date.now() - 3_600_000).toISOString();
+    await seedDraft({ startedAt });
+    const client = testQueryClient();
+    const windowed = captureContextQuery("v1", startedAt, client, "Africa/Johannesburg");
+    await client.ensureQueryData({ ...windowed, initialData: throwingContext });
+    expect(client.getQueryState(windowed.queryKey)?.dataUpdateCount).toBe(0);
+    const api = serveReads({ [vehicle]: captureContext() });
+    renderAt("/capture/v1", capturePage(), { client });
+    await tryAgain(user);
+    await screen.findByText("This page still cannot be shown.");
+
+    await tryAgain(user);
+
+    expect(await screen.findAllByRole("button", { name: /^Position 1,/ })).not.toHaveLength(0);
+    expect(readsOf(api)).toEqual([`${vehicle}?startedAt=${encodeURIComponent(startedAt)}`]);
+  });
+
+  // homeView spreads trip.trailers, so this cached trip throws in the real page.
+  it("fetches the task list and the trip again on /my", async () => {
+    const user = userEvent.setup();
+    const client = testQueryClient();
+    client.setQueryData(myTasksQuery().queryKey, []);
+    client.setQueryData(myTripQuery().queryKey, {
+      trip: { motive: { vehicleId: "h1", fleetNumber: "H1" }, trailers: null },
+    });
+    const api = serveReads({
+      "/api/my/tasks": [],
+      "/api/my/trip": { trip: { motive: { vehicleId: "h1", fleetNumber: "H1" }, trailers: [] } },
+    });
+    renderAt("/my", <Route path="/my" element={<DriverHome />} />, { client });
+    await tryAgain(user);
+    await screen.findByText("This page still cannot be shown.");
+    expect(readsOf(api)).toEqual([]);
+
+    await tryAgain(user);
+
+    expect(await screen.findByRole("region", { name: "Your trip" })).toHaveTextContent("H1");
+    expect(readsOf(api)).toEqual(expect.arrayContaining(["/api/my/tasks", "/api/my/trip"]));
   });
 });

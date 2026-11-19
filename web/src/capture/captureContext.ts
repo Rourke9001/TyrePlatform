@@ -3,6 +3,7 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { apiGet } from "../api/client";
 import { retryQuery } from "../api/apiError";
 import { getDevTenantId } from "../api/devTenant";
+import { fetchNow } from "../api/fetchNow";
 import { useActor } from "../auth/actorContext";
 import { tenantDayKey } from "../time/tenantTime";
 
@@ -123,8 +124,12 @@ export function fetchCaptureContext(
   return apiGet<CaptureContext>(`/api/capture/vehicles/${vehicleId}${query}`);
 }
 
+// One source for the tenant part, so a key built here and one searched for in
+// refreshCaptureContexts cannot differ.
+const tenantPart = () => getDevTenantId() ?? "default";
+
 function captureContextKey(vehicleId: string, startedAt?: string) {
-  return ["capture-context", getDevTenantId() ?? "default", vehicleId, startedAt ?? null];
+  return ["capture-context", tenantPart(), vehicleId, startedAt ?? null];
 }
 
 // gcTime for the tab's life (FR-OFF-002), so an entry nothing observes stays,
@@ -170,6 +175,23 @@ export function captureContextQuery(
     retry: (failures: number, error: unknown) =>
       seed?.getQueryData(queryKey) === undefined && retryQuery(failures, error),
   };
+}
+
+// The route error screen's escalated retry on /capture (TYRE-340). Every entry
+// of this tenant that holds data, the windowed ones seeded at Start included:
+// one of them is what the page threw on. An entry with no data cannot be that,
+// and fetching it would retry it inside the driver's wait.
+export async function refreshCaptureContexts(client: QueryClient, timeZone: string): Promise<void> {
+  const fetches: Promise<void>[] = [];
+  for (const entry of client
+    .getQueryCache()
+    .findAll({ queryKey: ["capture-context", tenantPart()] })) {
+    const [, , vehicleId, startedAt] = entry.queryKey;
+    if (entry.state.data === undefined || typeof vehicleId !== "string") continue;
+    const window = typeof startedAt === "string" ? startedAt : undefined;
+    fetches.push(fetchNow(client, captureContextQuery(vehicleId, window, client, timeZone)));
+  }
+  await Promise.all(fetches);
 }
 
 export function useCaptureContext(vehicleId: string, startedAt?: string, enabled = true) {
