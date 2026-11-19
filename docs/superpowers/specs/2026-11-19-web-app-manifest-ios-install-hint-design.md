@@ -32,8 +32,8 @@ builds it.
 lists what the phone holds. The hint adds one per-device flag that says the
 hint was dismissed. It names no person and no tenant. The theme preference
 (ADR-0020, `web/src/theme/appearance.ts:9`) is the same kind of flag and
-sits outside that list today. This design follows that precedent and flags
-it here for the owner.
+sits outside that list today. This design follows that precedent, and the
+owner confirmed it (U243, 19 Nov 2026).
 
 ## Intent
 
@@ -61,8 +61,7 @@ Two reasons make this more than polish:
   browser chrome, under the name "Tyre Track" and the app's icon.
 - Chrome's own install prompt never appears over the app, so it can never
   interrupt a capture. An Android driver is offered the install on "My
-  inspections" instead, by a button (section 4; the lead's proposal, put to
-  the owner with this spec).
+  inspections" instead, by a button (section 4; owner, U243).
 - An iPhone or iPad driver who adds the site to the Home Screen gets the
   same name and icon, and a standalone window.
 - An iPhone or iPad driver on "My inspections" in a browser sees one hint
@@ -170,11 +169,12 @@ Track" banner over the page. An on-device model decides when, on any page
 load, the capture route included, and nothing but JavaScript turns it off
 (Sources 13). The owner's first answer, iPhone and iPad only, was given on
 the lead's statement that Chrome's offer sits in its menu. That statement
-was incomplete, so this choice goes back to the owner with the spec.
+was incomplete, so the choice went back to the owner with this spec, who
+chose the first row (U243, 19 Nov 2026).
 
 | Approach | Trade-off |
 | --- | --- |
-| **Cancel Chrome's prompt on every route, and offer the install by a button on "My inspections"** (chosen, the lead's proposal) | `preventDefault()` on `beforeinstallprompt` stops the banner and keeps the event, whose `prompt()` opens Chrome's install dialog on a tap. This is the pattern Chrome documents for an app's own install offer (Sources 13). The capture flow is never interrupted, and every BAC driver, all on Android (AS-001), is offered the install at a moment that costs nothing. Cost: a listener in the entry and a second form of the hint. |
+| **Cancel Chrome's prompt on every route, and offer the install by a button on "My inspections"** (chosen; owner, U243) | `preventDefault()` on `beforeinstallprompt` stops the banner and keeps the event, whose `prompt()` opens Chrome's install dialog on a tap. This is the pattern Chrome documents for an app's own install offer (Sources 13). The capture flow is never interrupted, and every BAC driver, all on Android (AS-001), is offered the install at a moment that costs nothing. Cost: a listener in the entry and a second form of the hint. |
 | Cancel Chrome's prompt and offer nothing | The smallest change, and the closest to the owner's first answer. An Android driver installs only from Chrome's menu, so only if the office tells them how. |
 | Cancel it on the capture route only | The event fires once per page load, and this is a single-page app: a banner raised on "My inspections" can still be up when the driver taps into a capture. Rejected. |
 | Leave Chrome's prompt alone | A browser banner over a capture screen, in gloves, with an "Install" button to hit by accident. It breaks the first anti-goal. Rejected. |
@@ -303,13 +303,11 @@ draws no Apple glyph.
 **Where.** In `DriverHome`, after the task lists and the trip card, as the
 section's last block. The task a driver taps keeps its place whether the
 hint shows or not, so the one tap between opening the app and the first
-reading never moves (`web/src/driver/DriverHome.tsx:104-106`). This
-placement is the lead's proposal; the owner approved the words and the
-"until dismissed" rule, not the position.
+reading never moves (`web/src/driver/DriverHome.tsx:104-106`). The owner
+confirmed the position (U243).
 
-**What an Android driver sees** (the lead's proposal, wording included, put
-to the owner with this spec). A button that opens Chrome's own install
-dialog:
+**What an Android driver sees** (owner, U243, wording included). A button
+that opens Chrome's own install dialog:
 
 > **Install this app**
 >
@@ -509,8 +507,12 @@ Owed by the owner after the merge, and listed at hand-over:
 | Who supplies the icon | The owner has the icons and supplies them the next day; a placeholder until then. |
 | The app's name | "Tyre Track" under the icon and as the full name. |
 | The old name in the tab and the app bar default | Renamed here. |
-| Who sees the hint | iPhone and iPad only. Given before the Chrome finding under Approaches; the Android button is put back to the owner with this spec. |
+| Who sees the hint | First answer: iPhone and iPad only, given before the Chrome finding under Approaches. At spec approval (U243): Chrome's banner is blocked on every page, and Android drivers get the "Install this app" button, with the words in section 4. |
 | How long it shows, and its words | Until dismissed or opened from the Home Screen; the iPhone words in section 4. |
+| Where the hint sits | Below the tasks, the last block on "My inspections" (U243). |
+| NFR-PRV-006 and the dismissed flag | No SRS change (U243). |
+| The gap until TYRE-390's link ships | Accepted with the spec (U243). |
+| The spec | Approved, 19 Nov 2026 (U243). |
 
 ## Lead's calls
 
@@ -524,14 +526,14 @@ Owed by the owner after the merge, and listed at hand-over:
 | Content type | `mimeTypes` in the Static Web Apps config | Sources 10 |
 | CSP | Unchanged | Sources 11 |
 | Who is an iPhone or iPad | `navigator.standalone` defined and more than one touch point | Sources 6 |
-| Chrome's own prompt | Cancelled on every route; the install offered by a button (the owner's to confirm) | Sources 13 |
+| Chrome's own prompt | Cancelled on every route; the install offered by a button (confirmed by the owner, U243) | Sources 13 |
 | The content type on the deployed origin | One check in the deploy smoke | `scripts/deploy-smoke.sh:1-14` |
 | The gap until TYRE-390 ships | Accepted; the next run carries it | `docs/implementation-order.md:98` |
 | Hidden while anything is held | Yes, for both forms, and hidden while unknown | Sources 2 |
 | Where the dismissal lives | One `localStorage` key, kept through sign-out | `web/src/theme/appearance.ts:9`; `web/src/api/token.ts:163-170` |
-| Hint position | Last block on "My inspections" (the owner may move it) | `web/src/driver/DriverHome.tsx:104-106` |
+| Hint position | Last block on "My inspections" (confirmed by the owner, U243) | `web/src/driver/DriverHome.tsx:104-106` |
 | ADR | An amendment to ADR-0009, no new record | `docs/adr/0009-client-platform-and-on-device-data.md:41` |
-| SRS | No change; the NFR-PRV-006 point flagged above | ADR-0020, Themes |
+| SRS | No change; the NFR-PRV-006 point confirmed by the owner (U243) | ADR-0020, Themes |
 
 ## Left to the builder
 
