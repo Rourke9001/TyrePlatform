@@ -13,6 +13,7 @@ import { ConfigFailure } from "./shell/ConfigFailure";
 import { installChunkReload } from "./shell/chunkReload";
 import { installThemeStyle } from "./theme/themeStyle";
 import { startAppearance } from "./theme/appearance";
+import { startInstallOffer } from "./driver/installOffer";
 import { App } from "./App.tsx";
 
 // First, so every screen boot() can render, ConfigFailure included, paints
@@ -20,6 +21,10 @@ import { App } from "./App.tsx";
 installThemeStyle();
 // The device's Daylight or Night shift, on the root before the first render.
 startAppearance();
+// Chrome can hand over its install prompt as soon as the page loads, on any
+// route, and an uncancelled one raises its own banner, over a capture
+// included (TYRE-154, U243).
+startInstallOffer();
 
 const queryClient = new QueryClient();
 
