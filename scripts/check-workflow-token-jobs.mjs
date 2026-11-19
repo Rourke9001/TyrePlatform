@@ -30,10 +30,7 @@ const marginPermissions = /^['"]?permissions['"]?\s*:(.*)$/;
 // to a repo script is not followed: a script that starts npm is a diff a
 // reviewer reads.
 const packageManager = /\b(npm|npx|pnpm|yarn|corepack|make)\b/;
-// A star after a value's ': ', a list item's '- ' or a '[', '{' or ','.
-// Shell text in a run block can take that shape too, and is refused with it
-// (TYRE-438).
-const yamlAlias = /(?:^\s*-\s+|:\s+|[[{,]\s*)\*([^\s,[\]{}#]+)\s*(?:$|[,\]}#])/;
+const aliasName = /^\*([^\s,[\]{}#]+)\s*(?:$|[,\]}#])/;
 const environmentKey = /^ {4}['"]?environment['"]?\s*:/;
 const uploadAction = /\buses['"]?\s*:\s*['"]?actions\/upload-artifact@/;
 const downloadAction = /\buses['"]?\s*:\s*['"]?actions\/download-artifact@/;
@@ -41,6 +38,99 @@ const retentionKey = /(?:^|[\s{,])['"]?retention-days['"]?\s*:\s*([^\s,}#]*)/;
 // A run lives up to 35 days, approval waits included
 // (docs.github.com/en/actions/reference/limits, read 19 Nov 2026).
 const runDays = 35;
+
+// The index just past the quote that closes a scalar, or -1 when it runs on.
+function closeQuote(line, from, quote) {
+  for (let i = from; i < line.length; i++) {
+    if (quote === '"' && line[i] === '\\') i++;
+    else if (line[i] === quote) {
+      if (quote === "'" && line[i + 1] === "'") i++;
+      else return i + 1;
+    }
+  }
+  return -1;
+}
+
+// A star is an alias only where a node opens; this reads one that opens a
+// value after ': ', a list item after '- ', or an entry after '[', '{' or ','
+// in a flow collection. A quoted scalar and a block scalar's lines are text,
+// so shell in a run block is never read as one (YAML 1.2.2 7.1, TYRE-438).
+function readAlias(line, y) {
+  if (/^\s*$/.test(line)) return null;
+  const indent = /^ */.exec(line)[0].length;
+  if (y.quote === null && y.block !== null) {
+    if (indent > y.block || /^\s*#/.test(line)) return null;
+    y.block = null;
+  }
+  let lineStart = y.quote === null && y.depth === 0;
+  if (lineStart) y.open = true;
+  let owner = indent;
+  let found = null;
+  let i = 0;
+  while (i < line.length) {
+    if (y.quote !== null) {
+      i = closeQuote(line, i, y.quote);
+      if (i < 0) return found;
+      y.quote = null;
+      // A quoted key in a flow mapping may take its ':' with no space
+      // (YAML 1.2.2 7.4.2).
+      if (line[i] === ':') {
+        y.open = true;
+        i++;
+      }
+      continue;
+    }
+    const c = line[i];
+    const gap = i + 1 >= line.length || /\s/.test(line[i + 1]);
+    if (/\s/.test(c)) {
+      i++;
+      continue;
+    }
+    if (c === '#' && (i === 0 || /\s/.test(line[i - 1]))) return found;
+    if (y.open) {
+      if (c === '*') {
+        const m = aliasName.exec(line.slice(i));
+        if (m !== null && !lineStart && found === null) found = m[1];
+        i += /^\*[^\s,[\]{}]*/.exec(line.slice(i))[0].length;
+        y.open = false;
+        lineStart = false;
+        continue;
+      }
+      if (c === '-' && gap) {
+        owner = i++;
+        lineStart = false;
+        continue;
+      }
+      if (c === '&' || c === '!') {
+        i += /^[^\s,[\]{}]*/.exec(line.slice(i))[0].length;
+        continue;
+      }
+      if (c === '[' || c === '{') {
+        y.depth++;
+        i++;
+        lineStart = false;
+        continue;
+      }
+      if (y.depth === 0 && (c === '|' || c === '>')) {
+        y.block = owner;
+        return found;
+      }
+      if (y.depth === 0) owner = i;
+      y.open = false;
+      lineStart = false;
+      if (c === '"' || c === "'") {
+        y.quote = c;
+        i++;
+        continue;
+      }
+    }
+    if (c === ':' && (gap || (y.depth > 0 && /[,[\]{}]/.test(line[i + 1])))) y.open = true;
+    else if (y.depth > 0 && c === ',') y.open = true;
+    else if (y.depth > 0 && (c === ']' || c === '}')) y.depth--;
+    i++;
+  }
+  return found;
+}
 
 export function check(files) {
   const jobs = [];
@@ -69,13 +159,15 @@ export function check(files) {
       job = null;
     };
 
+    const yaml = { block: null, depth: 0, open: true, quote: null };
+
     lines.forEach((line, i) => {
       const n = i + 1;
-      if (/^\s*(#.*)?$/.test(line)) return;
-      const alias = yamlAlias.exec(line);
+      const alias = readAlias(line, yaml);
       if (alias !== null) {
-        problems.push(`${file}:${n}: a YAML alias '*${alias[1]}', which this check cannot read where it is used; write the value out (TYRE-438)`);
+        problems.push(`${file}:${n}: a YAML alias '*${alias}', which this check cannot read where it is used; write the value out (TYRE-438)`);
       }
+      if (/^\s*(#.*)?$/.test(line)) return;
       if (/^\S/.test(line)) {
         close();
         inJobs = /^jobs:\s*(#.*)?$/.test(line);
@@ -322,6 +414,29 @@ if (args.includes('--self-test')) {
       wf(...job('api', token, '      - run: |', '          ls *.yml "${a[*]}"', '          case "$x" in', '            *"not found"*) ;;', '            *) exit 1 ;;', '          esac')),
       null,
     ],
+    [
+      "shell text shaped like an alias in a run: | block",
+      wf(
+        ...job(
+          'api',
+          token,
+          '      - run: |',
+          "          sed 's/, */,/g' file",
+          '          echo "Note: *important*"',
+          "          grep -E ': *x$'",
+          '          echo "files: *.yml"',
+        ),
+      ),
+      null,
+    ],
+    ['shell text shaped like an alias in a run: >- block', wf(...job('api', token, '      - run: >-', '          echo found: *.yml', "          sed 's/, */,/g' f")), null],
+    ["a one-line run: with a comma before a star", wf(...job('api', token, run("sed 's/, */,/g' f"))), null],
+    [
+      'an alias in the step after a run: | block',
+      wf(...job('web-build', [], '      - run: &build npm ci'), ...job('web', token, '      - run: |', '          echo "a: *b"', '      - run: *build')),
+      ["alias '*build'"],
+    ],
+    ["an alias after a comma on a flow sequence's second line", wf(...job('web', ['    needs: [a,', '      b, *c]'], run('true'))), ["alias '*c'"]],
     [
       "an artifact kept 1 day and downloaded behind an environment (deploy.yml's web-dist)",
       handoff('          retention-days: 1'),
