@@ -2,7 +2,7 @@ import { lazy, Suspense, type ReactNode } from "react";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { onlineManager, QueryClientProvider, type QueryClient } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
@@ -182,10 +182,11 @@ describe("RouteErrorBoundary (U54)", () => {
     const Broken = lazy(() =>
       Promise.reject(new TypeError("Failed to fetch dynamically imported module")),
     );
-    renderAt("/fleet", <Route path="/fleet" element={<Broken />} />);
+    const { onCaughtError } = renderAt("/fleet", <Route path="/fleet" element={<Broken />} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("This page could not be shown.");
     await expectShellMounted();
+    expect(onCaughtError).toHaveBeenCalledTimes(1);
   });
 
   // React.lazy caches the rejection, so on a lazy route the retry is a
@@ -341,6 +342,7 @@ describe("the second failure in a row (TYRE-340)", () => {
     await tryAgain(user);
 
     expect(await screen.findByRole("button", { name: /start inspection/i })).toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveFocus();
     expect(readsOf(api)).toEqual([vehicle]);
   });
 
@@ -510,6 +512,7 @@ describe("the discard on the capture error screen (TYRE-333)", () => {
     await user.click(within(confirm).getByRole("button", { name: "Discard" }));
 
     expect(await screen.findByRole("button", { name: /start inspection/i })).toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveFocus();
     expect(await loadDraft()).toBeUndefined();
     expect(await outboxEntry()).toBeDefined();
     expect(await outbox().count()).toBe(1);
@@ -580,5 +583,76 @@ describe("the discard on the capture error screen (TYRE-333)", () => {
     expect(shown).toHaveTextContent("This page still cannot be shown.");
     expect(shown).toHaveTextContent(MAY_BE_MISSING);
     expect(readStorageFaults().degraded).toBe(true);
+  });
+});
+
+// Takes focus in its own commit, as a page reopening its own sheet would.
+function FocusingPage(): ReactNode {
+  if (pageBroken) throw new Error("render failed");
+  return <input aria-label="Odometer" ref={(input) => input?.focus()} />;
+}
+
+function HistoryBack() {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => void navigate(-1)}>
+      Go back
+    </button>
+  );
+}
+
+describe("focus and navigation (TYRE-335)", () => {
+  it("moves focus to the main landmark after an in-place Try again", async () => {
+    const user = userEvent.setup();
+    renderAt("/my", <Route path="/my" element={<FlakyPage />} />);
+    await errorScreen();
+    pageBroken = false;
+    await tryAgain(user);
+
+    await screen.findByText("Page resumed");
+    const main = screen.getByRole("main");
+    expect(main).toHaveFocus();
+    expect(main).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("leaves focus where the recovered page put it", async () => {
+    const user = userEvent.setup();
+    renderAt("/my", <Route path="/my" element={<FocusingPage />} />);
+    await errorScreen();
+    pageBroken = false;
+    await tryAgain(user);
+
+    expect(await screen.findByRole("textbox", { name: "Odometer" })).toHaveFocus();
+  });
+
+  it("shows the error in the shell when a working page navigates into a throwing one", async () => {
+    renderAt(
+      "/fleet/tyres",
+      <>
+        <Route path="/fleet/tyres" element={<p>Tyre register</p>} />
+        <Route path="/fleet" element={<Boom />} />
+      </>,
+    );
+    await screen.findByText("Tyre register");
+    await userEvent.click(screen.getByRole("link", { name: "Units" }));
+
+    expect(await errorScreen()).toHaveTextContent("This page could not be shown.");
+    await expectShellMounted();
+  });
+
+  it("shows the page before the error on a browser back", async () => {
+    renderAt(
+      ["/fleet/tyres", "/fleet"],
+      <>
+        <Route path="/fleet/tyres" element={<p>Tyre register</p>} />
+        <Route path="/fleet" element={<Boom />} />
+      </>,
+      { outside: <HistoryBack /> },
+    );
+    await errorScreen();
+    await userEvent.click(screen.getByRole("button", { name: "Go back" }));
+
+    expect(await screen.findByText("Tyre register")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

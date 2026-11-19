@@ -54,6 +54,12 @@
   color: var(--ink);
 }
 
+/* TYRE-335: the main takes focus only by script, after an in-place retry;
+   the ring belongs to its controls, not round the whole page. */
+main[tabindex="-1"]:focus {
+  outline: none;
+}
+
 /* aria-disabled keeps the busy retry focusable; it looks disabled. Two
    classes on the button, so it beats Button.css's hover fill. */
 .route-error .tr-btn.tr-btn--secondary[aria-disabled="true"],
