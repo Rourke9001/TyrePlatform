@@ -5,7 +5,7 @@
 // step hangs, and the pipeline lead waits on CI.
 // Each value's reason is beside it. A trailing comment cites the design that
 // set the value, at least twice the job's slowest passing run or its estimate,
-// rounded up to 5 minutes. A value no design set, as deploy.yml's two, has its
+// rounded up to 5 minutes. A value no design set, as deploy.yml's, has its
 // budget in the comment above the key.
 // A job that calls a reusable workflow cannot carry the key, so it passes.
 //

@@ -253,14 +253,14 @@ api-release-check: ## The release binary names no dev header (U103)
 # The env values only satisfy readEnvironmentVariable in the param files;
 # nothing deploys here.
 #
-# The timeout check reads the workflows by line, self-test first (TYRE-49,
-# TYRE-478).
+# The timeout and token-job checks read the workflows by line, self-test first
+# (TYRE-49, TYRE-478, TYRE-438).
 BICEP_IMAGE ?= tyre-bicep:0.47.16
 ACTIONLINT_IMAGE ?= rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
 BICEP_RUN = MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR)/infra:/src" $(BICEP_IMAGE)
 
 .PHONY: infra-lint
-infra-lint: ## Bicep lint on both templates (warnings fail), every param file builds, actionlint on the workflows, every runs-on job has a timeout (TYRE-478)
+infra-lint: ## Bicep lint on both templates (warnings fail), every param file builds, actionlint on the workflows, every runs-on job has a timeout (TYRE-478), no job with the OIDC token runs npm (TYRE-438)
 	docker build -q -t $(BICEP_IMAGE) -f infra/bicep.Dockerfile infra
 	@for f in platform.bicep app.bicep acr-pull.bicep; do \
 	  out=$$($(BICEP_RUN) lint $$f 2>&1); st=$$?; echo "$$out"; \
@@ -277,6 +277,8 @@ infra-lint: ## Bicep lint on both templates (warnings fail), every param file bu
 	MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR):/repo" -w /repo $(ACTIONLINT_IMAGE) -color
 	node scripts/check-workflow-timeouts.mjs --self-test
 	node scripts/check-workflow-timeouts.mjs
+	node scripts/check-workflow-token-jobs.mjs --self-test
+	node scripts/check-workflow-token-jobs.mjs
 
 .PHONY: web-test
 web-test: ## Frontend tests
