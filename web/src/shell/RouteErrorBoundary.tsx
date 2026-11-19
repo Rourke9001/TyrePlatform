@@ -1,15 +1,23 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Component, type ReactNode } from "react";
 import { useLocation, useMatch } from "react-router";
 
+import { bounded } from "../api/deadline";
+import { useActor } from "../auth/actorContext";
+import { refreshCaptureContexts } from "../capture/captureContext";
 import { useStorageFaults, type StorageFaults } from "../capture/storageFaults";
+import { refreshDriverHome } from "../driver/driver.data";
 import { Button } from "../ui/Button";
 import "./shell.css";
 
 interface BoundaryProps {
   resetKey: string;
-  onCapture: boolean;
-  inPlace: boolean;
+  // The driver's two static routes, which remount in place; null is every
+  // other route, whose retry is a reload.
+  route: "capture" | "home" | null;
   storage: StorageFaults;
+  // The route's server data fetched again, for the escalated retry (TYRE-340).
+  refresh: () => Promise<void>;
   reload: () => void;
   children: ReactNode;
 }
@@ -17,6 +25,10 @@ interface BoundaryProps {
 interface BoundaryState {
   failed: boolean;
   resetKey: string;
+  // In-place retries made at this location. The second failure is the first
+  // one caught after a retry, so retries > 0 means escalated.
+  retries: number;
+  busy: boolean;
 }
 
 // TYRE-339: what the driver is told about the readings already entered.
@@ -35,20 +47,39 @@ function readingsLine(storage: StorageFaults): string | null {
 // inside <main>, so the shell around it stays mounted: the bar, any nav
 // and the outbox indicator.
 class Boundary extends Component<BoundaryProps, BoundaryState> {
-  state: BoundaryState = { failed: false, resetKey: this.props.resetKey };
+  state: BoundaryState = {
+    failed: false,
+    resetKey: this.props.resetKey,
+    retries: 0,
+    busy: false,
+  };
 
   static getDerivedStateFromError(): Partial<BoundaryState> {
     return { failed: true };
   }
 
-  // A navigation clears the error, as react-router's own boundary does:
-  // picking another page from the nav is how a user leaves a broken one. A
-  // driver's nav links to /my from every other page (U159).
+  // A navigation clears the error and the count, as react-router's own
+  // boundary clears the error: picking another page from the nav is how a
+  // user leaves a broken one. A driver's nav links to /my from every other
+  // page (U159). A commit does not reset the count, since a page that throws
+  // on its draft commits "Loading…" first (useDraftLifecycle.ts, TYRE-340).
   static getDerivedStateFromProps(
     props: BoundaryProps,
     state: BoundaryState,
   ): Partial<BoundaryState> | null {
-    return props.resetKey === state.resetKey ? null : { failed: false, resetKey: props.resetKey };
+    return props.resetKey === state.resetKey
+      ? null
+      : { failed: false, resetKey: props.resetKey, retries: 0, busy: false };
+  }
+
+  // Bumped by every escalated retry and every recovery, so only the latest
+  // attempt's result may remount: a navigation or a later attempt during the
+  // wait wins (TYRE-340).
+  private attempt = 0;
+
+  private recover(retries: number): void {
+    this.attempt += 1;
+    this.setState({ failed: false, busy: false, retries });
   }
 
   // The driver's routes are static in the entry chunk, so clearing the error
@@ -57,20 +88,49 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
   // Every other route is lazy, and React caches a rejected import, so only a
   // reload helps there (TYRE-280).
   private readonly retry = (): void => {
-    if (this.props.inPlace) this.setState({ failed: false });
-    else this.props.reload();
+    if (this.props.route === null) {
+      this.props.reload();
+      return;
+    }
+    if (this.state.busy) return;
+    if (this.state.retries === 0) {
+      this.recover(1);
+      return;
+    }
+    this.attempt += 1;
+    const attempt = this.attempt;
+    const at = this.state.resetKey;
+    this.setState({ busy: true });
+    void bounded(this.props.refresh(), "refresh")
+      .catch(() => undefined)
+      .then(() => {
+        if (attempt === this.attempt && this.state.resetKey === at) {
+          this.recover(this.state.retries + 1);
+        }
+      });
   };
 
   render(): ReactNode {
     if (!this.state.failed) return this.props.children;
-    const readings = this.props.onCapture ? readingsLine(this.props.storage) : null;
+    const { route, storage } = this.props;
+    const escalated = route !== null && this.state.retries > 0;
+    const readings = route === "capture" ? readingsLine(storage) : null;
     return (
       <div className="route-error" role="alert">
-        <p className="route-error__lead">This page could not be shown.</p>
+        <p className="route-error__lead">
+          {escalated ? "This page still cannot be shown." : "This page could not be shown."}
+        </p>
+        {escalated && <p>Try again fetches a fresh copy first. Find signal if you can.</p>}
         {readings !== null && <p>{readings}</p>}
-        {/* NFR-USE-004: the driver's routes take the glove size. */}
-        <Button variant="secondary" size={this.props.inPlace ? "glove" : "md"} onClick={this.retry}>
-          Try again
+        {/* NFR-USE-004: the driver's routes take the glove size. aria-disabled,
+            not disabled, so focus stays on the button while it waits. */}
+        <Button
+          variant="secondary"
+          size={route !== null ? "glove" : "md"}
+          aria-disabled={this.state.busy}
+          onClick={this.retry}
+        >
+          {this.state.busy ? "Trying again…" : "Try again"}
         </Button>
       </div>
     );
@@ -89,16 +149,14 @@ export function RouteErrorBoundary({
   // router matches them: case, a trailing slash and percent-encoding included.
   const onCapture = useMatch("/capture/:vehicleId") !== null;
   const onDriverHome = useMatch("/my") !== null;
-  const inPlace = onCapture || onDriverHome;
+  const route = onCapture ? "capture" : onDriverHome ? "home" : null;
   const storage = useStorageFaults();
+  const client = useQueryClient();
+  const timeZone = useActor()?.timezone ?? "UTC";
+  const refresh = () =>
+    route === "capture" ? refreshCaptureContexts(client, timeZone) : refreshDriverHome(client);
   return (
-    <Boundary
-      resetKey={key}
-      onCapture={onCapture}
-      inPlace={inPlace}
-      storage={storage}
-      reload={reload}
-    >
+    <Boundary resetKey={key} route={route} storage={storage} refresh={refresh} reload={reload}>
       {children}
     </Boundary>
   );

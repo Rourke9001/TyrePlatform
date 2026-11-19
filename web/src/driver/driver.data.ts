@@ -1,7 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 
 import { apiGet } from "../api/client";
 import { getDevTenantId } from "../api/devTenant";
+import { fetchNow } from "../api/fetchNow";
 
 export interface MyTask {
   id: string;
@@ -38,6 +39,12 @@ export const myTripQuery = () => ({
   queryKey: ["my-trip", tenantKey()],
   queryFn: () => apiGet<MyTrip>("/api/my/trip"),
 });
+
+// The route error screen's escalated retry on /my (TYRE-340): both reads the
+// page renders from.
+export async function refreshDriverHome(client: QueryClient): Promise<void> {
+  await Promise.all([fetchNow(client, myTasksQuery()), fetchNow(client, myTripQuery())]);
+}
 
 export function useMyTasks() {
   return useQuery(myTasksQuery());

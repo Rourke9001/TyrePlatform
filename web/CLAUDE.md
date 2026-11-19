@@ -69,10 +69,14 @@ Online-first with a durable submit outbox — not an offline sync engine.
   memory above the boundary (`src/capture/storageFaults.ts`) until the
   inspection it concerns has ended, so its banner survives a remount and a
   navigation, and the error screen says the last readings may be missing
-  (TYRE-339). `/my` remounts against its query
-  cache and keeps a list it has loaded through a failed or paused refresh,
-  with a notice when the refresh failed, or shows "Loading…" once the cache
-  has dropped it, until the signal returns (TYRE-334).
+  (TYRE-339). On `/capture/:vehicleId` and `/my` the second failure in a
+  row at one location escalates: "Try again" first fetches the route's
+  server data again, for no longer than `REQUEST_TIMEOUT_SECONDS`, and a
+  fetch that fails or pauses keeps the copy it had (TYRE-340). `/my`
+  remounts against its query cache and keeps a list it has loaded through
+  a failed or paused refresh, with a notice when the refresh failed, or
+  shows "Loading…" once the cache has dropped it, until the signal returns
+  (TYRE-334).
 
 ## Sign-in (ADR-0016)
 

@@ -1,7 +1,8 @@
 // Transport timing, not tenant policy (rule 5). The sign-in library's request
 // timeout (oidc.ts), sign-in discovery (discovery.ts), a renewal and the
-// redirect callback (token.ts, callback.ts), config.json (runtimeConfig.ts)
-// and every API call (client.ts) share this one value.
+// redirect callback (token.ts, callback.ts), config.json (runtimeConfig.ts),
+// every API call (client.ts) and the route error screen's escalated retry
+// (RouteErrorBoundary.tsx) share this one value.
 export const REQUEST_TIMEOUT_SECONDS = 10;
 
 // A fetch or library timeout ends at the response headers, so a stalled body
@@ -25,7 +26,9 @@ export function deadline(what = "request", ms = REQUEST_TIMEOUT_SECONDS * 1000) 
   };
 }
 
-// For work no signal reaches: the sign-in library's requests.
+// For work no single request's deadline bounds: the sign-in library's
+// requests, and the route error screen's refresh, which waits on every query
+// of its route and on any retry a query's own options set.
 export async function bounded<T>(work: Promise<T>, what: string): Promise<T> {
   const bound = deadline(what);
   try {
