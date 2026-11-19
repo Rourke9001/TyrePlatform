@@ -132,13 +132,17 @@ vary: Origin" "$REFUSED"
 }
 
 fails=0
-expect() { # name want-exit
+# WANT_ERROR, when given, is all the smoke prints from its ::error:: line on,
+# so a message that runs onto a second line fails too.
+expect() { # name want-exit [want-error]
   bash "$smoke" "$WEB" "$API" "$work/swa.json" >"$work/out" 2>&1
   local got=$?
   if [ -s "$work/unexpected" ]; then
     echo "FAIL: $1 (an unexpected curl: $(head -1 "$work/unexpected"))"; fails=$((fails + 1))
   elif [ "$got" -ne "$2" ]; then
     echo "FAIL: $1 (exit $got, wanted $2)"; sed 's/^/    /' "$work/out"; fails=$((fails + 1))
+  elif [ -n "${3:-}" ] && [ "$(sed -n '/^::error::/,$p' "$work/out")" != "::error::$3" ]; then
+    echo "FAIL: $1 (wanted ::error::$3)"; sed 's/^/    /' "$work/out"; fails=$((fails + 1))
   else
     echo "ok: $1"
   fi
@@ -204,6 +208,14 @@ expect "the manifest is answered with the app" 1
 
 control; answer GET "$WEB/manifest.webmanifest" "" 404 "content-type: text/html" "not found"
 expect "the manifest 404s" 1
+
+control; answer GET "$WEB/manifest.webmanifest" "" 200 "content-type: application/manifest+json
+Content-Type: application/json" '{"name":"Tyre Track"}'
+expect "the manifest's content-type sent twice" 1 \
+  "the web-app manifest is served as JSON: content-type sent 2 times: application/manifest+json application/json"
+
+control; answer GET "$WEB/manifest.webmanifest" "" 200 "cache-control: no-cache" '{"name":"Tyre Track"}'
+expect "the manifest has no content-type" 1 "the web-app manifest is served as JSON: no content-type"
 
 # An image from before this CORS: requireActor on the /api sub-router
 # answers before chi's method lookup (httpapi.go).

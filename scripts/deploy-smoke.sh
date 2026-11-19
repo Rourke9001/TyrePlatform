@@ -30,7 +30,7 @@ expected=$(node -e '
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-code="" why=""
+code="" why="" value=""
 
 # fetch NAME METHOD URL [HEADER...]: the status in $code, the headers in
 # $work/NAME.h and the body in $work/NAME.b. No -L: a redirect is an answer
@@ -69,14 +69,19 @@ json_field() { # FILE FIELD: the string at FIELD, or nothing
   ' "$1" "$2"
 }
 
-# One value, exactly: a header sent twice fails with every value seen,
-# rather than passing on whichever line was read.
-one() { # NAME HEADER WANT
+# single NAME HEADER: the one value in $value. A header sent twice fails
+# with every value seen, rather than passing on whichever line was read.
+single() {
   local got=()
   mapfile -t got < <(values "$1" "$2")
   if [ "${#got[@]}" -eq 0 ]; then why="no $2"; return 1; fi
   if [ "${#got[@]}" -gt 1 ]; then why="$2 sent ${#got[@]} times: ${got[*]}"; return 1; fi
-  if [ "${got[0]}" != "$3" ]; then why="$2 is '${got[0]}', want '$3'"; return 1; fi
+  value=${got[0]}
+}
+
+one() { # NAME HEADER WANT
+  single "$1" "$2" || return 1
+  if [ "$value" != "$3" ]; then why="$2 is '$value', want '$3'"; return 1; fi
 }
 
 web_origin() {
@@ -124,10 +129,9 @@ configuration() {
 web_manifest() {
   fetch manifest GET "$web/manifest.webmanifest"
   [ "$code" = 200 ] || { why="GET $web/manifest.webmanifest answered $code"; return 1; }
+  single manifest content-type || return 1
   local got
-  got=$(values manifest content-type | tr 'A-Z' 'a-z')
-  [ "$(printf '%s' "$got" | grep -c .)" -eq 1 ] || { why="content-type sent ${got:+more than once}${got:-never}"; return 1; }
-  got=${got%%;*}
+  got=$(printf '%s' "${value%%;*}" | tr 'A-Z' 'a-z')
   got=${got%"${got##*[![:space:]]}"}
   case "$got" in
     application/json | text/json | */*+json) ;;
