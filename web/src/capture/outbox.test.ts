@@ -19,6 +19,7 @@ import {
   listOutbox,
   mayCarry,
   queueDraft,
+  readHeldWork,
   startOutboxHeartbeat,
 } from "./outbox";
 
@@ -614,6 +615,25 @@ describe("heldStamps and heldCount when storage fails (spec section 4)", () => {
     vi.spyOn(db.table("outbox"), "count").mockRejectedValue(new Error("blocked"));
 
     expect(await heldStamps()).toEqual([]);
+    expect(await heldCount()).toEqual({ draft: false, entries: 0 });
+  });
+});
+
+describe("readHeldWork (TYRE-154)", () => {
+  it("reads a draft and an entry, whoever captured them", async () => {
+    await queueOne();
+    await startDraft({
+      driverSubject: "oid-someone-else",
+      vehicleId: "v9",
+      taskId: null,
+      startedAt: "2026-11-19T06:00:00Z",
+    });
+    expect(await readHeldWork()).toEqual({ draft: true, entries: 1 });
+  });
+
+  it("rejects where heldCount reads nothing held", async () => {
+    vi.spyOn(db.table("outbox"), "count").mockRejectedValue(new Error("blocked"));
+    await expect(readHeldWork()).rejects.toThrow();
     expect(await heldCount()).toEqual({ draft: false, entries: 0 });
   });
 });
