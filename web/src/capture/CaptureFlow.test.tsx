@@ -1889,6 +1889,53 @@ describe("a refresh that fails with a copy in hand", () => {
     expect(screen.getByRole("button", { name: /start inspection/i })).toBeEnabled();
   });
 
+  // A superlink, so two members can fail in different ways in one refresh
+  // and the order decides nothing (memberNoticeError).
+  const refusedWords = (d: string) =>
+    `You do not have permission to inspect a unit on this rig. Ask your fleet office to check you are assigned to it. Showing the copy from ${d}.`;
+  const latchedWords = (d: string) =>
+    `Sign-in is unavailable right now. Try again shortly. Showing the copy from ${d}.`;
+  it.each([
+    ["an earlier member's lost signal", offline, answer(403, "forbidden"), refusedWords],
+    ["a later member's lost signal", answer(403, "forbidden"), offline, refusedWords],
+    [
+      "an earlier member's latched store",
+      answer(503, "auth_unavailable"),
+      answer(403, "forbidden"),
+      refusedWords,
+    ],
+    [
+      "an earlier member's lost signal, for a latched store",
+      offline,
+      answer(503, "auth_unavailable"),
+      latchedWords,
+    ],
+  ])("words the member notice over %s", async (_, link1Reply, link2Reply, words) => {
+    const at = dayAgo();
+    const superlink: CaptureContext = {
+      ...context,
+      combination: {
+        id: "c1",
+        members: [
+          ...(rigMotive.combination?.members ?? []),
+          { vehicleId: "v3", fleetNumber: "BAC722TR", sequence: 3, descriptor: "Link 2" },
+        ],
+      },
+    };
+    const link2: CaptureContext = {
+      ...trailer,
+      vehicleId: "v3",
+      fleetNumber: "BAC722TR",
+      positions: trailer.positions.map((p) => ({ ...p, vehicleId: "v3" })),
+    };
+    serveUnits({ v1: ok(superlink), v2: link1Reply, v3: link2Reply });
+    mount(cachedAt(at, [superlink, trailer, link2]));
+
+    const notice = await screen.findByRole("status");
+    expect(within(notice).getByText(words(copyDate(at)))).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /start inspection/i })).toBeEnabled();
+  });
+
   it("words one notice for the vehicle, with the older copy's date, and reloads every unit that failed", async () => {
     const user = newUser();
     const motiveAt = dayAgo();
