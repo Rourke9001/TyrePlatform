@@ -34,8 +34,8 @@ refuse() {
   exit 1
 }
 
-# Every az, jq and file write is written `if ! cmd`: under set -e a bare
-# failure would end the script before its ::error:: line names the rule.
+# Every az, jq and file write is written `if ! cmd`, for the reason
+# scripts/deploy-guard.sh gives.
 if ! work=$(mktemp -d); then refuse 5 "cannot make a work folder"; fi
 trap 'rm -rf "$work"' EXIT
 
@@ -99,11 +99,10 @@ if (.value | type) != "array" then error("no value array") else
     (.properties.principalType // "unknown")] | @tsv
 end'
 
-# ARM pages a long listing, so every page is read, up to 20. The relative
-# URL lets az rest prefix the cloud's ARM endpoint, and a nextLink is
-# followed only on ARM, since az rest sends it an ARM token.
+# ARM pages a long listing, so every page is read, up to 20.
 list_assignments() { # SCOPE FILTER OUT WHAT
   local scope=$1 filter=$2 out=$3 what=$4 url next pages=0
+  # Relative, so az rest prefixes the signed-in cloud's ARM endpoint.
   url="$scope/providers/Microsoft.Authorization/roleAssignments?api-version=2022-04-01"
   [ -z "$filter" ] || url="$url&\$filter=$filter"
   if ! : >"$out"; then refuse 5 "cannot write the $what listing to $out"; fi
@@ -121,6 +120,7 @@ list_assignments() { # SCOPE FILTER OUT WHAT
     fi
     next=${next//$'\r'/}
     [ -n "$next" ] || return 0
+    # az rest sends a nextLink an ARM token, so it is followed only on ARM.
     case "$next" in
       https://management.azure.com/*) url=$next ;;
       *) refuse 5 "the $what listing's next page is off ARM ($next), so it is not followed" ;;

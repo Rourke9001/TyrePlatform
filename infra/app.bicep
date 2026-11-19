@@ -2,8 +2,8 @@
 // app and the daily job (ADR-0025), applied on every release by
 // .github/workflows/deploy.yml, so their secret bindings and settings cannot
 // drift from this file. Everything they reference is owned by
-// infra/platform.bicep. It writes no role assignment, which lets the deploy
-// identity's custom role, which holds no authorization write, apply it
+// infra/platform.bicep. It writes no role assignment, so the deploy
+// identity's custom role, which holds no authorization write, can apply it
 // (infra/platform.bicep, TYRE-438).
 
 @description('Region for everything that stores data (ADR-0002).')
