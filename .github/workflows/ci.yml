@@ -262,7 +262,8 @@ jobs:
       - name: Format, lint, typecheck, test, bundle
         run: |
           cd web
-          npm ci
+          # As deploy.yml's web-build installs, so this PR proves the build under it (TYRE-438).
+          npm ci --ignore-scripts
           npm run format:check
           npm run lint
           npm run lint:css

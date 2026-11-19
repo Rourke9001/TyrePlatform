@@ -39,8 +39,10 @@ on:
         required: true
         type: string
 
+# Only the two jobs that sign in to Azure ask for the OIDC token; web-build
+# runs npm without it (TYRE-437, TYRE-438).
+# scripts/check-workflow-token-jobs.mjs keeps it so.
 permissions:
-  id-token: write
   contents: read
 
 env:
@@ -60,6 +62,9 @@ jobs:
     name: API to Container Apps
     runs-on: ubuntu-latest
     environment: ${{ inputs.target == 'prod' && 'production' || 'staging' }}
+    permissions:
+      id-token: write
+      contents: read
     # The red proof makes ARM wait on a revision that never readies; this
     # bounds the run rather than leaving it to GitHub's six-hour default.
     # Budget: at least 10 min starting the database, a build, 10 min of gate.
@@ -197,12 +202,59 @@ jobs:
       - name: Gate
         run: bash scripts/deploy-gate.sh "$RG" "$APP" "$REVISION_SUFFIX" "$IMAGE_SHA" 600
 
+  # No environment, no token and no Azure login: npm and the dependency code
+  # it runs never share a job with the deploy identity (TYRE-437, TYRE-438).
+  web-build:
+    name: Build the web
+    runs-on: ubuntu-latest
+    # Budget: ci.yml's Frontend job installs, lints, tests and builds the same
+    # tree inside its 10 minutes; this job only installs and builds.
+    timeout-minutes: 10
+    steps:
+      # Built from the image's commit, so a rollback ships that commit's web
+      # too.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.IMAGE_SHA }}
+          persist-credentials: false # no git token on the disk the dependencies run on
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # The budget, dev-string and sign-in gates ci.yml runs, on the dist the
+      # web job uploads rather than a rebuild of it (TYRE-79).
+      - name: Build and check
+        run: |
+          cd web
+          # Only esbuild and fsevents carry install scripts, and esbuild's
+          # binary comes from its platform package, so none runs (TYRE-437).
+          npm ci --ignore-scripts
+          npm run build
+          npm run bundle:check
+          node ../scripts/check-dist-dev-strings.mjs
+          node ../scripts/check-dist-sign-in.mjs
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-dist
+          path: web/dist
+          include-hidden-files: true # the dist's .vite/manifest.json ships as it always has
+          if-no-files-found: error
+          overwrite: true # a second upload of one name in a run fails without it (the action's README)
+          retention-days: 1
+
   web:
     name: Web to Static Web Apps
     # A frontend never ships ahead of an API that failed to activate.
-    needs: api
+    needs: [api, web-build]
     runs-on: ubuntu-latest
     environment: ${{ inputs.target == 'prod' && 'production' || 'staging' }}
+    permissions:
+      id-token: write
+      contents: read
     # A hung upload would otherwise hold deploy-<env>-web, and CI behind it,
     # for six hours. The smoke rides on top of the upload and stops at its
     # first failed check, which takes at most about 8 minutes to fail: 12
@@ -224,26 +276,20 @@ jobs:
           ROLLBACK_SHA: ${{ inputs.image_sha }}
         run: bash scripts/deploy-guard.sh commit "$TARGET" "$GITHUB_REF" "$TEMPLATE_SHA" "$GITHUB_RUN_ATTEMPT" "$ROLLBACK_SHA"
 
-      # The frontend matches the image: a rollback ships the old commit's web too.
+      # The config writer and the smoke are the image's commit's, as the dist
+      # web-build made from it is.
       - name: Check out the image's commit
         run: git checkout --quiet --detach "$IMAGE_SHA"
 
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-dist
+          path: web/dist
+
+      # Node for scripts/write-web-config.mjs alone: this job installs nothing.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: web/.nvmrc
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      # The budget, dev-string and sign-in gates ci.yml runs, on the dist
-      # this job uploads rather than a rebuild of it (TYRE-79).
-      - name: Build and check
-        run: |
-          cd web
-          npm ci
-          npm run build
-          npm run bundle:check
-          node ../scripts/check-dist-dev-strings.mjs
-          node ../scripts/check-dist-sign-in.mjs
 
       - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
@@ -252,7 +298,7 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       # The API origin differs per environment, so it lands in config.json and
-      # the CSP beside the bundle, never in it, and after "Build and check",
+      # the CSP beside the bundle, never in it, and after web-build's checks,
       # so the bundle measured is the one shipped (ADR-0019).
       - name: Runtime configuration
         run: |
