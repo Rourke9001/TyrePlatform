@@ -77,10 +77,16 @@ else trap_call
 fi
 fail_if "$kind"
 
-case "${STUB_BODY:-}" in
-  novalue) echo '{"error":{"code":"Stubbed"}}'; exit 0 ;;
-  notjson) echo 'not json'; exit 0 ;;
-esac
+# STUB_BODY_KIND, when set, limits STUB_BODY to that kind of listing.
+if [ -z "${STUB_BODY_KIND:-}" ] || [ "$STUB_BODY_KIND" = "$kind" ]; then
+  case "${STUB_BODY:-}" in
+    novalue) echo '{"error":{"code":"Stubbed"}}'; exit 0 ;;
+    notjson) echo 'not json'; exit 0 ;;
+    empty) exit 0 ;;
+    blank) printf '\n \n'; exit 0 ;;
+    two) printf '{"value":[]}\n{"value":[]}\n'; exit 0 ;;
+  esac
+fi
 
 holders=" $STUB_API_PID "
 while IFS='|' read -r g m; do
@@ -252,6 +258,17 @@ base staging; STUB_NULLNEXT=1 case_run "nextLink null passes" pass staging
 base staging; STUB_PAGED=offarm case_run "a nextLink off ARM" rule5 staging
 base staging; STUB_BODY=novalue case_run "a listing with no value array" rule5 staging
 base staging; STUB_BODY=notjson case_run "a listing that is not JSON" rule5 staging
+# az rest exits 0 on a 200 with no body, and jq reads zero documents as zero
+# rows, so a page that is not exactly one document fails on rule 5.
+base staging; member "$GROUP" "$API"; add x "$KVSU" "$KV" "$GROUP" Group
+STUB_BODY=empty STUB_BODY_KIND=reach case_run "an empty Reach body over a group's role on the vault" rule5 staging
+base staging; member "$GROUP" "$API"; add x "$BLOB" "$ST" "$GROUP" Group
+STUB_BODY=empty STUB_BODY_KIND=per-scope case_run "an empty per-scope body over a group's storage role" rule5 staging
+for k in reach whole all per-scope control; do
+  base staging; STUB_BODY=empty STUB_BODY_KIND=$k case_run "an empty body on $k" rule5 staging
+done
+base staging; STUB_BODY=blank STUB_BODY_KIND=reach case_run "a whitespace-only Reach body" rule5 staging
+base staging; STUB_BODY=two STUB_BODY_KIND=whole case_run "a Whole body of two documents" rule5 staging
 base staging; STUB_LOWER=1 case_run "lower-cased scopes still match the expected rows" pass staging
 base staging; add x "$KVSU" "$KV" "$API" ServicePrincipal; STUB_LOWER=1 case_run "lower-cased scopes still find the vault" rule1 staging
 base staging; case_run "no target" usage ""
