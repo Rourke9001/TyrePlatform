@@ -70,8 +70,9 @@ Online-first with a durable submit outbox — not an offline sync engine.
   inspection it concerns has ended, so its banner survives a remount and a
   navigation, and the error screen says the last readings may be missing
   (TYRE-339). `/my` remounts against its query
-  cache: offline the query pauses, so it shows the list it last loaded,
-  or "Loading…" once that has been dropped, until the signal returns.
+  cache and keeps a list it has loaded through a failed or paused refresh,
+  with a notice when the refresh failed, or shows "Loading…" once the cache
+  has dropped it, until the signal returns (TYRE-334).
 
 ## Sign-in (ADR-0016)
 

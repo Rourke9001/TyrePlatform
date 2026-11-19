@@ -29,6 +29,16 @@
   color: var(--ink);
 }
 
+/* NFR-USE-009: a stale list reads as one in words; the bar only reinforces. */
+.driver-home__notice {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 4px solid var(--warn-text);
+  border-radius: var(--radius-md);
+  background: var(--warn-soft);
+  color: var(--ink);
+}
+
 /* The tasks before the trip read answers, on the same ground as a card. */
 .driver-home__rows {
   border-radius: var(--radius-lg);
