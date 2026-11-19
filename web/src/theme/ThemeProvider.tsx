@@ -9,11 +9,12 @@ import { useActor } from "../auth/actorContext";
 import { ThemeContext } from "./themeContext";
 import "./fonts";
 
-// What renders when no tenant branding is known yet. Also exactly what the
-// API serves for a tenant that never configured the key (TYRE-26), so first
-// paint and fetched state agree for unbranded tenants.
+// What renders when no tenant branding is known yet. The API serves the
+// platform colour for a tenant with no branding key, and the tenant's
+// registered name in place of this one, so an unbranded tenant sees the
+// product's name only until GET /api/org/branding answers (TYRE-154).
 const PLATFORM_BRANDING: Branding = {
-  displayName: "Tyre Platform",
+  displayName: "Tyre Track",
   primaryColor: PLATFORM_BRAND,
   logoUrl: null,
 };

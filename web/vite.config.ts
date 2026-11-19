@@ -42,8 +42,7 @@ function previewHeaders(): Record<string, string> {
 
 // No service worker or PWA plugin: ADR-0009 protects an in-progress
 // inspection with IndexedDB and the outbox's own retry, never a cache or
-// Background Sync, which iOS Safari lacks. An installable manifest would add
-// reach, not durability.
+// Background Sync, which iOS Safari lacks.
 export default defineConfig(({ isPreview }) => ({
   plugins: [react(), preloadRuntimeConfig()],
   // Stamped from package.json so a deployed bundle traces back to a release
