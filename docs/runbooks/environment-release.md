@@ -623,15 +623,22 @@ sections 4.3, 4.4 and 6; U241).
   a clean `develop` worktree that includes the merge, with `ENV=staging` set
   in Before anything.
 - **Production:** at the first promotion after the merge, from the `$sha`
-  checkout (Promote to production, the paragraph before step 3).
+  checkout, before the push (Promote to production, step 3).
 
 1. **What-if.** Bring-up step 4's block in what-if form. Beyond what an
    unchanged re-apply shows (staging's noise list in bring-up step 4),
    expect a Create of the role definition `TyrePlatform deploy <env>`, a
    Create of its assignment to `id-tyre-deploy-<env>` on `rg-tyre-<env>`,
    and a Modify of `sttyre<env>` setting `allowSharedKeyAccess` to `false`.
-   Production's `CanNotDelete` lock allows the property change. Anything
-   else stops, and so does a refusal of the role definition: post it on
+   Production's `CanNotDelete` lock allows the property change.
+
+   Another platform change on the same checkout shows here too, read as its
+   own record says: on production's first promotion after TYRE-438 that may
+   be The daily job's `ag-tyre-owner` and `alert-tyre-daily-job-prod`. One
+   apply serves both records. If that record's apply has already run from
+   this checkout, the three lines above are live and this what-if shows
+   none of them: skip to step 2's listings and storage read. Anything else
+   stops, and so does a refusal of the role definition: post it on
    TYRE-438.
 
 2. **Apply.** Bring-up step 4's apply block. If it fails with
@@ -1381,17 +1388,19 @@ production's schema yet (TYRE-434).
      and `app_job`'s password must exist on production (The daily job,
      Production), or the deploy fails on the secret.
 
-**The first promotion after TYRE-438 only:** on a clean tree,
-`git switch --detach "$sha"` (step 2 ended with `git switch -`), set
-`ENV=prod; RG=rg-tyre-$ENV; PG=psql-tyre-$ENV; KV=kv-tyre-$ENV; KVAPI=kv-tyre-api-$ENV`,
-run Narrowing the deploy identity steps 1 to 5, then `git switch -`, all
-before the fast-forward. Step 4's deploy is that record's step 6 (U241).
-
 3. **Fast-forward `main`**, from the owner's own terminal, never through a
    pull request (ADR-0004). A pull request into `main` is closed
-   automatically (TYRE-313). First print the SHA in the shell that ran steps
-   1 and 2: `echo "$sha"`. Then run the push with that 40-character value
-   typed in. Git Bash:
+   automatically (TYRE-313).
+
+   **The first promotion after TYRE-438 only**, before the push: on a clean
+   tree, `git switch --detach "$sha"` (step 2 ended with `git switch -`),
+   set
+   `ENV=prod; RG=rg-tyre-$ENV; PG=psql-tyre-$ENV; KV=kv-tyre-$ENV; KVAPI=kv-tyre-api-$ENV`,
+   run Narrowing the deploy identity steps 1 to 5, then `git switch -`.
+   Step 4's deploy is that record's step 6 (U241).
+
+   First print the SHA in the shell that ran steps 1 and 2: `echo "$sha"`.
+   Then run the push with that 40-character value typed in. Git Bash:
 
    ```bash
    TYRE_PROMOTE=1 git push origin <sha>:main
