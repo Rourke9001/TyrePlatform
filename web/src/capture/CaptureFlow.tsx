@@ -17,7 +17,8 @@ import type { RecordedWarning } from "./draft";
 import { saveHeader } from "./draft";
 import { useCaptureContext } from "./captureContext";
 import { attemptSend, listOutbox, mayCarry, queueDraft } from "./outbox";
-import { absentCells, appVersion, capturedCells, deviceId } from "./payload";
+import { lostWords, draftLostWords } from "./lostWords";
+import { appVersion, deviceId } from "./payload";
 import { PositionSheet } from "./PositionSheet";
 import { deriveProgress } from "./rig";
 import { useTenantDate } from "../time/tenantTime";
@@ -265,17 +266,6 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     void lifecycle.startDraftAndAdvance(ctx, init);
   }
 
-  // TYRE-146: markSpareAbsent is an observation, not a reading, and
-  // clearDraft discards it too. A draft holding only that mark is not
-  // empty.
-  const lostWords = (n: number, a: number) => {
-    if (n === 0 && a === 0) return "No positions captured yet.";
-    const captured = n > 0 ? `${n} captured position${n === 1 ? "" : "s"}` : "";
-    const spares = a > 0 ? `${a} "No spare" mark${a === 1 ? "" : "s"}` : "";
-    const parts = [captured, spares].filter(Boolean);
-    return `${parts.join(" and ")} will be lost.`;
-  };
-
   function handleSubmit(patch: { comment: string | null; defectReport: string | null }) {
     if (submitting || !draft || !motiveCtx) return;
     setSubmitting(true);
@@ -363,7 +353,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         <ConfirmDiscard
           trigger="Discard it"
           question={`Discard the inspection of ${heldName}?`}
-          consequence={lostWords(capturedCells(held).size, absentCells(held).size)}
+          consequence={draftLostWords(held)}
           confirm="Discard"
           onConfirm={lifecycle.discardHeld}
         />

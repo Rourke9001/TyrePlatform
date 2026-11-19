@@ -76,7 +76,9 @@ Online-first with a durable submit outbox — not an offline sync engine.
   remounts against its query cache and keeps a list it has loaded through
   a failed or paused refresh, with a notice when the refresh failed, or
   shows "Loading…" once the cache has dropped it, until the signal returns
-  (TYRE-334).
+  (TYRE-334). From that second failure the capture error screen also offers
+  to discard a draft the signed-in driver may carry, behind
+  `ConfirmDiscard`, and leaves the outbox untouched (TYRE-333).
 
 ## Sign-in (ADR-0016)
 
