@@ -55,8 +55,8 @@ export function writeFailed(): void {
   set({ ...faults, degraded: true });
 }
 
-// The inspection's queue write or its discard resolved: it is no longer on
-// the phone as a draft, so the warning about it cannot outlive it.
+// The inspection's queue write or its discard resolved: the draft is off the
+// phone, so the warning about it cannot outlive it.
 export function inspectionEnded(): void {
   set({ ...faults, degraded: false });
 }

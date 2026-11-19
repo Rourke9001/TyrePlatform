@@ -119,6 +119,20 @@ export function useRigComposition(
     for (const q of memberQueries) if (q.isError && q.data === undefined) void q.refetch();
   };
 
+  // U179, TYRE-334: a rig member whose refresh failed with a copy in hand.
+  // The motive is left out: its query is useCaptureContext's, which the
+  // start screen's notice reads itself.
+  const staleMembers = memberQueries.flatMap((q, i) =>
+    memberIds[i] !== vehicleId && q.isError && q.data !== undefined
+      ? [{ error: q.error, copyAt: q.dataUpdatedAt }]
+      : [],
+  );
+  const refetchStaleMembers = () => {
+    for (const [i, q] of memberQueries.entries()) {
+      if (memberIds[i] !== vehicleId && q.isError && q.data !== undefined) void q.refetch();
+    }
+  };
+
   // U186: held at the tap, not when the screen leaves Start, since that waits
   // on the draft write (useDraftLifecycle).
   function hold() {
@@ -140,6 +154,8 @@ export function useRigComposition(
     membersError,
     membersRefreshing,
     refetchMembers,
+    staleMembers,
+    refetchStaleMembers,
     toggleAttached,
     hold,
   };

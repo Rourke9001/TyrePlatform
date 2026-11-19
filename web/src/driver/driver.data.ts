@@ -29,16 +29,20 @@ export interface MyTrip {
 
 const tenantKey = () => getDevTenantId() ?? "default";
 
+export const myTasksQuery = () => ({
+  queryKey: ["my-tasks", tenantKey()],
+  queryFn: () => apiGet<MyTask[]>("/api/my/tasks"),
+});
+
+export const myTripQuery = () => ({
+  queryKey: ["my-trip", tenantKey()],
+  queryFn: () => apiGet<MyTrip>("/api/my/trip"),
+});
+
 export function useMyTasks() {
-  return useQuery({
-    queryKey: ["my-tasks", tenantKey()],
-    queryFn: () => apiGet<MyTask[]>("/api/my/tasks"),
-  });
+  return useQuery(myTasksQuery());
 }
 
 export function useMyTrip() {
-  return useQuery({
-    queryKey: ["my-trip", tenantKey()],
-    queryFn: () => apiGet<MyTrip>("/api/my/trip"),
-  });
+  return useQuery(myTripQuery());
 }

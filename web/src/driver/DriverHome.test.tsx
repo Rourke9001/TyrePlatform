@@ -1,10 +1,11 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { renderWithActor, requestedUrl, respond } from "../test/fixtures";
+import { renderWithActor, requestedUrl, respond, testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { formatTenantDate } from "../time/tenantTime";
 import { DriverHome } from "./DriverHome";
+import { myTasksQuery, myTripQuery } from "./driver.data";
 
 const DUE = "2026-10-23T06:00:00Z";
 const DUE_TEXT = formatTenantDate(DUE, "Africa/Johannesburg");
@@ -227,5 +228,43 @@ describe("the driver's home", () => {
 
     expect(screen.getByRole("heading", { name: "My inspections" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("Loading…")).toBeInTheDocument());
+  });
+});
+
+// TYRE-334: a list in hand outlives a failed refresh, which says it may be stale.
+describe("a refresh that fails with the list in hand", () => {
+  it("keeps the task links and says the list may be out of date", async () => {
+    const client = testQueryClient();
+    client.setQueryData(myTasksQuery().queryKey, [
+      task({ id: "k1", vehicleId: "h1", fleetNumber: "H1" }),
+    ]);
+    client.setQueryData(myTripQuery().queryKey, onTrip([T1]));
+    stub({ status: 500, body: {} }, ok(onTrip([T1])));
+    renderWithActor(<DriverHome />, { withRouter: true, client });
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Could not refresh your inspections. This list may be out of date.",
+    );
+    expect(hrefOf(/^H1,/)).toBe("/capture/h1?taskId=k1");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps the trip and says it may be out of date", async () => {
+    const client = testQueryClient();
+    client.setQueryData(myTasksQuery().queryKey, []);
+    client.setQueryData(myTripQuery().queryKey, onTrip([T1]));
+    stub(ok([]), { status: 500, body: {} });
+    renderWithActor(<DriverHome />, { withRouter: true, client });
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Could not refresh your trip. It may be out of date.",
+    );
+    const section = screen.getByRole("region", { name: "Your trip" });
+    expect(
+      within(section)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual(["H1", "T1"]);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

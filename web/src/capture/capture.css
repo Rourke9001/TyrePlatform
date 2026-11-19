@@ -325,6 +325,21 @@
   margin: 0;
 }
 
+/* The storage banner's layout under its own class, so a change to one cannot
+   move the other (TYRE-334). */
+.cap-refresh {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  max-width: 30rem;
+  margin: var(--space-2) auto 0;
+}
+
+.cap-refresh-msg {
+  margin: 0;
+}
+
 /* The start refusal's sign-in prompt. It has the storage alert's layout
    under its own class, so a change to one cannot move the other. */
 .cap-signin {

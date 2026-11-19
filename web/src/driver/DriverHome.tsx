@@ -10,10 +10,11 @@ import "./driver.css";
 export function DriverHome() {
   const tasks = useMyTasks();
   const trip = useMyTrip();
-  const view = homeView(
-    tasks.isSuccess ? tasks.data : undefined,
-    trip.isSuccess ? trip.data : undefined,
-  );
+  const view = homeView(tasks.data, trip.data);
+  // A failure is read only with no data, as CaptureFlow reads one: a list in
+  // hand outlives a failed refresh, with a notice (TYRE-334).
+  const tasksFailed = tasks.isError && tasks.data === undefined;
+  const tripFailed = trip.isError && trip.data === undefined;
 
   return (
     <section className="tr-stack driver-home" aria-labelledby="my-inspections-heading">
@@ -23,17 +24,27 @@ export function DriverHome() {
       <h1 id="my-inspections-heading" className="driver-home__title">
         My inspections
       </h1>
-      {(tasks.isPending || (tasks.isError && trip.isPending)) && (
+      {(tasks.isPending || (tasksFailed && trip.isPending)) && (
         <p className="driver-home__note">Loading…</p>
       )}
-      {tasks.isError && (
+      {tasksFailed && (
         <p role="alert" className="driver-home__alert">
           Could not load your inspections.
         </p>
       )}
-      {trip.isError && (
+      {tripFailed && (
         <p role="alert" className="driver-home__alert">
           Could not load your trip.
+        </p>
+      )}
+      {tasks.isError && tasks.data !== undefined && (
+        <p role="status" className="driver-home__notice">
+          Could not refresh your inspections. This list may be out of date.
+        </p>
+      )}
+      {trip.isError && trip.data !== undefined && (
+        <p role="status" className="driver-home__notice">
+          Could not refresh your trip. It may be out of date.
         </p>
       )}
 

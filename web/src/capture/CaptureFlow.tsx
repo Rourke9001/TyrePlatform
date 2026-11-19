@@ -20,6 +20,7 @@ import { attemptSend, listOutbox, mayCarry, queueDraft } from "./outbox";
 import { absentCells, appVersion, capturedCells, deviceId } from "./payload";
 import { PositionSheet } from "./PositionSheet";
 import { deriveProgress } from "./rig";
+import { useTenantDate } from "../time/tenantTime";
 import { useUnitLabels } from "../units/units";
 import { useDraftLifecycle } from "./useDraftLifecycle";
 import { useEntryHandlers } from "./useEntryHandlers";
@@ -45,10 +46,106 @@ function refusalWords(error: unknown, what: string): string | null {
   return `You do not have permission to inspect ${what}. Ask your fleet office to check you are assigned to it.`;
 }
 
+type Answer = { kind: "refused" | "unavailable"; said: string } | { kind: "signed-out" | "signal" };
+
 // The four answers a capture read can get, for the motive and for the rig's
 // members alike: a refusal says who can change it; a signed-out driver signs
 // in; the token store's latch clears only on a page reload (apiError.ts); the
-// rest is signal. TYRE-465 makes this one table for every capture screen.
+// rest is signal. LoadFailure and RefreshNotice both read it, so the two
+// presentations cannot drift (TYRE-334). TYRE-465 makes this one table for
+// every capture screen.
+function answerOf(error: unknown, refused: string): Answer {
+  const refusal = refusalWords(error, refused);
+  if (refusal !== null) return { kind: "refused", said: refusal };
+  const failure = failureOf(error);
+  if (failure === "unavailable") {
+    return { kind: "unavailable", said: ACCESS_COPY.unavailable.body };
+  }
+  return { kind: failure === "signed-out" ? "signed-out" : "signal" };
+}
+
+function AnswerControls({
+  answer,
+  reloadLabel,
+  onReload,
+  emphasis,
+}: {
+  answer: Answer;
+  reloadLabel: string;
+  onReload: () => void;
+  emphasis: "primary" | "secondary";
+}) {
+  const block = emphasis === "primary";
+  if (answer.kind === "refused") return <BackToWork />;
+  if (answer.kind === "unavailable") {
+    return (
+      <Button
+        variant={emphasis}
+        size="glove"
+        block={block}
+        onClick={() => window.location.reload()}
+      >
+        Try again
+      </Button>
+    );
+  }
+  const signedOut = answer.kind === "signed-out";
+  return (
+    <>
+      {signedOut && bearerMode() && <SignInButton label="Sign in" />}
+      <Button
+        variant={signedOut ? "secondary" : emphasis}
+        size="glove"
+        block={block}
+        onClick={onReload}
+      >
+        {reloadLabel}
+      </Button>
+    </>
+  );
+}
+
+// U179, TYRE-334: a refresh failed and the copy stands. A status, not an
+// alert, and it moves no focus: the driver can still start.
+function RefreshNotice({
+  error,
+  refused,
+  subject,
+  copyAt,
+  reloadLabel,
+  onReload,
+}: {
+  error: unknown;
+  refused: string;
+  subject: string;
+  copyAt: number;
+  reloadLabel: string;
+  onReload: () => void;
+}) {
+  const tenantDate = useTenantDate();
+  const answer = answerOf(error, refused);
+  const shows = `Showing the copy from ${tenantDate(new Date(copyAt))}.`;
+  let sentence: string;
+  if (answer.kind === "refused" || answer.kind === "unavailable") {
+    sentence = `${answer.said} ${shows}`;
+  } else if (answer.kind === "signed-out") {
+    sentence = `Sign in to refresh ${subject}. ${shows}`;
+  } else {
+    sentence = `Could not refresh ${subject}. ${shows} Find signal, then reload.`;
+  }
+  return (
+    <div role="status" className="cap-alert cap-alert--caution cap-refresh">
+      <p className="cap-refresh-msg">{sentence}</p>
+      <AnswerControls
+        answer={answer}
+        reloadLabel={reloadLabel}
+        onReload={onReload}
+        emphasis="secondary"
+      />
+    </div>
+  );
+}
+
 function LoadFailure({
   error,
   refused,
@@ -64,41 +161,25 @@ function LoadFailure({
   reloadLabel: string;
   onReload: () => void;
 }) {
-  const failure = failureOf(error);
-  const refusal = refusalWords(error, refused);
+  const answer = answerOf(error, refused);
   const reason =
-    refusal ??
-    (failure === "signed-out"
-      ? `Sign in to load ${loading}.`
-      : failure === "unavailable"
-        ? ACCESS_COPY.unavailable.body
-        : `Could not load ${loading}. Find signal and try again.`);
-  let controls: ReactNode;
-  if (refusal !== null) controls = <BackToWork />;
-  else if (failure === "unavailable") {
-    controls = (
-      <Button variant="primary" size="glove" block onClick={() => window.location.reload()}>
-        Try again
-      </Button>
-    );
-  } else {
-    const signedOut = failure === "signed-out";
-    controls = (
-      <>
-        {signedOut && bearerMode() && <SignInButton label="Sign in" />}
-        <Button variant={signedOut ? "secondary" : "primary"} size="glove" block onClick={onReload}>
-          {reloadLabel}
-        </Button>
-      </>
-    );
-  }
+    answer.kind === "refused" || answer.kind === "unavailable"
+      ? answer.said
+      : answer.kind === "signed-out"
+        ? `Sign in to load ${loading}.`
+        : `Could not load ${loading}. Find signal and try again.`;
   return (
     <section className="cap-screen">
       <p role="alert" className="cap-alert cap-alert--stop">
         {reason}
         {saved && " Your readings are saved."}
       </p>
-      {controls}
+      <AnswerControls
+        answer={answer}
+        reloadLabel={reloadLabel}
+        onReload={onReload}
+        emphasis="primary"
+      />
     </section>
   );
 }
@@ -148,9 +229,14 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     membersError,
     membersRefreshing,
     refetchMembers,
+    staleMembers,
+    refetchStaleMembers,
     toggleAttached,
   } = rigComp;
   const shownMotive = heldMotive ?? motive.data;
+  // A failure is read only with no data, so a copy outlives a failed refresh
+  // (U179); the start screen says so in a notice (TYRE-334).
+  const vehicleStale = motive.isError && motive.data !== undefined;
 
   // The tenant's unit words, read once for every position's warnings.
   const labels = useUnitLabels();
@@ -298,15 +384,52 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         onReload={() => void motive.refetch()}
       />
     );
-  } else if (screen === "start") {
+  } else if (
+    screen === "start" &&
+    vehicleStale &&
+    answerOf(motive.error, "this vehicle").kind === "refused"
+  ) {
+    // The owner's answer of 19 Nov 2026: a refused vehicle stops the start
+    // screen as a first load does. The copy stays cached, and a later success
+    // restores Start.
     body = (
-      <CaptureStart
-        motive={shownMotive}
-        storageBlocked={faults.unavailable}
-        attachedIds={confirmedIds ?? [vehicleId]}
-        onToggleAttached={toggleAttached}
-        onStart={handleStart}
+      <LoadFailure
+        error={motive.error}
+        refused="this vehicle"
+        loading="this vehicle"
+        saved={false}
+        reloadLabel="Reload vehicle"
+        onReload={() => void motive.refetch()}
       />
+    );
+  } else if (screen === "start") {
+    const failedAt = [
+      ...(vehicleStale ? [motive.dataUpdatedAt] : []),
+      ...staleMembers.map((m) => m.copyAt),
+    ];
+    body = (
+      <>
+        {failedAt.length > 0 && (
+          <RefreshNotice
+            error={vehicleStale ? motive.error : staleMembers[0].error}
+            refused={vehicleStale ? "this vehicle" : "a unit on this rig"}
+            subject={vehicleStale ? "this vehicle" : "the rest of the rig"}
+            copyAt={Math.min(...failedAt)}
+            reloadLabel={vehicleStale ? "Reload vehicle" : "Reload rig"}
+            onReload={() => {
+              if (vehicleStale) void motive.refetch();
+              refetchStaleMembers();
+            }}
+          />
+        )}
+        <CaptureStart
+          motive={shownMotive}
+          storageBlocked={faults.unavailable}
+          attachedIds={confirmedIds ?? [vehicleId]}
+          onToggleAttached={toggleAttached}
+          onStart={handleStart}
+        />
+      </>
     );
   } else if (membersError !== null) {
     body = (

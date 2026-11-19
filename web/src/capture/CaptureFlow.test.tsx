@@ -6,8 +6,9 @@ import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { Link, Route, Routes } from "react-router";
 
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
-import { captureContext, renderWithActor, testQueryClient } from "../test/fixtures";
+import { captureContext, renderWithActor, respond, testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
+import { formatTenantDate } from "../time/tenantTime";
 import { CaptureFlow } from "./CaptureFlow";
 import type { CaptureContext } from "./captureContext";
 import { captureContextQuery } from "./captureContext";
@@ -1793,4 +1794,161 @@ describe("a storage fault that outlives the page", () => {
     expect(screen.queryByRole("button", { name: /recheck storage/i })).toBeNull();
     await screen.findAllByRole("button", { name: /^Position 1,/ });
   });
+});
+
+// TYRE-334, U179: a refresh that fails with a copy in hand keeps the start
+// screen and says so; a refusal of the vehicle itself stops it (owner, 19 Nov 2026).
+describe("a refresh that fails with a copy in hand", () => {
+  // Each unit's GET answered by its own reply, so the motive's and a
+  // member's refresh can differ. A unit not listed has no signal.
+  function serveUnits(replies: Record<string, () => Promise<Response>>) {
+    const api = vi.fn((url: string) => {
+      const reply = replies[url.split("?")[0].split("/").pop() ?? ""];
+      return reply ? reply() : Promise.reject(new TypeError("Failed to fetch"));
+    });
+    vi.stubGlobal("fetch", api);
+    return api;
+  }
+  const ok = (c: CaptureContext) => () => Promise.resolve(respond(200, c));
+  const answer = (status: number, code: string) => () =>
+    Promise.resolve(respond(status, { code, message: "x" }));
+  const offline = () => Promise.reject(new TypeError("Failed to fetch"));
+  const reads = (api: ReturnType<typeof serveUnits>) => api.mock.calls.map(([url]) => url);
+  const copyDate = (at: number) => formatTenantDate(new Date(at), "Africa/Johannesburg");
+  const mount = (client: QueryClient) =>
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, { client });
+
+  it("keeps the start screen, says so with the copy's date, and starts", async () => {
+    const user = newUser();
+    const at = dayAgo();
+    serveUnits({ v1: offline });
+    mount(cachedAt(at));
+
+    const notice = await screen.findByRole("status");
+    expect(
+      within(notice).getByText(
+        `Could not refresh this vehicle. Showing the copy from ${copyDate(at)}. Find signal, then reload.`,
+      ),
+    ).toBeInTheDocument();
+    expect(within(notice).getByRole("button", { name: "Reload vehicle" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /start inspection/i }));
+    expect(await screen.findAllByRole("button", { name: /^Position 1,/ })).not.toHaveLength(0);
+  });
+
+  it("fetches again from the notice, and a success removes it", async () => {
+    const user = newUser();
+    serveUnits({ v1: offline });
+    mount(cachedAt(dayAgo()));
+    const reload = await screen.findByRole("button", { name: "Reload vehicle" });
+    const again = serveUnits({ v1: ok({ ...context, lastOdometerAgeDays: 2 }) });
+    await user.click(reload);
+
+    expect(await screen.findByText("Last reading 412,180 km, 2 days ago")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(reads(again)).toEqual(["/api/capture/vehicles/v1"]);
+  });
+
+  it("stops on the refusal when the vehicle's refresh is refused, and a later success brings Start back", async () => {
+    serveUnits({ v1: answer(403, "forbidden") });
+    mount(cachedAt(dayAgo()));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "You do not have permission to inspect this vehicle. Ask your fleet office to check you are assigned to it.",
+    );
+    expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
+    expect(screen.getByRole("link", { name: "My inspections" })).toHaveAttribute("href", "/my");
+
+    serveUnits({ v1: ok({ ...context, lastOdometerAgeDays: 2 }) });
+    try {
+      act(() => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+      });
+      expect(await screen.findByText("Last reading 412,180 km, 2 days ago")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /start inspection/i })).toBeEnabled();
+    } finally {
+      focusManager.setFocused(undefined);
+    }
+  });
+
+  it("keeps the start screen with a rig member's refusal as the notice", async () => {
+    const at = dayAgo();
+    serveUnits({ v1: ok(rigMotive), v2: answer(403, "forbidden") });
+    mount(cachedAt(at, [rigMotive, trailer]));
+
+    const notice = await screen.findByRole("status");
+    expect(
+      within(notice).getByText(
+        `You do not have permission to inspect a unit on this rig. Ask your fleet office to check you are assigned to it. Showing the copy from ${copyDate(at)}.`,
+      ),
+    ).toBeInTheDocument();
+    expect(within(notice).getByRole("link", { name: "My inspections" })).toHaveAttribute(
+      "href",
+      "/my",
+    );
+    expect(screen.getByRole("button", { name: /start inspection/i })).toBeEnabled();
+  });
+
+  it("words one notice for the vehicle, with the older copy's date, and reloads every unit that failed", async () => {
+    const user = newUser();
+    const motiveAt = dayAgo();
+    const memberAt = motiveAt - 86_400_000;
+    const client = testQueryClient();
+    client.setQueryData(captureContextQuery("v1").queryKey, rigMotive, { updatedAt: motiveAt });
+    client.setQueryData(captureContextQuery("v2").queryKey, trailer, { updatedAt: memberAt });
+    const api = serveUnits({});
+    mount(client);
+
+    const notice = await screen.findByRole("status");
+    expect(
+      within(notice).getByText(
+        `Could not refresh this vehicle. Showing the copy from ${copyDate(memberAt)}. Find signal, then reload.`,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    const before = reads(api).length;
+    await user.click(within(notice).getByRole("button", { name: "Reload vehicle" }));
+
+    await waitFor(() =>
+      expect(reads(api).slice(before).sort()).toEqual([
+        "/api/capture/vehicles/v1",
+        "/api/capture/vehicles/v2",
+      ]),
+    );
+  });
+
+  it.each([
+    [
+      "a 500",
+      answer(500, "internal"),
+      (d: string) =>
+        `Could not refresh this vehicle. Showing the copy from ${d}. Find signal, then reload.`,
+      "Reload vehicle",
+    ],
+    [
+      "a 401",
+      answer(401, "unauthorized"),
+      (d: string) => `Sign in to refresh this vehicle. Showing the copy from ${d}.`,
+      "Reload vehicle",
+    ],
+    [
+      "a latched sign-in store",
+      answer(503, "auth_unavailable"),
+      (d: string) =>
+        `Sign-in is unavailable right now. Try again shortly. Showing the copy from ${d}.`,
+      "Try again",
+    ],
+  ])(
+    "words %s the way the load failure does, with refresh for load",
+    async (_, reply, words, control) => {
+      const at = dayAgo();
+      serveUnits({ v1: reply });
+      mount(cachedAt(at));
+
+      const notice = await screen.findByRole("status");
+      expect(within(notice).getByText(words(copyDate(at)))).toBeInTheDocument();
+      expect(within(notice).getByRole("button", { name: control })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /start inspection/i })).toBeEnabled();
+    },
+  );
 });
