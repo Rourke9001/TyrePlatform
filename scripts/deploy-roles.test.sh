@@ -242,6 +242,8 @@ base staging; add x "$KVSO" "$KVAPI" "$API" ServicePrincipal; case_run "the wron
 base staging; STUB_RBAC=false case_run "the vault in access-policy mode" rule3 staging
 base staging; STUB_RBAC= case_run "the vault's mode read back empty" rule3 staging
 base staging; STUB_TRIM_PARENTS=1 case_run "ARM hides the subscription's rows" rule4 staging
+base staging; drop r-owner; add r-mg-owner "$OWNER_ROLE" "$MG" "$OWNER" User
+case_run "the subscription's Owner held only through a management group" rule4 staging "only through a management group"
 base staging; drop r-deploy; case_run "the deploy identity's own row is missing" rule4 staging
 base staging; STUB_NO_BELOW=1 case_run "the unfiltered listing omits rows below the group" rule4 staging
 for k in account identity-api identity-deploy keyvault reach whole all per-scope control; do

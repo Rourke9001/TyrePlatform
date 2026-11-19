@@ -187,8 +187,9 @@ and says `atScope()` leaves them out. So the script requires three
 controls:
 
 - the Control listing holds at least one row whose scope is the
-  subscription itself, which always exists, since a subscription has an
-  owner;
+  subscription itself. A subscription has an Owner, but an Owner held
+  only through a management group, or only as a PIM-eligible
+  assignment, leaves no row there, and the control then fails closed;
 - the Control listing holds the deploy identity's own row at
   `rg-tyre-<env>`;
 - the All listing holds at least one row whose scope is a resource in
