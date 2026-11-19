@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Component, type ReactNode } from "react";
+import { Component, createRef, type ReactNode } from "react";
 import { useLocation, useMatch } from "react-router";
 
 import { bounded } from "../api/deadline";
@@ -78,7 +78,27 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
   // wait wins (TYRE-340).
   private attempt = 0;
 
+  private readonly frame = createRef<HTMLDivElement>();
+
+  // The main landmark the error screen sits in, set when a recovery starts.
+  private refocus: HTMLElement | null = null;
+
+  // TYRE-335: the Try again button is removed with the error screen, so focus
+  // falls to the body (WAI-ARIA APG, keyboard interface). It moves to the main
+  // landmark unless the recovered page took focus in its own commit, such as a
+  // reopened position sheet, which wins.
+  componentDidUpdate(): void {
+    const main = this.refocus;
+    this.refocus = null;
+    if (main === null || this.state.failed) return;
+    const active = document.activeElement;
+    if (active !== null && active !== document.body && active.isConnected) return;
+    if (!main.hasAttribute("tabindex")) main.setAttribute("tabindex", "-1");
+    main.focus();
+  }
+
   private recover(retries: number): void {
+    this.refocus = this.frame.current?.closest("main") ?? null;
     this.attempt += 1;
     this.setState({ failed: false, busy: false, retries });
   }
@@ -121,7 +141,7 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
     const escalated = route !== null && this.state.retries > 0;
     const readings = route === "capture" ? readingsLine(storage) : null;
     return (
-      <div className="route-error" role="alert">
+      <div ref={this.frame} className="route-error" role="alert">
         <p className="route-error__lead">
           {escalated ? "This page still cannot be shown." : "This page could not be shown."}
         </p>
