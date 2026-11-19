@@ -162,3 +162,33 @@ test("a production bundle without config.json says so, calls no API and keeps it
   expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
   expect(violations).toEqual([]);
 });
+
+// TYRE-154: a missing file falls back to index.html on the deploy, which an
+// icon or a manifest would read as garbage, so each is fetched as a file.
+test("the web-app manifest and every icon are served as files, not as the app", async ({
+  page,
+  request,
+}) => {
+  const html = await (await request.get("/")).text();
+  const hrefs = await page.evaluate((text) => {
+    const doc = new DOMParser().parseFromString(text, "text/html");
+    return {
+      manifest: doc.querySelector('link[rel="manifest"]')?.getAttribute("href") ?? null,
+      touch: doc.querySelector('link[rel="apple-touch-icon"]')?.getAttribute("href") ?? null,
+    };
+  }, html);
+  expect(hrefs.manifest).not.toBeNull();
+  expect(hrefs.touch).not.toBeNull();
+
+  const res = await request.get(hrefs.manifest ?? "");
+  expect(res.status()).toBe(200);
+  const manifest = JSON.parse(await res.text()) as { icons: { src: string }[] };
+
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  for (const src of [...manifest.icons.map((i) => i.src), hrefs.touch ?? ""]) {
+    const icon = await request.get(src);
+    expect(icon.status(), src).toBe(200);
+    expect(icon.headers()["content-type"], src).toBe("image/png");
+    expect([...(await icon.body()).subarray(0, 8)], src).toEqual(signature);
+  }
+});
