@@ -101,7 +101,7 @@ end'
 
 # ARM pages a long listing, so every page is read, up to 20.
 list_assignments() { # SCOPE FILTER OUT WHAT
-  local scope=$1 filter=$2 out=$3 what=$4 url next pages=0
+  local scope=$1 filter=$2 out=$3 what=$4 url next docs pages=0
   # Relative, so az rest prefixes the signed-in cloud's ARM endpoint.
   url="$scope/providers/Microsoft.Authorization/roleAssignments?api-version=2022-04-01"
   [ -z "$filter" ] || url="$url&\$filter=$filter"
@@ -112,6 +112,13 @@ list_assignments() { # SCOPE FILTER OUT WHAT
     if ! az rest --method get --url "$url" >"$work/body"; then
       refuse 5 "cannot read the $what listing (az's error is above)"
     fi
+    # az rest exits 0 on a 200 with no body, and jq reads zero documents as
+    # zero rows, so a page that is not one document is not read as clean.
+    if ! docs=$(jq -n '[inputs] | length' <"$work/body"); then
+      refuse 5 "the $what listing is not JSON (jq's error is above)"
+    fi
+    docs=${docs//$'\r'/}
+    [ "$docs" = 1 ] || refuse 5 "the $what listing came back as $docs JSON documents, not one, so its rows cannot be proven read"
     if ! jq -r "$rows_jq" <"$work/body" | tr -d '\r' >>"$out"; then
       refuse 5 "the $what listing is not a list of role assignments (jq's error is above)"
     fi
