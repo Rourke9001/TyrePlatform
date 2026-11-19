@@ -223,6 +223,40 @@ prints anything, stop.
    also lists a role the identity holds through a group, which a direct
    listing misses.
 
+   **The deploy's check.** Every deploy, staging and production, a release
+   or a rollback dispatch, runs `scripts/deploy-roles.sh` in its "API
+   identity's roles" step before it changes anything. It is the standing
+   check of this listing on every release (TYRE-438). The listing above
+   still runs after every platform apply, because the check runs only when
+   a deploy runs and sees only what the deploy identity can read. When a
+   deploy fails on it, read the rows the step printed and its `::error::`
+   line, which names a rule:
+   - Rule 1 or 2: remove the grant it names, never one of the two expected
+     rows, then re-run the failed jobs.
+   - Rule 3: `kv-tyre-<env>` is not in RBAC mode. The platform apply
+     restores it; then re-run the failed jobs.
+   - Rule 4 or 5: there is no grant to remove. The check could not read what
+     it needs to prove the vault clean, and a check that cannot see is not
+     weakened to pass. Post the log on TYRE-438 (spec
+     `docs/superpowers/specs/2026-11-19-deploy-role-check-and-identity-hardening-design.md`,
+     section 7).
+
+   After every platform apply, list the deploy identity's own roles too:
+
+   ```bash
+   dpid=$(az identity show -g $RG -n id-tyre-deploy-$ENV --query principalId -o tsv)
+   echo "dpid=$dpid"   # must be non-empty
+   [ -n "$dpid" ] && az role assignment list --assignee-object-id "$dpid" --all --include-groups \
+     --query "[].{role:roleDefinitionName, scope:scope}" -o table
+   ```
+
+   Expect `TyrePlatform deploy <env>` on `rg-tyre-<env>`, and `AcrPush`
+   (staging) or `AcrPull` (production) on `crtyrestaging`. Contributor on
+   the group shows as well only until Narrowing the deploy identity, below,
+   has run its step 3 on that environment. Any other row stops, and so does
+   a missing one: staging pushes the image and its record under `AcrPush`
+   alone once Contributor is gone.
+
    After TYRE-402, the what-if must show no Create or Delete of the API
    identity's AcrPull assignment on `crtyrestaging`: the grant moved into
    the `acr-pull.bicep` module with the same name, so either means the name
@@ -576,6 +610,130 @@ the two runs' lines apart. `no token for the API identity`, or
 an `IDENTITY_HEADER` unbound error, means the job got no identity endpoint:
 stop and post the log on TYRE-435.
 
+### Narrowing the deploy identity (TYRE-438)
+
+Run once per environment. It replaces Contributor on `rg-tyre-<env>`, which
+could set a new `tyreadmin` password and list the storage keys, with the
+custom role `TyrePlatform deploy <env>` that `infra/platform.bicep`
+declares, and turns shared-key access off on `sttyre<env>` (spec
+`docs/superpowers/specs/2026-11-19-deploy-role-check-and-identity-hardening-design.md`,
+sections 4.3, 4.4 and 6; U241).
+
+- **Staging:** after the TYRE-438 merge's own staging deploy is green, from
+  a clean `develop` worktree that includes the merge, with `ENV=staging` set
+  in Before anything.
+- **Production:** at the first promotion after the merge, from the `$sha`
+  checkout (Promote to production, the paragraph before step 3).
+
+1. **What-if.** Bring-up step 4's block in what-if form. Beyond what an
+   unchanged re-apply shows (staging's noise list in bring-up step 4),
+   expect a Create of the role definition `TyrePlatform deploy <env>`, a
+   Create of its assignment to `id-tyre-deploy-<env>` on `rg-tyre-<env>`,
+   and a Modify of `sttyre<env>` setting `allowSharedKeyAccess` to `false`.
+   Production's `CanNotDelete` lock allows the property change. Anything
+   else stops, and so does a refusal of the role definition: post it on
+   TYRE-438.
+
+2. **Apply.** Bring-up step 4's apply block. If it fails with
+   `RoleDefinitionDoesNotExist`, the new definition has not reached every
+   region yet: wait five minutes and run the apply block again, which is
+   safe to repeat. Then bring-up step 4's API identity listing (two rows),
+   and its deploy identity listing, which shows three here: the custom
+   role, Contributor, and the registry role, `AcrPush` on staging or
+   `AcrPull` on production.
+
+   **If the registry row is missing, stop here and keep Contributor.** On
+   staging, Contributor may be what lets the deploy push today, and step 6's
+   proof does not push. Grant the registry role first, then run the
+   listing again:
+
+   ```bash
+   dpid=$(az identity show -g $RG -n id-tyre-deploy-$ENV --query principalId -o tsv)
+   acrid=$(az acr show -n crtyrestaging --query id -o tsv)
+   role=AcrPull; [ "$ENV" = staging ] && role=AcrPush
+   echo "dpid=$dpid acrid=$acrid role=$role"   # both ids non-empty; AcrPush on staging, AcrPull on prod
+   [ -n "$dpid" ] && [ -n "$acrid" ] && \
+     az role assignment create --assignee-object-id "$dpid" --assignee-principal-type ServicePrincipal \
+       --role "$role" --scope "$acrid" -o none
+   ```
+
+   Then read the storage account:
+
+   ```bash
+   az storage account show -n sttyre$ENV -g $RG --query allowSharedKeyAccess -o tsv
+   ```
+
+   Expect `false`. Then run the what-if once more. A Modify of the new role
+   definition or its assignment that changes no value, as the API
+   identity's assignments show (`principalId`, `principalType`), is noise:
+   post the lines on TYRE-438, and close-out adds them to the noise list in
+   bring-up step 4.
+
+3. **Remove Contributor.** Every value is re-derived and checked, and the
+   rows are counted before the delete:
+
+   ```bash
+   dpid=$(az identity show -g $RG -n id-tyre-deploy-$ENV --query principalId -o tsv)
+   rgid=$(az group show -n $RG --query id -o tsv)
+   echo "dpid=$dpid rgid=$rgid"   # both non-empty, rgid ends in /resourceGroups/rg-tyre-<env>
+   case "$rgid" in */resourceGroups/rg-tyre-$ENV) ;; *) echo "not this environment's group"; rgid="" ;; esac
+   n=$([ -n "$dpid" ] && [ -n "$rgid" ] && az role assignment list --assignee-object-id "$dpid" \
+     --role Contributor --scope "$rgid" --query "length(@)" -o tsv)
+   echo "rows=$n"   # must be 1
+   [ "$n" = 1 ] && az role assignment delete --assignee-object-id "$dpid" --role Contributor --scope "$rgid" && \
+     echo "Contributor removed"
+   ```
+
+   On any other `rows=`, delete nothing and post the listing on TYRE-438.
+
+4. **Wait ten minutes** for the change to take effect: Azure RBAC can take
+   up to ten minutes to apply a removed assignment
+   (<https://learn.microsoft.com/en-us/azure/role-based-access-control/troubleshooting>).
+
+5. **The deploy identity's listing** (bring-up step 4) again: the custom
+   role and the registry role, and no Contributor. A missing registry row
+   stops: run step 7's grant-back.
+
+6. **The proof.** A deploy that goes green under the narrow role, its "API
+   identity's roles" step included.
+   - Staging: read the commit staging runs, the SHA after `tyre-api:` in
+
+     ```bash
+     az containerapp show -g $RG -n ca-api-$ENV --query "properties.template.containers[0].image" -o tsv
+     ```
+
+     and dispatch **Deploy** from `develop` with `target` staging and that
+     full SHA as `image_sha` (Roll back).
+   - Production: Promote to production steps 3 and 4. Its `deploy-prod`
+     jobs are the proof.
+
+   **What staging's dispatch does not prove.** A rollback skips "Build and
+   push image" and "Record that staging passed this image", the deploy's
+   only two pushes, and staging's server stays running (U232), so the
+   server start is not exercised either. The next merge to `develop` is the
+   push's proof: watch its deploy, and if a push fails with an
+   authorization error, run step 7. The start is proved only the first time
+   Azure has stopped the server before a deploy, and the same remedy holds
+   then.
+
+7. **If a deploy fails on a missing permission** (an `AuthorizationFailed`
+   naming an action, or a refused push), grant Contributor back, re-run the
+   failed jobs, and post the action on TYRE-438 as a finding. Once its fix
+   is applied, run this record again from step 3. Every value is
+   re-derived, since this can run days after step 3 in another shell:
+
+   ```bash
+   dpid=$(az identity show -g $RG -n id-tyre-deploy-$ENV --query principalId -o tsv)
+   rgid=$(az group show -n $RG --query id -o tsv)
+   echo "dpid=$dpid rgid=$rgid"   # both non-empty, rgid ends in /resourceGroups/rg-tyre-<env>
+   case "$rgid" in */resourceGroups/rg-tyre-$ENV) ;; *) echo "not this environment's group"; rgid="" ;; esac
+   [ -n "$dpid" ] && [ -n "$rgid" ] && az role assignment create --assignee-object-id "$dpid" \
+     --assignee-principal-type ServicePrincipal --role Contributor --scope "$rgid" -o none
+   ```
+
+8. **Post on TYRE-438**: the what-if's extra lines, both listings, the
+   storage read and the proof run's link.
+
 ## Production bring-up
 
 The owner runs this after TYRE-435 merges (U141), from a checkout at or
@@ -625,20 +783,17 @@ before its first platform apply, so the order differs from staging's.
    older start date could be refused.
 
 2. **The deploy identity and the GitHub environment.** Production's identity
-   holds Contributor on its own group and AcrPull on staging's registry,
-   both read-only beyond its group (ADR-0017). An empty `--scope` would widen
-   a grant, so every value is checked first:
+   gets AcrPull on staging's registry here, and its role on its own group
+   from step 3's first platform apply, which declares it (TYRE-438). It
+   reads nothing beyond its group but the registry (ADR-0017). An empty
+   `--scope` would widen a grant, so every value is checked first:
 
    ```bash
    az identity create -g $RG -n id-tyre-deploy-$ENV -l southafricanorth -o none
    pid=$(az identity show -g $RG -n id-tyre-deploy-$ENV --query principalId -o tsv)
    cid=$(az identity show -g $RG -n id-tyre-deploy-$ENV --query clientId -o tsv)
-   rgid=$(az group show -n $RG --query id -o tsv)
    acrid=$(az acr show -n crtyrestaging --query id -o tsv)
-   echo "pid=$pid cid=$cid rgid=$rgid acrid=$acrid"   # all four must be non-empty
-   [ -n "$pid" ] && [ -n "$rgid" ] && \
-     az role assignment create --assignee-object-id "$pid" --assignee-principal-type ServicePrincipal \
-       --role Contributor --scope "$rgid" -o none
+   echo "pid=$pid cid=$cid acrid=$acrid"   # all three must be non-empty
    [ -n "$pid" ] && [ -n "$acrid" ] && \
      az role assignment create --assignee-object-id "$pid" --assignee-principal-type ServicePrincipal \
        --role AcrPull --scope "$acrid" -o none
@@ -723,6 +878,8 @@ before its first platform apply, so the order differs from staging's.
    - `kv-tyre-api-prod` and its two role assignments, the API identity's
      Key Vault Secrets User and your Secrets Officer, are Creates in
      `rg-tyre-prod`.
+   - The role definition `TyrePlatform deploy prod` and its assignment to
+     `id-tyre-deploy-prod` are Creates in `rg-tyre-prod` (TYRE-438).
    - `ag-tyre-owner` and `alert-tyre-daily-job-prod` are Creates in
      `rg-tyre-prod` (TYRE-371). The rule's query reads a table that appears
      only once step 7's API first logs, and Azure disables a rule whose
@@ -892,6 +1049,9 @@ before its first platform apply, so the order differs from staging's.
    - The role listing in staging's step 4, under `ENV=prod`, shows exactly
      two rows: `AcrPull` on `crtyrestaging` and `Key Vault Secrets User` on
      `kv-tyre-api-prod`.
+   - The deploy identity's listing in staging's step 4, under `ENV=prod`,
+     shows its custom role on `rg-tyre-prod` and `AcrPull` on
+     `crtyrestaging`, and nothing else.
    - The NFR-BAK settings read live:
 
    ```bash
@@ -1221,6 +1381,12 @@ production's schema yet (TYRE-434).
      and `app_job`'s password must exist on production (The daily job,
      Production), or the deploy fails on the secret.
 
+**The first promotion after TYRE-438 only:** on a clean tree,
+`git switch --detach "$sha"` (step 2 ended with `git switch -`), set
+`ENV=prod; RG=rg-tyre-$ENV; PG=psql-tyre-$ENV; KV=kv-tyre-$ENV; KVAPI=kv-tyre-api-$ENV`,
+run Narrowing the deploy identity steps 1 to 5, then `git switch -`, all
+before the fast-forward. Step 4's deploy is that record's step 6 (U241).
+
 3. **Fast-forward `main`**, from the owner's own terminal, never through a
    pull request (ADR-0004). A pull request into `main` is closed
    automatically (TYRE-313). First print the SHA in the shell that ran steps
@@ -1317,6 +1483,11 @@ until the rollback ends. That alert is expected for this case.
 Re-running an old run never rolls back (TYRE-403). A re-run whose commit
 is no longer its branch's head is refused, and going back is only by this
 dispatch.
+
+"Re-run failed jobs" on the `web` job alone may not find the `web-dist`
+artifact an earlier attempt's `web-build` uploaded (TYRE-438 spec, section
+7). If its download step fails, use "Re-run all jobs", which the guard
+admits while the commit is its branch's head.
 
 A rollback to a commit from before TYRE-51 ships a web with no `config.json`
 handling. That web calls a relative `/api` and 404s, and the web job's smoke

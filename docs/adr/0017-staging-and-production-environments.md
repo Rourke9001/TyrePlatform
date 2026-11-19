@@ -331,3 +331,19 @@ and the Bad entries on stopping it as a manual habit and on a deploy
 waiting for the start, no longer describe staging. The cost is the full
 compute the Bad list already budgets, about R350 to R400 a month. Azure can
 still stop a server, so the staging deploy keeps its start step.
+
+**Amended 2026-11-19 (TYRE-438, U241):** each deploy identity holds a custom
+role on its own resource group in place of Contributor. Contributor could set
+a new `tyreadmin` password and list the storage keys, and the web build ran
+npm in a job that could ask for its token, so a compromised npm package could
+get round RLS (rule 1, pilot audit B43). `infra/platform.bicep` declares one
+role per environment, `TyrePlatform deploy <env>`: `*/read` and the writes
+the deploy makes, with no Postgres write, storage key or authorization write.
+"Who applies what" still holds, since the role writes no role assignment, and
+the registry grants are unchanged. The Decision bullets "Deploy identities"
+and "Who applies what", the start "which Contributor permits", and the
+TYRE-397 amendment's "beside Contributor on its own group" read as this
+amendment says; the custom role carries the server start. Every deploy also
+checks the API identity's roles before it changes anything
+(`scripts/deploy-roles.sh`), and npm runs in a job without the token. See
+`docs/superpowers/specs/2026-11-19-deploy-role-check-and-identity-hardening-design.md`.
