@@ -7,8 +7,9 @@
 #
 # Auth is OIDC on id-tyre-deploy-<env> through the GitHub environment
 # staging or production; no long-lived Azure secret exists in this repo.
-# Each identity holds Contributor on its own resource group only, so the
-# workflow applies infra/app.bicep and never infra/platform.bicep (U117).
+# Each identity holds a custom role on its own resource group, declared in
+# infra/platform.bicep and unable to write a role assignment, so the workflow
+# applies infra/app.bicep and never infra/platform.bicep (U117, TYRE-438).
 # Staging's identity also holds AcrPush; production's reads crtyrestaging
 # with AcrPull and pushes nothing.
 name: Deploy

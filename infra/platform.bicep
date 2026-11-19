@@ -1,20 +1,16 @@
 // The rarely-changing half of an environment (U117, ADR-0017): identities,
 // role assignments, data stores and the Container Apps environment. The
 // owner applies it by hand (docs/runbooks/environment-release.md, bring-up
-// step 4), because Contributor cannot write role assignments and the deploy
-// identity holds Contributor. infra/app.bicep is the pipeline's half.
+// step 4), because the deploy identity's role (the deploy identity section)
+// cannot write role assignments (U117). infra/app.bicep is the pipeline's half.
 //
 // Deployed at resource-group scope into rg-tyre-<env>. Outside Bicep: the
 // resource group itself, the budget, Log Analytics, the deploy identity
 // id-tyre-deploy-<env> (the credential the pipeline applies infra/app.bicep
 // with), and the registry, which is staging's for both environments.
 //
-// ACCEPTED TRADE: id-tyre-deploy-<env>'s Contributor scope on rg-tyre-<env>
-// is therefore live-Azure only, not visible or reviewable here. Accepted for
-// a single-operator subscription, where the actual enforcement boundary is
-// RLS plus password auth (non-negotiable rule 1), not Azure RBAC scoping.
-// Revisit before the first commercial contract, per NFR-SEC-014; tracked as
-// TYRE-61.
+// The deploy identity's role is declared in this template, so its reach is
+// reviewable here (TYRE-438).
 //
 // Every apply re-sends pgAdminPassword, devMachineIp and ownerAlertEmail,
 // which infra/platform.<env>.bicepparam reads from the apply's environment
@@ -118,6 +114,9 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   properties: {
     minimumTlsVersion: 'TLS1_2'
     allowBlobPublicAccess: false
+    // Refuses the account key, an account SAS and a service SAS; Entra ID and
+    // a user delegation SAS still work (TYRE-437, TYRE-438).
+    allowSharedKeyAccess: false
     supportsHttpsTrafficOnly: true
     accessTier: 'Hot'
   }
@@ -137,8 +136,9 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
 }
 
 // Inspection photos (FR-INS-023/024: photos and damage observations per
-// position). Private; the API issues SAS URLs, so the PWA never gets account
-// keys.
+// position). Private; the API is to hand out user delegation SAS URLs under a
+// role on its own identity, which TYRE-152 adds, so the PWA never holds
+// account keys.
 resource photosContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
   parent: blobService
   name: 'photos'
@@ -233,6 +233,58 @@ resource kvSecretsForApi 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   properties: {
     principalId: apiIdentity.properties.principalId
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleKeyVaultSecretsUser)
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// -------------------------------------------------------- deploy identity --
+
+// Made by hand before the first platform apply (runbook, staging's bring-up
+// step 3 and Production bring-up step 2), so its federated credential exists
+// before any deploy.
+resource deployIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
+  name: 'id-tyre-deploy-${env}'
+}
+
+// */read plus the writes the deploy makes, and no Postgres write, storage key
+// or authorization write, so a deploy cannot reset tyreadmin's password or
+// read the account keys (rule 1, TYRE-437, TYRE-438, U241). Microsoft's
+// Container Apps guidance is a custom role of the operations needed
+// (docs/superpowers/specs/2026-11-19-deploy-role-check-and-identity-hardening-design.md,
+// section 4.3).
+resource deployRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
+  name: guid(resourceGroup().id, 'tyre-deploy-role')
+  properties: {
+    // Unique in the Entra tenant, so it names the environment.
+    roleName: 'TyrePlatform deploy ${env}'
+    description: 'What the pipeline needs to apply infra/app.bicep here, and nothing that reaches the database admin or the storage keys (TYRE-438).'
+    type: 'CustomRole'
+    assignableScopes: [ resourceGroup().id ]
+    permissions: [
+      {
+        actions: [
+          '*/read' // every show and listing, role assignments included; not listKeys or listSecrets
+          'Microsoft.Resources/deployments/*' // deploy.yml, Apply the app template
+          'Microsoft.App/containerApps/write' // infra/app.bicep, api
+          'Microsoft.App/jobs/write' // infra/app.bicep, dailyJob
+          'Microsoft.App/managedEnvironments/join/action' // infra/app.bicep, api and dailyJob in cae-tyre-<env>
+          'Microsoft.ManagedIdentity/userAssignedIdentities/assign/action' // infra/app.bicep, id-tyre-api-<env> on both
+          'Microsoft.DBforPostgreSQL/flexibleServers/start/action' // deploy.yml, Database running
+          'Microsoft.Web/staticSites/listSecrets/action' // deploy.yml, Get deployment token
+        ]
+        notActions: []
+        dataActions: []
+        notDataActions: []
+      }
+    ]
+  }
+}
+
+resource deployRoleForDeployer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, deployIdentity.id, deployRole.name)
+  properties: {
+    principalId: deployIdentity.properties.principalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', deployRole.name)
     principalType: 'ServicePrincipal'
   }
 }

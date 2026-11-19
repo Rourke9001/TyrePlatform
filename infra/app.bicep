@@ -2,8 +2,9 @@
 // app and the daily job (ADR-0025), applied on every release by
 // .github/workflows/deploy.yml, so their secret bindings and settings cannot
 // drift from this file. Everything they reference is owned by
-// infra/platform.bicep. It writes no role assignment, which is what lets the
-// Contributor deploy identity apply it.
+// infra/platform.bicep. It writes no role assignment, which lets the deploy
+// identity's custom role, which holds no authorization write, apply it
+// (infra/platform.bicep, TYRE-438).
 
 @description('Region for everything that stores data (ADR-0002).')
 param location string = 'southafricanorth'
@@ -21,8 +22,8 @@ param apiImage string
 param revisionSuffix string
 
 // Production pulls from staging's registry (ADR-0017, Registry). A string,
-// not an existing registry: production's deploy identity holds Contributor
-// on its own group only and cannot read rg-tyre-staging. The pull itself
+// not an existing registry: production's deploy identity reads its own group
+// only and cannot read rg-tyre-staging. The pull itself
 // runs as the API's identity, under platform.bicep's AcrPull grant.
 param acrLoginServer string = 'crtyrestaging${environment().suffixes.acrLoginServer}'
 
