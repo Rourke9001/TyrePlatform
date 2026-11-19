@@ -152,6 +152,10 @@ the next copy edit.
   the one class (U54). `strict: true`. No `any`.
 - Tanstack Query for server state; `useState`/`useReducer` for local. No Redux.
 - Dexie over IndexedDB for the durable submit outbox (ADR-0009).
+- A file under `web/public/` ships unhashed at the site root: the web-app
+  manifest and the four icons (TYRE-154). The owner's artwork replaces an
+  icon under the same name, and `lint/webManifest.test.ts` checks each
+  icon's pixel size.
 - Prettier owns layout — do not hand-format, and do not argue with it in
   review. eslint runs the type-aware recommended and stylistic tiers with
   `eslint-config-prettier` last, so exactly one tool has an opinion about any

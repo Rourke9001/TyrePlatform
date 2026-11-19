@@ -129,3 +129,14 @@ describe("the brand tokens", () => {
     expect(root.getPropertyValue("--on-brand")).toBe(t.onBrand);
   });
 });
+
+describe("the default branding", () => {
+  it("names the product Tyre Track until the branding answers", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => undefined)),
+    );
+    mount();
+    expect(screen.getByText("Tyre Track")).toBeInTheDocument();
+  });
+});
