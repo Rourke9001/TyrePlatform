@@ -1,5 +1,7 @@
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 import { cleanup, configure } from "@testing-library/react";
+
+import { draftRead } from "../capture/storageFaults";
 
 // findBy* polls until this ceiling, so raising it changes nothing about what
 // passes, only how long a loaded box may take to get there. The default
@@ -28,8 +30,17 @@ interface JestShim {
 };
 
 // Without this a component from one test is still mounted during the next,
-// and queries match the wrong tree.
-afterEach(cleanup);
+// and queries match the wrong tree. The storage faults are module memory, so
+// they reset after the unmount, to a fresh tab's state (storageFaults.ts),
+// and again before each test, since a write that rejects after its test
+// ended lands in that memory, not in an unmounted component.
+afterEach(() => {
+  cleanup();
+  draftRead(false);
+});
+beforeEach(() => {
+  draftRead(false);
+});
 
 // jsdom has no matchMedia, and usePhone() calls it on every render. The stub
 // answers false, the desktop width, so every test renders the desktop form

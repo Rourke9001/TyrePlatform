@@ -3,14 +3,17 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { focusManager, onlineManager, type QueryClient } from "@tanstack/react-query";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 
+import { Link, Route, Routes } from "react-router";
+
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
-import { renderWithActor, testQueryClient } from "../test/fixtures";
+import { captureContext, renderWithActor, testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureFlow } from "./CaptureFlow";
 import type { CaptureContext } from "./captureContext";
 import { captureContextQuery } from "./captureContext";
 import { clearDraft, db, loadDraft, markSpareAbsent, startDraft } from "./draft";
 import { listOutbox } from "./outbox";
+import { readStorageFaults, writeFailed } from "./storageFaults";
 
 const DRIVER = "oid-driver-1";
 
@@ -24,50 +27,7 @@ function renderFlow() {
 // One position, so the flow reaches review in a handful of clicks. Copy the
 // full shape from captureContext.test.ts; only the parts the flow reads are
 // spelled out here.
-const context: CaptureContext = {
-  vehicleId: "v1",
-  fleetNumber: "BAC039SP",
-  registration: "BAC039SP",
-  unitKind: "HORSE",
-  lastOdometerKm: 412180,
-  lastOdometerAt: "2026-08-19T06:00:00Z",
-  averageDailyKm: null,
-  combination: null,
-  positions: [
-    {
-      id: "p1",
-      vehicleId: "v1",
-      code: "1",
-      sequence: 1,
-      axleClass: "STEER",
-      axleType: "FIXED",
-      side: "LEFT",
-      axleNumber: 1,
-      isSpare: false,
-      unitLabel: "Horse",
-      tyreId: "ty1",
-      tyreCode: "BAC-04217",
-      previousGoverningMm: 14,
-      previousReadingAt: "2026-07-23T06:00:00Z",
-      fitmentSincePrevious: false,
-      targetKpa: 800,
-      warnUnderPct: 10,
-      criticalUnderPct: 20,
-      warnOverPct: 10,
-      criticalOverPct: 20,
-    },
-  ],
-  config: {
-    treadReadingCount: 3,
-    treadGranularityMm: 1.0,
-    widthSpreadWarnMm: 4,
-    odometerMaxDailyKm: 1600,
-    wearRateAlertMultiple: 3,
-    removalThresholdMm: 4,
-    captureSpares: true,
-  },
-  cohortWearRateMmPerMonth: { "STEER:FIXED": 0.8 },
-};
+const context: CaptureContext = captureContext();
 
 // The active-cell assertion below is vacuous on a one-position rig: "no other
 // cell is marked" needs another cell to exist.
@@ -621,20 +581,23 @@ describe("CaptureFlow", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  // Proves the retry re-attempts rather than clearing the message: a retry
-  // that only hid the banner would leave an enabled Start with no warning,
-  // exactly where this round started.
+  // Proves the retry re-attempts rather than clearing the message: the
+  // banner stays up through a recheck, so the read count is the proof.
   it("says so again when a retry finds the device still refusing", async () => {
     const user = newUser();
     stubApi(201);
-    vi.spyOn(db.drafts, "get").mockRejectedValue(new Error("storage blocked"));
+    const blocked = vi.spyOn(db.drafts, "get").mockRejectedValue(new Error("storage blocked"));
     renderFlow();
-    await screen.findByRole("alert");
+    expect(await screen.findByRole("button", { name: /start inspection/i })).toBeDisabled();
+    expect(blocked).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: /recheck storage/i }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/cannot be started/i);
-    expect(screen.getByRole("button", { name: /start inspection/i })).toBeDisabled();
+    await waitFor(() => expect(blocked).toHaveBeenCalledTimes(2));
+    // The recheck shows "Loading…" until the read answers, so Start is
+    // found again rather than read straight away.
+    expect(await screen.findByRole("button", { name: /start inspection/i })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/cannot be started/i);
   });
 
   // The other pre-start route to the same standing refusal: the read
@@ -1690,5 +1653,144 @@ describe("what the done screen says a queued submit waits on", () => {
       ),
     ).toBeInTheDocument();
     expect(await db.table("outbox").count()).toBe(1);
+  });
+});
+
+const UNAVAILABLE =
+  "This phone is not letting the app save anything, so an inspection cannot be started. Private browsing or a work-phone setting usually causes this.";
+const DEGRADED =
+  "This phone is not saving reliably. Keep the app open until this inspection has been sent.";
+
+// TYRE-339: the faults live above the page, so these drive the real page and
+// read the store it reports to.
+describe("a storage fault that outlives the page", () => {
+  it("clears the degraded warning when the submit's queue write resolves", async () => {
+    const user = newUser();
+    stubApi(201);
+    renderFlow();
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await capturePosition(user);
+    act(() => writeFailed());
+    expect(screen.getByText(DEGRADED)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /review and submit/i }));
+    await user.click(screen.getByRole("button", { name: /submit inspection/i }));
+
+    await screen.findByRole("status");
+    expect(screen.queryByText(DEGRADED)).toBeNull();
+    expect(readStorageFaults().degraded).toBe(false);
+  });
+
+  it("clears the degraded warning when the driver discards the inspection", async () => {
+    const user = newUser();
+    stubApi();
+    renderFlow();
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    // The capture screen arrives only once Start's draft writes have landed.
+    const discard = await screen.findByRole("button", { name: /discard this inspection/i });
+    act(() => writeFailed());
+    expect(screen.getByText(DEGRADED)).toBeInTheDocument();
+    await user.click(discard);
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+
+    expect(await screen.findByRole("button", { name: /start inspection/i })).toBeInTheDocument();
+    expect(screen.queryByText(DEGRADED)).toBeNull();
+  });
+
+  it("clears the degraded warning when the other vehicle's inspection is discarded", async () => {
+    const user = newUser();
+    stubApi();
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v-wrong",
+      taskId: null,
+      startedAt: new Date().toISOString(),
+      fleetNumber: "BAC711TR",
+    });
+    writeFailed();
+    renderFlow();
+    // The banner shows before the draft read answers, so the held screen is
+    // what to wait for.
+    await user.click(await screen.findByRole("button", { name: /discard it/i }));
+    expect(screen.getByText(DEGRADED)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+
+    expect(await screen.findByRole("button", { name: /start inspection/i })).toBeInTheDocument();
+    expect(screen.queryByText(DEGRADED)).toBeNull();
+  });
+
+  it("clears the degraded warning when the draft read finds no draft", async () => {
+    stubApi();
+    writeFailed();
+    renderFlow();
+    // The first render is synchronous and the draft read is not, so the
+    // banner shows before the read answers.
+    expect(screen.getByText(DEGRADED)).toBeInTheDocument();
+
+    await waitFor(() => expect(readStorageFaults().degraded).toBe(false));
+    expect(await screen.findByRole("button", { name: /start inspection/i })).toBeEnabled();
+    expect(screen.queryByText(DEGRADED)).toBeNull();
+  });
+
+  // A navigation unmounts the page; the read on the way back finds the draft.
+  it("keeps the degraded warning across a navigation", async () => {
+    const user = newUser();
+    stubApi();
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: new Date().toISOString(),
+    });
+    writeFailed();
+    renderWithActor(
+      <Routes>
+        <Route
+          path="/capture/v1"
+          element={
+            <>
+              <CaptureFlow vehicleId="v1" taskId={null} />
+              <Link to="/elsewhere">Leave</Link>
+            </>
+          }
+        />
+        <Route path="/elsewhere" element={<Link to="/capture/v1">Return</Link>} />
+      </Routes>,
+      { withRouter: true, initialEntries: ["/capture/v1"] },
+    );
+    expect(await screen.findByText(DEGRADED)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("link", { name: "Leave" }));
+    await user.click(await screen.findByRole("link", { name: "Return" }));
+
+    await screen.findAllByRole("button", { name: /^Position 1,/ });
+    expect(screen.getByText(DEGRADED)).toBeInTheDocument();
+  });
+
+  it("shows the blocked banner over a degraded fault, and the degraded one again once a recheck finds the draft", async () => {
+    const user = newUser();
+    stubApi();
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: new Date().toISOString(),
+    });
+    writeFailed();
+    const blocked = vi.spyOn(db.drafts, "get").mockRejectedValue(new Error("storage blocked"));
+    renderFlow();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(UNAVAILABLE);
+    expect(alert).not.toHaveTextContent(DEGRADED);
+    expect(screen.getByRole("button", { name: /recheck storage/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /start inspection/i })).toBeDisabled();
+
+    blocked.mockRestore();
+    await user.click(screen.getByRole("button", { name: /recheck storage/i }));
+
+    expect(await screen.findByText(DEGRADED)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /recheck storage/i })).toBeNull();
+    await screen.findAllByRole("button", { name: /^Position 1,/ });
   });
 });

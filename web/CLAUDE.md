@@ -65,8 +65,11 @@ Online-first with a durable submit outbox — not an offline sync engine.
   On capture, `useDraftLifecycle` restores every entry already written to
   the draft, so a remount loses only the keystroke whose render threw and
   any review text not yet submitted. Entries after a "degraded" storage
-  fault were never written, so they are not kept, and the remount clears
-  the warning about them (TYRE-339). `/my` remounts against its query
+  fault were never written, so they are not kept; the fault is held in
+  memory above the boundary (`src/capture/storageFaults.ts`) until the
+  inspection it concerns has ended, so its banner survives a remount and a
+  navigation, and the error screen says the last readings may be missing
+  (TYRE-339). `/my` remounts against its query
   cache: offline the query pauses, so it shows the list it last loaded,
   or "Loading…" once that has been dropped, until the signal returns.
 

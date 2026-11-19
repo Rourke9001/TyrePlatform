@@ -7,17 +7,13 @@ import { clearDraft, loadDraft, saveHeader, startDraft } from "./draft";
 import { stampSubject } from "../api/token";
 import { mayCarry } from "./outbox";
 import { halfEnteredCell } from "./payload";
+import { draftRead, inspectionEnded, storageRefused, writeFailed } from "./storageFaults";
 
 export type Screen = "start" | "capture" | "review" | "done";
 
-// "unavailable": a device that will not let the app write at all (private
-// window, MDM), caught before any inspection exists. "degraded": a write
-// failed with an inspection already in hand. NFR-USE-005: the two must stay
-// distinct on the wire.
-export type StorageFault = "unavailable" | "degraded";
-
 // Owns the draft's own lifecycle (FR-OFF-005/006/013/014): the load-on-mount
-// resume, the storage fault a write can hit, and the two discards. attachedIds
+// resume, the report of what storage did to the storage faults store
+// (TYRE-339), and the two discards. attachedIds
 // and activeKey are state the caller owns (CaptureFlow), since the rig
 // composition and entry-handler concerns also write them; this hook is
 // handed their setters rather than holding its own copies.
@@ -37,7 +33,6 @@ export function useDraftLifecycle(
   const [resumedStartedAt, setResumedStartedAt] = useState<string | null>(null);
   const [held, setHeld] = useState<Draft | null>(null);
   const [screen, setScreen] = useState<Screen>("start");
-  const [storageFault, setStorageFault] = useState<StorageFault | null>(null);
   // Bumped by the retry to re-run the draft load (FR-OFF-013): a recovery
   // action is only real if something re-attempts.
   const [storageAttempt, setStorageAttempt] = useState(0);
@@ -52,6 +47,7 @@ export function useDraftLifecycle(
     void loadDraft().then(
       (existing) => {
         if (dropped) return;
+        draftRead(existing !== undefined);
         setResumedStartedAt(null);
         if (existing && !mayCarry(existing, stampSubject())) {
           // U104: held for its own driver, never resumed or offered for
@@ -77,7 +73,7 @@ export function useDraftLifecycle(
       },
       () => {
         if (dropped) return;
-        setStorageFault("unavailable");
+        storageRefused();
         setResumed(true);
       },
     );
@@ -120,12 +116,13 @@ export function useDraftLifecycle(
       // No draft was written, so there is nothing to keep open and nothing
       // to send: this is the same standing refusal as a device that would
       // not let the app read one.
-      setStorageFault("unavailable");
+      storageRefused();
     }
   }
 
+  // Clears nothing itself: the read it re-runs decides whether the fault
+  // stands (storageFaults.ts).
   function retryStorage() {
-    setStorageFault(null);
     setResumed(false);
     setStorageAttempt((n) => n + 1);
   }
@@ -135,14 +132,18 @@ export function useDraftLifecycle(
   // is told the number, and the device is then free to start this one.
   function discardHeld() {
     void clearDraft().then(
-      () => setHeld(null),
-      () => setStorageFault("degraded"),
+      () => {
+        inspectionEnded();
+        setHeld(null);
+      },
+      () => writeFailed(),
     );
   }
 
   function discardCurrent() {
     void clearDraft().then(
       () => {
+        inspectionEnded();
         setDraft(null);
         setActiveKey(null);
         setAttachedIds(null);
@@ -151,7 +152,7 @@ export function useDraftLifecycle(
         setResumedStartedAt(null);
         setScreen("start");
       },
-      () => setStorageFault("degraded"),
+      () => writeFailed(),
     );
   }
 
@@ -163,8 +164,6 @@ export function useDraftLifecycle(
     held,
     screen,
     setScreen,
-    storageFault,
-    setStorageFault,
     signInNeeded,
     otherDriverHeld,
     startDraftAndAdvance,

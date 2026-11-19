@@ -9,6 +9,7 @@ import type { Me } from "../auth/me";
 import type { FitmentHistoryRow, OpenFitment, Unit, UnitPosition } from "../api/units";
 import type { DashboardBody, ExceptionRow, SpareRow, TyreAtRisk } from "../api/dashboard";
 import type { Money } from "../api/money";
+import type { CaptureContext } from "../capture/captureContext";
 
 // The default retries a failed request three times with backoff, which
 // would schedule timers that outlive the test body. A query that sets its own
@@ -483,6 +484,57 @@ export function spareRow(overrides: Partial<SpareRow> & { tyreId: string }): Spa
     measuredSource: "READING",
     daysSinceMeasured: 61,
     currentTreadMm: 2,
+    ...overrides,
+  };
+}
+
+// The one construction site for a capture context, for the reason me() is one:
+// a field the wire gains must fail tsc here. One position, so a flow reaches
+// review in a handful of clicks.
+export function captureContext(overrides: Partial<CaptureContext> = {}): CaptureContext {
+  return {
+    vehicleId: "v1",
+    fleetNumber: "BAC039SP",
+    registration: "BAC039SP",
+    unitKind: "HORSE",
+    lastOdometerKm: 412180,
+    lastOdometerAt: "2026-08-19T06:00:00Z",
+    averageDailyKm: null,
+    combination: null,
+    positions: [
+      {
+        id: "p1",
+        vehicleId: "v1",
+        code: "1",
+        sequence: 1,
+        axleClass: "STEER",
+        axleType: "FIXED",
+        side: "LEFT",
+        axleNumber: 1,
+        isSpare: false,
+        unitLabel: "Horse",
+        tyreId: "ty1",
+        tyreCode: "BAC-04217",
+        previousGoverningMm: 14,
+        previousReadingAt: "2026-07-23T06:00:00Z",
+        fitmentSincePrevious: false,
+        targetKpa: 800,
+        warnUnderPct: 10,
+        criticalUnderPct: 20,
+        warnOverPct: 10,
+        criticalOverPct: 20,
+      },
+    ],
+    config: {
+      treadReadingCount: 3,
+      treadGranularityMm: 1.0,
+      widthSpreadWarnMm: 4,
+      odometerMaxDailyKm: 1600,
+      wearRateAlertMultiple: 3,
+      removalThresholdMm: 4,
+      captureSpares: true,
+    },
+    cohortWearRateMmPerMonth: { "STEER:FIXED": 0.8 },
     ...overrides,
   };
 }
