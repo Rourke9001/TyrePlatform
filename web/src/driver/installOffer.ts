@@ -81,9 +81,7 @@ function publish(): void {
   });
 }
 
-// Main starts this before the first render: Chrome can hand over its install
-// prompt as soon as the page loads, on any route, and an uncancelled one
-// raises its own banner (TYRE-154, U243).
+// Started from main.tsx, which says why it is the entry's and not a screen's.
 export function startInstallOffer(win: Window = window): () => void {
   const onPrompt = (event: Event) => {
     event.preventDefault();
