@@ -9,12 +9,9 @@ import { mayCarry } from "./outbox";
 import { inspectionEnded, writeFailed } from "./storageFaults";
 
 // TYRE-333: a draft that breaks the page locks the phone, since one draft
-// per phone means no other inspection can start (FR-OFF-014). This is the
-// way out from the capture error screen. It offers only a draft this driver
-// may carry (U104), so another driver's is never discarded here, and it
-// deletes the draft row only: the outbox is never read or written. Its own
-// read reports nothing to the storage faults, which only the capture page's
-// reads and the discards do.
+// per phone means no other inspection can start (FR-OFF-014). It offers
+// only a draft this driver may carry (U104), and deletes the draft row only:
+// the outbox is never read or written.
 export function ErrorDiscard({ onDiscarded }: { onDiscarded: () => void }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [failed, setFailed] = useState(false);
