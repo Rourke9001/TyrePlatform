@@ -1,8 +1,11 @@
+import { useRef } from "react";
+
 import { Card } from "../ui/Card";
 import { ListRow } from "../ui/ListRow";
 import { useTenantDate } from "../time/tenantTime";
 import { useMyTasks, useMyTrip, type MyTask } from "./driver.data";
 import { homeView } from "./driver.view";
+import { InstallHint } from "./InstallHint";
 import "./driver.css";
 
 // Renders inside Chrome's frame (shell/Chrome.tsx), AppShell or DriverShell,
@@ -10,6 +13,7 @@ import "./driver.css";
 export function DriverHome() {
   const tasks = useMyTasks();
   const trip = useMyTrip();
+  const heading = useRef<HTMLHeadingElement>(null);
   const view = homeView(tasks.data, trip.data);
   // A failure is read only with no data, as CaptureFlow reads one: a list in
   // hand outlives a failed refresh, with a notice (TYRE-334).
@@ -21,7 +25,7 @@ export function DriverHome() {
       {/* The heading stays outside the loading and error branches: a view
           that loses its title while fetching leaves a screen reader with
           nothing to announce, and a test with nothing to find. */}
-      <h1 id="my-inspections-heading" className="driver-home__title">
+      <h1 id="my-inspections-heading" ref={heading} tabIndex={-1} className="driver-home__title">
         My inspections
       </h1>
       {(tasks.isPending || (tasksFailed && trip.isPending)) && (
@@ -85,6 +89,10 @@ export function DriverHome() {
       )}
 
       {view.notOnTrip && <p className="driver-home__note">You are not on a trip.</p>}
+
+      {/* The last block, and only once the lists are in, so it never moves a
+          task or slides under a thumb (TYRE-154, U243). */}
+      {!tasks.isPending && !trip.isPending && <InstallHint focusAfter={heading} />}
     </section>
   );
 }

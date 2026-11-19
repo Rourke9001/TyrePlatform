@@ -79,6 +79,12 @@ Online-first with a durable submit outbox — not an offline sync engine.
   (TYRE-334). From that second failure the capture error screen also offers
   to discard a draft the signed-in driver may carry, behind
   `ConfirmDiscard`, and leaves the outbox untouched (TYRE-333).
+- The app installs from a static manifest with no service worker (TYRE-154,
+  ADR-0009's amendment). An installed iOS app has its own storage apart from
+  Safari's, so a driver signs in once more there and anything held in Safari
+  stays in Safari. The hint on "My inspections" is hidden while a draft or
+  outbox entry is held, and Chrome's own prompt is cancelled on every route
+  (`src/driver/installOffer.ts`).
 
 ## Sign-in (ADR-0016)
 
