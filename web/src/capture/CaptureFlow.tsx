@@ -65,6 +65,15 @@ function answerOf(error: unknown, refused: string): Answer {
   return { kind: failure === "signed-out" ? "signed-out" : "signal" };
 }
 
+// The notice takes the member answer "Reload rig" cannot clear, wherever it
+// sits in the walk: a refusal (spec section 1, case 3), then the token store's
+// latch, which only a page reload clears (apiError.ts).
+function memberNoticeError(stale: readonly { error: unknown }[]): unknown {
+  const first = (kind: Answer["kind"]) =>
+    stale.find((m) => answerOf(m.error, "a unit on this rig").kind === kind);
+  return (first("refused") ?? first("unavailable") ?? stale[0])?.error;
+}
+
 function AnswerControls({
   answer,
   reloadLabel,
@@ -401,7 +410,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
       <>
         {failedAt.length > 0 && (
           <RefreshNotice
-            error={vehicleStale ? motive.error : staleMembers[0].error}
+            error={vehicleStale ? motive.error : memberNoticeError(staleMembers)}
             refused={vehicleStale ? "this vehicle" : "a unit on this rig"}
             subject={vehicleStale ? "this vehicle" : "the rest of the rig"}
             copyAt={Math.min(...failedAt)}
