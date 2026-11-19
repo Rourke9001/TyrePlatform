@@ -30,8 +30,9 @@ const marginPermissions = /^['"]?permissions['"]?\s*:(.*)$/;
 // to a repo script is not followed: a script that starts npm is a diff a
 // reviewer reads.
 const packageManager = /\b(npm|npx|pnpm|yarn|corepack|make)\b/;
-// A block value, a list item or a flow entry; a shell glob in a run block
-// has none of those before its star.
+// A star after a value's ': ', a list item's '- ' or a '[', '{' or ','.
+// Shell text in a run block can take that shape too, and is refused with it
+// (TYRE-438).
 const yamlAlias = /(?:^\s*-\s+|:\s+|[[{,]\s*)\*([^\s,[\]{}#]+)\s*(?:$|[,\]}#])/;
 const environmentKey = /^ {4}['"]?environment['"]?\s*:/;
 const uploadAction = /\buses['"]?\s*:\s*['"]?actions\/upload-artifact@/;
