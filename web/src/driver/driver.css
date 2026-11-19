@@ -57,3 +57,24 @@
   border-top-left-radius: var(--radius-lg);
   border-top-right-radius: var(--radius-lg);
 }
+
+/* TYRE-154: the install hint's own lines; the ground and glyph are Banner's. */
+.driver-home__install-title {
+  margin: 0;
+  font: inherit;
+}
+
+.driver-home__install-text {
+  margin: 0;
+}
+
+.driver-home__install-text + .driver-home__install-text {
+  margin-top: var(--space-2);
+}
+
+.driver-home__install-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}

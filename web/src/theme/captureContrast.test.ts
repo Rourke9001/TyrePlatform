@@ -20,6 +20,7 @@ const sheets = import.meta.glob<string>(
     "/src/ui/base.css",
     "/src/ui/DriverShell.css",
     "/src/ui/AxleDiagram.css",
+    "/src/ui/Banner.css",
     "/src/ui/BrandMark.css",
     "/src/ui/Button.css",
     "/src/ui/Card.css",
@@ -103,6 +104,7 @@ const GROUNDS: ColorToken[] = [
   "warn-soft",
   "critical-soft",
   "interactive-soft",
+  "info-soft",
 ];
 
 // Text that may sit on any ground above; a link is --interactive.
@@ -117,6 +119,9 @@ const TEXT: ColorToken[] = [
 // Text on a fill, with the fill and its floor. A hovered or pressed brand
 // fill keeps the brand's floor.
 const ON_FILL: [ColorToken, ColorToken, number][] = [
+  // Banner's glyph tiles: the info tile and the success tile (TYRE-154).
+  ["surface", "ink-secondary", 7],
+  ["ok", "on-ok", 7],
   ["on-ok", "ok", 7],
   ["on-warn", "warn", 7],
   ["on-critical", "critical", 7],

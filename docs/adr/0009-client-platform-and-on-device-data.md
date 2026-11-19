@@ -153,3 +153,20 @@ adds.
 inspection per phone, the session's tokens (valid for at most 24 hours, and
 removed at the next refused renewal or at sign-out), and the capturing
 driver's id on each held inspection. TYRE-373 carries the erratum.
+
+## Amendment, 2026-11-19 (TYRE-154, U243)
+
+Decision 1 is built: a static web-app manifest and no service worker, which
+Chrome's install criteria no longer need. Chrome's own install prompt is
+cancelled on every route, and the install is offered by a button on "My
+inspections". The guided iOS step in Consequences and action item 4 is the
+hint on that screen, written steps for Share and Add to Home Screen.
+
+A Home Screen app is exempt from Safari's seven-day cap on script-writable
+storage, which strengthens the outbox. Its storage is separate from Safari's,
+though: installing means one more sign-in, and anything held in Safari stays
+in Safari. The hint therefore stays hidden while a draft or outbox entry is
+held on the phone.
+
+The product's name is "Tyre Track". No new ADR: this builds a decision
+already taken here.

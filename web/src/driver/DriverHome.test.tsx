@@ -1,10 +1,15 @@
-import { screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
 import { renderWithActor, requestedUrl, respond, testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { formatTenantDate } from "../time/tenantTime";
+import * as outbox from "../capture/outbox";
+import { clearDraft, db, startDraft } from "../capture/draft";
 import { DriverHome } from "./DriverHome";
+import { INSTALL_HINT_KEY, startInstallOffer } from "./installOffer";
 import { myTasksQuery, myTripQuery } from "./driver.data";
 
 const DUE = "2026-10-23T06:00:00Z";
@@ -266,5 +271,295 @@ describe("a refresh that fails with the list in hand", () => {
         .map((li) => li.textContent),
     ).toEqual(["H1", "T1"]);
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+// TYRE-154, spec section 4 (U243): the hint is the screen's last block, and it
+// never shows while the phone holds an inspection.
+describe("the install hint (TYRE-154)", () => {
+  let stopOffer: () => void;
+  let read: MockInstance<typeof outbox.readHeldWork>;
+  const STEPS = "Add this app to your Home Screen";
+  const BUTTON = "Install this app";
+
+  beforeEach(async () => {
+    await db.open();
+    await clearDraft();
+    await db.table("outbox").clear();
+    window.localStorage.clear();
+    stopOffer = startInstallOffer(window);
+    read = vi.spyOn(outbox, "readHeldWork");
+  });
+
+  afterEach(() => {
+    stopOffer();
+    Reflect.deleteProperty(window.navigator, "standalone");
+    Reflect.deleteProperty(window.navigator, "maxTouchPoints");
+    vi.restoreAllMocks();
+  });
+
+  function asIPhone() {
+    Object.defineProperty(window.navigator, "standalone", { value: false, configurable: true });
+    Object.defineProperty(window.navigator, "maxTouchPoints", { value: 5, configurable: true });
+  }
+
+  function offerInstall() {
+    const event = Object.assign(new Event("beforeinstallprompt", { cancelable: true }), {
+      prompt: vi.fn(() => Promise.resolve()),
+    });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+    return event.prompt;
+  }
+
+  const steps = () => screen.findByRole("status", { name: STEPS });
+  const button = () => screen.findByRole("status", { name: BUTTON });
+  const noHint = () => {
+    expect(screen.queryByRole("status", { name: STEPS })).toBeNull();
+    expect(screen.queryByRole("status", { name: BUTTON })).toBeNull();
+  };
+
+  // The lists have answered, so InstallHint has mounted.
+  async function settle() {
+    await screen.findByRole("link", { name: /^H1,/ });
+    await act(() => Promise.resolve());
+  }
+
+  async function readAnswered() {
+    await vi.waitFor(() => {
+      expect(read).toHaveBeenCalled();
+    });
+    await (read.mock.results[0].value as Promise<unknown>).catch(() => undefined);
+    await act(() => Promise.resolve());
+  }
+
+  // Throws for the hint's key alone; the actor's and the token store's reads
+  // in the same tree are untouched.
+  function hintKey(method: "getItem" | "setItem") {
+    const real: unknown = Reflect.get(Storage.prototype, method);
+    vi.spyOn(Storage.prototype, method).mockImplementation(function (
+      this: Storage,
+      ...args: string[]
+    ) {
+      if (args[0] === INSTALL_HINT_KEY) throw new Error("blocked");
+      return Reflect.apply(real as () => unknown, this, args) as never;
+    });
+  }
+
+  const lists = () => stub(ok([task({ id: "k1", ...H1 })]), ok({ trip: null }));
+  const heading = () => screen.getByRole("heading", { name: "My inspections" });
+
+  it("shows the steps on an iPhone, as the screen's last block", async () => {
+    lists();
+    asIPhone();
+    const { container } = renderHome();
+
+    const region = await steps();
+    expect(region.textContent).toContain(
+      "Tap Share, then Add to Home Screen. If you cannot see Share, tap the menu button (...) first.",
+    );
+    expect(region.textContent).toContain(
+      "You will sign in once more when you open it from the Home Screen.",
+    );
+    expect(container.querySelector("section")?.lastElementChild).toBe(region);
+    expectNothingForbiddenSpoken(container, /add this app to your home screen/);
+  });
+
+  it("leaves the tasks and the trip where they were", async () => {
+    stub(
+      ok([
+        task({ id: "k2", vehicleId: "t2", fleetNumber: "T2", overdue: true }),
+        task({ id: "k1", vehicleId: "h1", fleetNumber: "H1", captureVehicleId: "h1" }),
+      ]),
+      ok(onTrip()),
+    );
+    asIPhone();
+    renderHome();
+
+    const trip = await screen.findByRole("region", { name: "Your trip" });
+    expect(
+      within(trip)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual([`H1, due ${DUE_TEXT}`, "T1", `T2, due ${DUE_TEXT} (overdue)`]);
+    expect(hrefOf(/^H1,/)).toBe("/capture/h1?taskId=k1");
+    const region = await steps();
+    expect(trip.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('"Got it" removes it, writes the key, and puts focus on the heading', async () => {
+    lists();
+    asIPhone();
+    renderHome();
+    await steps();
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Got it" }));
+
+    noHint();
+    expect(window.localStorage.getItem(INSTALL_HINT_KEY)).toBe("dismissed");
+    expect(document.activeElement).toBe(heading());
+  });
+
+  it("shows none on a later render once dismissed", async () => {
+    window.localStorage.setItem(INSTALL_HINT_KEY, "dismissed");
+    lists();
+    asIPhone();
+    renderHome();
+    await settle();
+
+    expect(read).not.toHaveBeenCalled();
+    noHint();
+  });
+
+  it("keeps a dismissal through a remount when the store cannot be written", async () => {
+    hintKey("setItem");
+    lists();
+    asIPhone();
+    const first = renderHome();
+    await steps();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Got it" }));
+    first.unmount();
+    read.mockClear();
+
+    renderHome();
+    await settle();
+
+    expect(read).not.toHaveBeenCalled();
+    noHint();
+  });
+
+  it("stays hidden while a draft is held, whoever captured it", async () => {
+    await startDraft({
+      driverSubject: "oid-someone-else",
+      vehicleId: "v9",
+      taskId: null,
+      startedAt: "2026-11-19T06:00:00Z",
+    });
+    lists();
+    asIPhone();
+    renderHome();
+    await settle();
+    await readAnswered();
+
+    noHint();
+  });
+
+  it("stays hidden while an outbox entry is held, refused included", async () => {
+    await db.table("outbox").put({ clientUuid: "held-1", state: "failed" });
+    lists();
+    asIPhone();
+    renderHome();
+    await settle();
+    await readAnswered();
+
+    noHint();
+  });
+
+  it("stays hidden while the held read is out", async () => {
+    read.mockReturnValue(new Promise(() => undefined));
+    lists();
+    asIPhone();
+    renderHome();
+    await settle();
+    await vi.waitFor(() => {
+      expect(read).toHaveBeenCalled();
+    });
+    await act(() => Promise.resolve());
+
+    noHint();
+  });
+
+  it("stays hidden when the held read fails", async () => {
+    vi.spyOn(db.drafts, "get").mockRejectedValue(new Error("storage blocked"));
+    lists();
+    asIPhone();
+    renderHome();
+    await settle();
+    await readAnswered();
+
+    noHint();
+  });
+
+  it("waits for the lists before it shows", async () => {
+    stub("pending", "pending");
+    asIPhone();
+    renderHome();
+    await screen.findByText("Loading…");
+    await act(() => Promise.resolve());
+
+    expect(read).not.toHaveBeenCalled();
+    noHint();
+  });
+
+  it('shows the button for Chrome\'s event, and "No thanks" ends it for good', async () => {
+    lists();
+    offerInstall();
+    const { container } = renderHome();
+
+    const region = await button();
+    expect(region.textContent).toContain("It opens from your Home screen like any other app.");
+    expectNothingForbiddenSpoken(container, /install this app/);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "No thanks" }));
+
+    noHint();
+    expect(window.localStorage.getItem(INSTALL_HINT_KEY)).toBe("dismissed");
+    expect(document.activeElement).toBe(heading());
+  });
+
+  it('"Install" opens Chrome\'s dialog once and the hint goes without writing the key', async () => {
+    lists();
+    const prompt = offerInstall();
+    renderHome();
+    await button();
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Install" }));
+
+    expect(prompt).toHaveBeenCalledTimes(1);
+    noHint();
+    expect(window.localStorage.getItem(INSTALL_HINT_KEY)).toBeNull();
+    expect(document.activeElement).toBe(heading());
+  });
+
+  it("shows the button when Chrome's event arrives after the screen mounted", async () => {
+    lists();
+    renderHome();
+    await settle();
+
+    offerInstall();
+
+    await button();
+  });
+
+  it("shows nothing on Android with no event", async () => {
+    lists();
+    renderHome();
+    await settle();
+
+    expect(read).not.toHaveBeenCalled();
+    noHint();
+  });
+
+  it("shows the steps under StrictMode, as main.tsx renders", async () => {
+    lists();
+    asIPhone();
+    renderWithActor(
+      <StrictMode>
+        <DriverHome />
+      </StrictMode>,
+      { withRouter: true },
+    );
+
+    await steps();
+  });
+
+  it("shows the steps when the store cannot be read", async () => {
+    hintKey("getItem");
+    lists();
+    asIPhone();
+    renderHome();
+
+    await steps();
   });
 });
