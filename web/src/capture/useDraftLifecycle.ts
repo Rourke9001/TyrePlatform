@@ -12,11 +12,11 @@ import { draftRead, inspectionEnded, storageRefused, writeFailed } from "./stora
 export type Screen = "start" | "capture" | "review" | "done";
 
 // Owns the draft's own lifecycle (FR-OFF-005/006/013/014): the load-on-mount
-// resume, the report of what storage did to the storage faults store
-// (TYRE-339), and the two discards. attachedIds
-// and activeKey are state the caller owns (CaptureFlow), since the rig
-// composition and entry-handler concerns also write them; this hook is
-// handed their setters rather than holding its own copies.
+// resume, its reports to the storage faults (TYRE-339), and the two
+// discards. attachedIds and activeKey are state the caller owns
+// (CaptureFlow), since the rig composition and entry-handler concerns also
+// write them; this hook is handed their setters rather than holding its own
+// copies.
 export function useDraftLifecycle(
   vehicleId: string,
   taskId: string | null,

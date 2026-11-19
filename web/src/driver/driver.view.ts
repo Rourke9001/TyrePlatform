@@ -17,8 +17,8 @@ export interface HomeView {
 
 // FR-DSH-012 as amended: the truck of the driver's open trip and the
 // trailers it tows, with what is due on each, then any unit they are
-// nominated for. Each argument is undefined until its read has first succeeded, and keeps its
-// data through a failed refresh.
+// nominated for. Each argument is undefined until its read has first
+// succeeded, and keeps its data through a failed refresh.
 export function homeView(tasks: readonly MyTask[] | undefined, trip: MyTrip | undefined): HomeView {
   const units = trip?.trip ? [trip.trip.motive, ...trip.trip.trailers] : null;
   const onTrip = new Set(units?.map((u) => u.vehicleId));

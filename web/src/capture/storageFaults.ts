@@ -3,9 +3,11 @@ import { useSyncExternalStore } from "react";
 // TYRE-339: held in memory, above any page, because a store whose writes are
 // failing cannot record its own failure, and a remount or a navigation must
 // not forget it. A reload clears both, which is right: it shows what storage
-// holds. NFR-USE-005: "unavailable" (the phone will not let the app save
-// anything, before any inspection exists) and "degraded" (a write failed with
-// an inspection in hand) stay distinct, and can both stand at once.
+// holds.
+//
+// NFR-USE-005: "unavailable" (the phone will not let the app save anything,
+// before any inspection exists) and "degraded" (a write failed with an
+// inspection in hand) stay distinct, and can both stand at once.
 export interface StorageFaults {
   readonly unavailable: boolean;
   readonly degraded: boolean;
