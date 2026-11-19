@@ -1,6 +1,7 @@
 import { Component, type ReactNode } from "react";
 import { useLocation, useMatch } from "react-router";
 
+import { useStorageFaults, type StorageFaults } from "../capture/storageFaults";
 import { Button } from "../ui/Button";
 import "./shell.css";
 
@@ -8,6 +9,7 @@ interface BoundaryProps {
   resetKey: string;
   onCapture: boolean;
   inPlace: boolean;
+  storage: StorageFaults;
   reload: () => void;
   children: ReactNode;
 }
@@ -15,6 +17,17 @@ interface BoundaryProps {
 interface BoundaryState {
   failed: boolean;
   resetKey: string;
+}
+
+// TYRE-339: what the driver is told about the readings already entered.
+// Degraded wins over unavailable, since a phone that refused to save and also
+// failed a write may be missing readings; unavailable alone never held an
+// inspection, so there is nothing to say.
+function readingsLine(storage: StorageFaults): string | null {
+  if (storage.degraded) {
+    return "This phone was not saving reliably, so the last readings you entered may be missing. Check each position after you try again.";
+  }
+  return storage.unavailable ? null : "Readings already entered are kept on this phone.";
 }
 
 // U54: the one class component in web/src, a named exception to CLAUDE.md's
@@ -50,10 +63,11 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
 
   render(): ReactNode {
     if (!this.state.failed) return this.props.children;
+    const readings = this.props.onCapture ? readingsLine(this.props.storage) : null;
     return (
       <div className="route-error" role="alert">
         <p className="route-error__lead">This page could not be shown.</p>
-        {this.props.onCapture && <p>Readings already entered are kept on this phone.</p>}
+        {readings !== null && <p>{readings}</p>}
         {/* NFR-USE-004: the driver's routes take the glove size. */}
         <Button variant="secondary" size={this.props.inPlace ? "glove" : "md"} onClick={this.retry}>
           Try again
@@ -76,8 +90,15 @@ export function RouteErrorBoundary({
   const onCapture = useMatch("/capture/:vehicleId") !== null;
   const onDriverHome = useMatch("/my") !== null;
   const inPlace = onCapture || onDriverHome;
+  const storage = useStorageFaults();
   return (
-    <Boundary resetKey={key} onCapture={onCapture} inPlace={inPlace} reload={reload}>
+    <Boundary
+      resetKey={key}
+      onCapture={onCapture}
+      inPlace={inPlace}
+      storage={storage}
+      reload={reload}
+    >
       {children}
     </Boundary>
   );

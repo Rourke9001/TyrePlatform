@@ -23,6 +23,7 @@ import { deriveProgress } from "./rig";
 import { useUnitLabels } from "../units/units";
 import { useDraftLifecycle } from "./useDraftLifecycle";
 import { useEntryHandlers } from "./useEntryHandlers";
+import { inspectionEnded, useStorageFaults, writeFailed } from "./storageFaults";
 import { useRigComposition } from "./useRigComposition";
 import "./capture.css";
 
@@ -120,7 +121,8 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const [openedAt] = useState(() => Date.now());
 
   const lifecycle = useDraftLifecycle(vehicleId, taskId, setActiveKey, setAttachedIds);
-  const { draft, setDraft, resumed, held, screen, setScreen, storageFault } = lifecycle;
+  const { draft, setDraft, resumed, held, screen, setScreen } = lifecycle;
+  const faults = useStorageFaults();
   // Read once the draft has loaded, so a resumed draft's units are keyed on
   // its own window and never asked of the server first at now (U148); the
   // seed in captureContext.ts says what that key serves.
@@ -160,7 +162,6 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const { handleChange, handleDone, handleAbsent } = useEntryHandlers({
     setDraft,
     setActiveKey,
-    setStorageFault: lifecycle.setStorageFault,
     rig: progress.rig,
     doneCells,
     absent,
@@ -204,6 +205,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           appVersion,
           totalPositions,
         });
+        // Queued: the inspection is off the draft, so a warning about its
+        // writes has nothing left to warn of (TYRE-339).
+        inspectionEnded();
         await attemptSend(entry.clientUuid);
         // The queue, not the response, decides what the driver is told: a
         // dead network and a refusal reach here the same way and mean
@@ -224,7 +228,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
       } catch {
         // An inspection is in hand and still on screen, so this is recoverable
         // in a way the pre-start case is not.
-        lifecycle.setStorageFault("degraded");
+        writeFailed();
         setSubmitting(false);
       }
     })();
@@ -298,7 +302,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     body = (
       <CaptureStart
         motive={shownMotive}
-        storageBlocked={storageFault === "unavailable"}
+        storageBlocked={faults.unavailable}
         attachedIds={confirmedIds ?? [vehicleId]}
         onToggleAttached={toggleAttached}
         onStart={handleStart}
@@ -406,18 +410,19 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   }
 
   // Above every branch, not inside one: the driver can be on any screen when
-  // a fault fires. "degraded" stays non-blocking, since the readings are
-  // still on screen and submittable.
+  // a fault fires. One banner shows at a time and "unavailable" takes it
+  // (TYRE-339); "degraded" stays non-blocking, since the readings are still
+  // on screen and submittable.
   return (
     <>
-      {storageFault !== null && (
+      {(faults.unavailable || faults.degraded) && (
         <div role="alert" className="cap-alert cap-alert--stop cap-storage">
           <p className="cap-storage-msg">
-            {storageFault === "unavailable"
+            {faults.unavailable
               ? "This phone is not letting the app save anything, so an inspection cannot be started. Private browsing or a work-phone setting usually causes this."
               : "This phone is not saving reliably. Keep the app open until this inspection has been sent."}
           </p>
-          {storageFault === "unavailable" && (
+          {faults.unavailable && (
             // Named for what it retries. See the load-failure branch above
             // for why both retries need distinct labels.
             <Button variant="secondary" size="glove" onClick={lifecycle.retryStorage}>

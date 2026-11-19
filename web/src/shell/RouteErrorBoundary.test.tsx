@@ -1,15 +1,18 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, within } from "@testing-library/react";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { clearDevActorId, setDevActorId } from "../api/devTenant";
 import { ActorContext } from "../auth/actorContext";
-import { db } from "../capture/draft";
+import { CaptureFlow } from "../capture/CaptureFlow";
+import { clearDraft, db, startDraft } from "../capture/draft";
 import type { OutboxEntry } from "../capture/outbox";
 import type { SubmitPayload } from "../capture/payload";
-import { me } from "../test/fixtures";
+import { storageRefused, writeFailed } from "../capture/storageFaults";
+import { captureContext, me, requestedUrl, respond, testQueryClient } from "../test/fixtures";
 import { deriveBrandTheme } from "../theme/derive";
 import { ThemeContext } from "../theme/themeContext";
 import { Chrome } from "./Chrome";
@@ -17,6 +20,12 @@ import { RouteErrorBoundary } from "./RouteErrorBoundary";
 
 const branding = { displayName: "Sandbox Fleet", primaryColor: "#1F7A5A", logoUrl: null };
 const outbox = () => db.table<OutboxEntry, string>("outbox");
+
+const DRIVER = "oid-driver-1";
+const MAY_BE_MISSING =
+  "This phone was not saving reliably, so the last readings you entered may be missing. Check each position after you try again.";
+const DEGRADED =
+  "This phone is not saving reliably. Keep the app open until this inspection has been sent.";
 
 // nextAttemptAt in the future: the indicator flushes on mount, and a due
 // entry would be sent and never counted (OutboxIndicator.test.tsx).
@@ -53,11 +62,15 @@ function FlakyPage(): ReactNode {
 // The nav and the outbox indicator both render nothing by default, so the
 // actor holds capabilities and a queued entry is seeded: otherwise "stays
 // mounted" would pass over two empty slots.
-function renderAt(path: string, routes: ReactNode) {
+function renderAt(
+  path: string | string[],
+  routes: ReactNode,
+  options: { client?: QueryClient; outside?: ReactNode } = {},
+) {
   const reload = vi.fn();
   const onCaughtError = vi.fn();
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={options.client ?? testQueryClient()}>
       <ThemeContext value={{ branding, theme: deriveBrandTheme(branding.primaryColor) }}>
         <ActorContext
           value={{
@@ -65,7 +78,7 @@ function renderAt(path: string, routes: ReactNode) {
             settled: true,
           }}
         >
-          <MemoryRouter initialEntries={[path]}>
+          <MemoryRouter initialEntries={typeof path === "string" ? [path] : path}>
             <Chrome>
               <RouteErrorBoundary reload={reload}>
                 <Suspense fallback={<p>Loading.</p>}>
@@ -73,6 +86,7 @@ function renderAt(path: string, routes: ReactNode) {
                 </Suspense>
               </RouteErrorBoundary>
             </Chrome>
+            {options.outside}
           </MemoryRouter>
         </ActorContext>
       </ThemeContext>
@@ -83,7 +97,10 @@ function renderAt(path: string, routes: ReactNode) {
 }
 
 beforeEach(async () => {
+  pageBroken = true;
+  setDevActorId(DRIVER);
   await db.open();
+  await clearDraft();
   await outbox().clear();
   await outbox().put(queued("u-1"));
   vi.stubGlobal(
@@ -94,8 +111,55 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  clearDevActorId();
+  await clearDraft();
   await outbox().clear();
 });
+
+const capturePage = () => (
+  <Route path="/capture/:vehicleId" element={<CaptureFlow vehicleId="v1" taskId={null} />} />
+);
+
+// GET by path, the query string aside, so v1's read at now and over a
+// draft's window get one answer; a path not listed reads as no signal.
+function serveReads(byPath: Record<string, unknown>) {
+  const api = vi.fn((input: RequestInfo | URL) => {
+    const path = requestedUrl(input).split("?")[0];
+    return Object.hasOwn(byPath, path)
+      ? Promise.resolve(respond(200, byPath[path]))
+      : Promise.reject(new TypeError("Failed to fetch"));
+  });
+  vi.stubGlobal("fetch", api);
+  return api;
+}
+
+// A real draft, then a patch written under it: the shapes in the tests below
+// are ones storage can hold and a real component throws on (spec, Tests).
+async function seedDraft(
+  options: { driverSubject?: string; startedAt?: string; patch?: Record<string, unknown> } = {},
+) {
+  await startDraft({
+    driverSubject: options.driverSubject ?? DRIVER,
+    vehicleId: "v1",
+    taskId: null,
+    startedAt: options.startedAt ?? new Date().toISOString(),
+    fleetNumber: "BAC039SP",
+  });
+  const patch = options.patch;
+  if (patch) await db.drafts.toCollection().modify((row) => void Object.assign(row.draft, patch));
+}
+
+// Found by its lead: the capture page's banners are alerts too.
+async function errorScreen(): Promise<HTMLElement> {
+  const lead = await screen.findByText(/^This page (could not|still cannot) be shown.$/);
+  const shown = lead.closest<HTMLElement>('[role="alert"]');
+  if (shown === null) throw new Error("the lead is not inside the error screen");
+  return shown;
+}
+async function tryAgain(user: UserEvent) {
+  await user.click(within(await errorScreen()).getByRole("button", { name: "Try again" }));
+}
 
 async function expectShellMounted() {
   expect(screen.getByRole("link", { name: "Units" })).toBeInTheDocument();
@@ -180,5 +244,50 @@ describe("RouteErrorBoundary (U54)", () => {
     renderAt("/fleet", <Route path="/fleet" element={<Boom />} />);
 
     expect(await screen.findByRole("alert")).not.toHaveTextContent("Readings");
+  });
+});
+
+describe("the capture error screen and the storage faults (TYRE-339)", () => {
+  it("says the last readings may be missing after a degraded fault", async () => {
+    writeFailed();
+    renderAt("/capture/v-1", <Route path="/capture/:vehicleId" element={<Boom />} />);
+    const shown = await errorScreen();
+    expect(shown).toHaveTextContent(MAY_BE_MISSING);
+    expect(shown).not.toHaveTextContent("kept on this phone");
+  });
+
+  it("says the same when the phone is also refusing to save", async () => {
+    storageRefused();
+    writeFailed();
+    renderAt("/capture/v-1", <Route path="/capture/:vehicleId" element={<Boom />} />);
+    expect(await errorScreen()).toHaveTextContent(MAY_BE_MISSING);
+  });
+
+  it("says nothing about readings when the phone refused before any inspection", async () => {
+    storageRefused();
+    renderAt("/capture/v-1", <Route path="/capture/:vehicleId" element={<Boom />} />);
+    expect(await errorScreen()).not.toHaveTextContent(/readings/i);
+  });
+
+  // CaptureReview maps draft.warnings and the walk-around never reads it, so
+  // this draft resumes and throws at review.
+  it("does not say readings are kept after a failed write, and keeps the banner through Try again", async () => {
+    const user = userEvent.setup();
+    serveReads({ "/api/capture/vehicles/v1": captureContext() });
+    await seedDraft({ patch: { warnings: {} } });
+    renderAt("/capture/v1", capturePage());
+    await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
+    vi.spyOn(db.drafts, "put").mockRejectedValue(new Error("storage blocked"));
+    await user.click(screen.getByRole("button", { name: "1" }));
+    expect(await screen.findByText(DEGRADED)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: /review and submit/i }));
+
+    const shown = await errorScreen();
+    expect(shown).toHaveTextContent(MAY_BE_MISSING);
+    expect(shown).not.toHaveTextContent("kept on this phone");
+
+    await tryAgain(user);
+    expect(await screen.findByText(DEGRADED)).toBeInTheDocument();
   });
 });

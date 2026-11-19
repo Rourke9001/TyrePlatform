@@ -5,7 +5,7 @@ import { cellKey, loadDraft, markSpareAbsent, savePosition, unmarkSpareAbsent } 
 import type { CapturePosition } from "./captureContext";
 import type { RigPosition } from "./rig";
 import { nextOutstanding } from "./rig";
-import type { StorageFault } from "./useDraftLifecycle";
+import { writeFailed } from "./storageFaults";
 
 // Owns entering a reading and marking a spare absent: the three ways the
 // draft's positions change once capture has started (FR-OFF-005,
@@ -13,12 +13,11 @@ import type { StorageFault } from "./useDraftLifecycle";
 export function useEntryHandlers(deps: {
   setDraft: Dispatch<SetStateAction<Draft | null>>;
   setActiveKey: Dispatch<SetStateAction<string | null>>;
-  setStorageFault: Dispatch<SetStateAction<StorageFault | null>>;
   rig: RigPosition[];
   doneCells: ReadonlySet<string>;
   absent: ReadonlySet<string>;
 }) {
-  const { setDraft, setActiveKey, setStorageFault, rig, doneCells, absent } = deps;
+  const { setDraft, setActiveKey, rig, doneCells, absent } = deps;
 
   // FR-OFF-005: written per keystroke, plus once more for auto-advance,
   // with an identical payload, so nothing may depend on the write count.
@@ -34,7 +33,7 @@ export function useEntryHandlers(deps: {
           }
         : d,
     );
-    void savePosition(position).catch(() => setStorageFault("degraded"));
+    void savePosition(position).catch(() => writeFailed());
   }
 
   function handleDone(position: DraftPosition) {
@@ -67,7 +66,7 @@ export function useEntryHandlers(deps: {
           setActiveKey(nextOutstanding(rig, settled, cell)?.key ?? null);
         }
       })
-      .catch(() => setStorageFault("degraded"));
+      .catch(() => writeFailed());
   }
 
   return { handleChange, handleDone, handleAbsent };
