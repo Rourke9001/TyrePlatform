@@ -10,8 +10,9 @@
 // There is no YAML library at the repo root, so this reads lines and relies on
 // the two-space job indent every workflow here uses, as
 // scripts/check-workflow-timeouts.mjs does. Text it cannot place is refused
-// (TYRE-49); a job indented deeper than two spaces is not read, and the
-// timeout check refuses its runs-on.
+// (TYRE-49), and an alias is such text: it is read where it is anchored, not
+// where it is used. A job indented deeper than two spaces is not read, and
+// the timeout check refuses its runs-on.
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +30,9 @@ const marginPermissions = /^['"]?permissions['"]?\s*:(.*)$/;
 // to a repo script is not followed: a script that starts npm is a diff a
 // reviewer reads.
 const packageManager = /\b(npm|npx|pnpm|yarn|corepack|make)\b/;
+// A block value, a list item or a flow entry; a shell glob in a run block
+// has none of those before its star.
+const yamlAlias = /(?:^\s*-\s+|:\s+|[[{,]\s*)\*([^\s,[\]{}#]+)\s*(?:$|[,\]}#])/;
 const environmentKey = /^ {4}['"]?environment['"]?\s*:/;
 const uploadAction = /\buses['"]?\s*:\s*['"]?actions\/upload-artifact@/;
 const downloadAction = /\buses['"]?\s*:\s*['"]?actions\/download-artifact@/;
@@ -67,6 +71,10 @@ export function check(files) {
     lines.forEach((line, i) => {
       const n = i + 1;
       if (/^\s*(#.*)?$/.test(line)) return;
+      const alias = yamlAlias.exec(line);
+      if (alias !== null) {
+        problems.push(`${file}:${n}: a YAML alias '*${alias[1]}', which this check cannot read where it is used; write the value out (TYRE-438)`);
+      }
       if (/^\S/.test(line)) {
         close();
         inJobs = /^jobs:\s*(#.*)?$/.test(line);
@@ -284,6 +292,35 @@ if (args.includes('--self-test')) {
     ],
     ['a quoted job id', wf("  'build':", '    runs-on: ubuntu-latest', '    timeout-minutes: 5'), ['cannot read']],
     ['a workflow with no jobs key', 'on: push\npermissions:\n  contents: read\n', ['no jobs: key']],
+    [
+      'a job whose permissions: is an alias of a token grant, running npm ci',
+      wf(
+        ...job('api', ['    permissions: &tok', '      id-token: write', '      contents: read'], run('true')),
+        ...job('web', ['    permissions: *tok'], run('npm ci')),
+      ),
+      ["alias '*tok'"],
+    ],
+    [
+      'a merge key of a token grant, running npm ci',
+      wf(...job('api', ['    permissions: &tok', '      id-token: write'], run('true')), ...job('web', ['    permissions:', '      <<: *tok'], run('npm ci'))),
+      ["alias '*tok'"],
+    ],
+    [
+      'id-token: an alias of write, in a flow mapping, running npm ci',
+      wf(...job('api', ['    permissions:', '      contents: &w write'], run('true')), ...job('web', ['    permissions: { id-token: *w }'], run('npm ci'))),
+      ["alias '*w'"],
+    ],
+    [
+      "a token job's run: an alias of npm ci",
+      wf(...job('web-build', [], '      - run: &build npm ci'), ...job('web', token, '      - run: *build')),
+      ["alias '*build'"],
+    ],
+    ['an anchor with no alias', wf(...job('api', ['    permissions: &tok', '      id-token: write'], run('true'))), null],
+    [
+      "shell globs in a token job's run block",
+      wf(...job('api', token, '      - run: |', '          ls *.yml "${a[*]}"', '          case "$x" in', '            *"not found"*) ;;', '            *) exit 1 ;;', '          esac')),
+      null,
+    ],
     [
       "an artifact kept 1 day and downloaded behind an environment (deploy.yml's web-dist)",
       handoff('          retention-days: 1'),
