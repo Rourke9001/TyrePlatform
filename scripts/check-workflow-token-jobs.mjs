@@ -3,6 +3,10 @@
 // never runs where it could mint the deploy identity's token (TYRE-437,
 // TYRE-438).
 //
+// The build reaches the token job as an artifact, so where a job waits on an
+// environment's approval and a job downloads an artifact, every upload keeps
+// its artifact for as long as the run can wait (TYRE-438).
+//
 // There is no YAML library at the repo root, so this reads lines and relies on
 // the two-space job indent every workflow here uses, as
 // scripts/check-workflow-timeouts.mjs does. Text it cannot place is refused
@@ -25,10 +29,18 @@ const marginPermissions = /^['"]?permissions['"]?\s*:(.*)$/;
 // to a repo script is not followed: a script that starts npm is a diff a
 // reviewer reads.
 const packageManager = /\b(npm|npx|pnpm|yarn|corepack|make)\b/;
+const environmentKey = /^ {4}['"]?environment['"]?\s*:/;
+const uploadAction = /\buses['"]?\s*:\s*['"]?actions\/upload-artifact@/;
+const downloadAction = /\buses['"]?\s*:\s*['"]?actions\/download-artifact@/;
+const retentionKey = /(?:^|[\s{,])['"]?retention-days['"]?\s*:\s*([^\s,}#]*)/;
+// A run lives up to 35 days, approval waits included
+// (docs.github.com/en/actions/reference/limits, read 19 Nov 2026).
+const runDays = 35;
 
 export function check(files) {
   const jobs = [];
   const problems = [];
+  let keptUploads = 0;
   for (const [file, text] of files) {
     const lines = text.split(/\r?\n/);
     let sawJobs = false;
@@ -38,8 +50,16 @@ export function check(files) {
     let workflowGrant = null;
     const fileJobs = [];
     let job = null;
+    // A step runs from its '- ' line to the next line at or left of the dash.
+    const uploads = [];
+    let step = null;
 
+    const closeStep = () => {
+      if (step !== null && step.upload) uploads.push(step);
+      step = null;
+    };
     const close = () => {
+      closeStep();
       if (job !== null) fileJobs.push(job);
       job = null;
     };
@@ -71,10 +91,36 @@ export function check(files) {
           problems.push(`${file}:${n}: a job header this check cannot read: '${line}'`);
           return;
         }
-        job = { file, id: m[1], line: n, ownPermissions: false, grants: false, tool: null, toolLine: 0 };
+        job = {
+          file,
+          id: m[1],
+          line: n,
+          ownPermissions: false,
+          grants: false,
+          tool: null,
+          toolLine: 0,
+          environment: false,
+          downloads: false,
+        };
         return;
       }
       if (job === null) return;
+      if (step !== null && /^ */.exec(line)[0].length <= step.dash) closeStep();
+      const item = /^( *)- /.exec(line);
+      if (step === null && item !== null) step = { dash: item[1].length, upload: false, line: n, retention: null, retentionLine: n };
+      if (step !== null) {
+        if (uploadAction.test(line)) {
+          step.upload = true;
+          step.line = n;
+        }
+        const r = retentionKey.exec(line);
+        if (r !== null && step.retention === null) {
+          step.retention = r[1];
+          step.retentionLine = n;
+        }
+      }
+      if (environmentKey.test(line)) job.environment = true;
+      if (downloadAction.test(line)) job.downloads = true;
       if (jobPermissions.test(line)) job.ownPermissions = true;
       if (grantsToken.test(line) || jobWriteAll.test(line)) job.grants = true;
       if (job.tool === null) {
@@ -107,10 +153,28 @@ export function check(files) {
         );
       }
     }
+    if (fileJobs.some((j) => j.environment) && fileJobs.some((j) => j.downloads)) {
+      for (const u of uploads) {
+        const days = u.retention === null ? null : /^(['"]?)(\d+)\1$/.exec(u.retention);
+        if (u.retention === null) {
+          problems.push(
+            `${file}:${u.line}: an artifact upload with no retention-days, so the repository's setting decides whether it outlives an approval wait here; set at least ${runDays} (TYRE-438)`,
+          );
+        } else if (days === null) {
+          problems.push(`${file}:${u.retentionLine}: a retention-days this check cannot read: '${u.retention}'`);
+        } else if (Number(days[2]) < runDays) {
+          problems.push(
+            `${file}:${u.retentionLine}: an artifact upload with retention-days ${days[2]}, under ${runDays}: a job here downloads it after an environment's approval, and a run can wait ${runDays} days (TYRE-438)`,
+          );
+        } else {
+          keptUploads++;
+        }
+      }
+    }
   }
   // A gate that reads nothing would report agreement it did not check.
   if (jobs.length === 0) problems.push(`no job found in ${workflowDir}`);
-  return { jobs, problems };
+  return { jobs, problems, keptUploads };
 }
 
 const args = process.argv.slice(2);
@@ -131,6 +195,11 @@ if (args.includes('--self-test')) {
   const token = ['    permissions:', '      id-token: write', '      contents: read'];
   const run = (cmd) => `      - run: ${cmd}`;
   const runsNpm = "job 'web' grants id-token: write and runs npm";
+  const env = '    environment: production';
+  const upload = (...withLines) => ['      - uses: actions/upload-artifact@x', '        with:', '          name: web-dist', ...withLines];
+  const download = ['      - uses: actions/download-artifact@x', '        with:', '          name: web-dist'];
+  const behindEnv = job('web', [...token, env], ...download);
+  const handoff = (...withLines) => wf(...job('web-build', [], run('npm ci'), ...upload(...withLines)), ...behindEnv);
   const cases = [
     ['a token job running npm ci', wf(...job('web', token, run('npm ci'))), [runsNpm]],
     ['a token job running npx vite build', wf(...job('web', token, run('npx vite build'))), ['runs npx']],
@@ -215,6 +284,38 @@ if (args.includes('--self-test')) {
     ],
     ['a quoted job id', wf("  'build':", '    runs-on: ubuntu-latest', '    timeout-minutes: 5'), ['cannot read']],
     ['a workflow with no jobs key', 'on: push\npermissions:\n  contents: read\n', ['no jobs: key']],
+    [
+      "an artifact kept 1 day and downloaded behind an environment (deploy.yml's web-dist)",
+      handoff('          retention-days: 1'),
+      ['retention-days 1, under 35'],
+    ],
+    ['an artifact kept 34 days, quoted', handoff("          retention-days: '34'"), ['retention-days 34, under 35']],
+    ['an artifact kept 35 days', handoff('          retention-days: 35 # the run limit'), null],
+    ['an artifact with no retention-days', handoff(), ['no retention-days']],
+    ['retention-days as an expression', handoff('          retention-days: ${{ inputs.days }}'), ['retention-days this check cannot read']],
+    [
+      'retention-days 1 in a flow mapping',
+      wf(...job('web-build', [], '      - uses: actions/upload-artifact@x', '        with: { name: web-dist, retention-days: 1 }'), ...behindEnv),
+      ['retention-days 1, under 35'],
+    ],
+    [
+      'retention-days 1 in a step whose with: comes before its uses:',
+      wf(
+        ...job('web-build', [], '      - with:', '          name: web-dist', '          retention-days: 1', '        uses: actions/upload-artifact@x'),
+        ...behindEnv,
+      ),
+      ['retention-days 1, under 35'],
+    ],
+    [
+      'retention-days 1 on a step after the upload does not count for it',
+      wf(...job('web-build', [], ...upload(), '      - uses: some/action@x', '        with:', '          retention-days: 1'), ...behindEnv),
+      ['no retention-days'],
+    ],
+    [
+      "an artifact kept 7 days where no job waits on an environment (ci.yml's traces)",
+      wf(...job('e2e', [], run('npx playwright test'), '      - uses: actions/upload-artifact@x', '        with:', '          retention-days: 7')),
+      null,
+    ],
   ];
 
   const failures = [];
@@ -254,13 +355,15 @@ const names = readdirSync(join(root, workflowDir))
   .filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
   .sort();
 const files = new Map(names.map((f) => [`${workflowDir}/${f}`, readFileSync(join(root, workflowDir, f), 'utf8')]));
-const { jobs, problems } = check(files);
+const { jobs, problems, keptUploads } = check(files);
 if (problems.length > 0) {
   for (const p of problems) console.error(p);
-  console.error('Grant id-token: write per job, and run npm only in a job without it (TYRE-438).');
+  console.error(
+    `Grant id-token: write per job, run npm only in a job without it, and keep an artifact a job downloads after an approval for ${runDays} days (TYRE-438).`,
+  );
   process.exit(1);
 }
 const tokenJobs = jobs.filter((j) => j.token).length;
 console.log(
-  `workflow token jobs: ${jobs.length} jobs read; ${tokenJobs} grant id-token: write and run no package manager`,
+  `workflow token jobs: ${jobs.length} jobs read; ${tokenJobs} grant id-token: write and run no package manager; artifact uploads behind an approval that keep ${runDays} days or more: ${keptUploads}`,
 );

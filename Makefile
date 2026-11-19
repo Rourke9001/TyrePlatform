@@ -260,7 +260,7 @@ ACTIONLINT_IMAGE ?= rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47e
 BICEP_RUN = MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR)/infra:/src" $(BICEP_IMAGE)
 
 .PHONY: infra-lint
-infra-lint: ## Bicep lint on both templates (warnings fail), every param file builds, actionlint on the workflows, every runs-on job has a timeout (TYRE-478), no job with the OIDC token runs npm (TYRE-438)
+infra-lint: ## Bicep lint on both templates (warnings fail), every param file builds, actionlint on the workflows, every runs-on job has a timeout (TYRE-478), no job with the OIDC token runs npm and the web build's artifact outlives an approval (TYRE-438)
 	docker build -q -t $(BICEP_IMAGE) -f infra/bicep.Dockerfile infra
 	@for f in platform.bicep app.bicep acr-pull.bicep; do \
 	  out=$$($(BICEP_RUN) lint $$f 2>&1); st=$$?; echo "$$out"; \
