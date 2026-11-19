@@ -89,7 +89,6 @@ migration, an endpoint, a route or a screen, or is several defects.
 |---|---|---|---|---|
 | 2 | `make pipeline T=TYRE-371` | merged in PR #229, the runner half only; email moved to TYRE-243 (U233) | infrastructure, database, API | the owner's staging steps in `environment-release.md`, The daily job (the job's daily run on staging) |
 | 3 | `make pipeline T=TYRE-438` | fold 437's fix | infrastructure | the owner's call to narrow `id-tyre-deploy-prod` or re-accept it; a platform apply. It merges before BAC onboards (B43) |
-| 4 | `make pipeline T=TYRE-334` | folds 333, 339, 340 and 335 | web, capture | two design choices that the spec settles (U168) |
 | 5 | `make pipeline T=TYRE-154` | none | web, capture | the owner supplies the app icon (192 and 512 px, and an apple-touch icon); row 8's favicon uses the same mark |
 
 **Sprint 2**
@@ -214,7 +213,7 @@ dozen batched PRs, so feature work sets the pace.
   287, 292, 319, 320, 322, 325, 366, 367, 377, 441, 448, 455.
 - **Platform:** 321, 371, 398, 434, 438.
 - **Fixes:** 105, 112, 113, 115, 120, 121, 123, 131, 140, 159, 168,
-  176, 190, 240, 244, 245, 270, 323, 334, 354,
+  176, 190, 240, 244, 245, 270, 323, 354,
   363, 372, 381, 432, 450, 457, 458, 459, 460, 461. TYRE-275
   folded into 447, 343 into 445 and 425 into 432 on 21 Oct.
 
