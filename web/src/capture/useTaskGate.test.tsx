@@ -73,4 +73,18 @@ describe("useTaskGate", () => {
     rerender({ linkTaskId: "k3" });
     expect(result.current.gate).toEqual({ kind: "choose", task: k3 });
   });
+  it("row 2a: the one open task stands in for the link's task", () => {
+    const client = testQueryClient();
+    client.setQueryData(myTasksQuery().queryKey, [k2]);
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () => useTaskGate({ vehicleId: "v1", linkTaskId: null, scoped: true, resumedDraft: null }),
+      { wrapper },
+    );
+
+    expect(result.current.gate).toEqual({ kind: "start", task: k2 });
+    expect(result.current.linkTask).toBe(k2);
+  });
 });

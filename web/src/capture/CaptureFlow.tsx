@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
+import { Navigate } from "react-router";
 
 import { ApiError } from "../api/apiError";
 import { bearerMode, stampSubject } from "../api/token";
@@ -27,7 +28,8 @@ import { useDraftLifecycle } from "./useDraftLifecycle";
 import { useEntryHandlers } from "./useEntryHandlers";
 import { inspectionEnded, useStorageFaults, writeFailed } from "./storageFaults";
 import { useRigComposition } from "./useRigComposition";
-import { citedTask } from "./taskGate";
+import { citedTask, taskPath } from "./taskGate";
+import { TaskPick } from "./TaskPick";
 import { TaskChoice } from "./TaskChoice";
 import { useTaskGate } from "./useTaskGate";
 import "./capture.css";
@@ -428,6 +430,15 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         <BackToWork />
       </section>
     );
+  } else if (screen === "start" && draft === null && gate.kind === "forward") {
+    // A coupled trailer is captured through its motive, so its address sends
+    // the driver there. Replace, so Back does not return to an address that
+    // only sends them on. It fires only with no draft held, so keeping the
+    // one CaptureFlow across the vehicle change carries nothing over
+    // (TYRE-491, U245).
+    body = <Navigate to={taskPath(gate.task)} replace />;
+  } else if (screen === "start" && draft === null && gate.kind === "pick") {
+    body = <TaskPick tasks={gate.tasks} />;
   } else if (screen === "start" && draft === null && gate.kind === "tasks-failed") {
     body = (
       <LoadFailure

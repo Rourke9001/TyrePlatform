@@ -64,7 +64,9 @@ export function useTaskGate(args: {
   return {
     gate,
     tasks,
-    linkTask: openForUnit(tasks, linkTaskId, vehicleId),
+    // Row 2a's one task stands in for the link's task, so it reaches the
+    // cited task and the blocked-Start words (TYRE-491, Lead's call 7).
+    linkTask: gate.kind === "start" ? gate.task : openForUnit(tasks, linkTaskId, vehicleId),
     tasksError: query.error,
     reload: () => void query.refetch(),
     settle: () => setLatch({ key, gate: { kind: "resume" } }),
