@@ -1,6 +1,7 @@
 import { useId, useMemo, useState } from "react";
 
 import { groupThousands, groupWhole } from "../format/groupThousands";
+import { useTenantInstant } from "../time/tenantTime";
 import { Button } from "../ui/Button";
 import { ListRow } from "../ui/ListRow";
 import { TextArea } from "../ui/TextArea";
@@ -43,6 +44,7 @@ export function CaptureReview({
   draft,
   doneCells,
   absentCells,
+  resumedStartedAt,
   onBack,
   onSubmit,
 }: {
@@ -55,12 +57,16 @@ export function CaptureReview({
   // TYRE-155: off the denominator here too, so a unit with no spare reads
   // "all done" at the last screen before submit, not just on the walk-around.
   absentCells: ReadonlySet<string>;
+  // A draft loaded from the phone, else null: only a resumed inspection says
+  // when it began (TYRE-323, the owner's answer 2).
+  resumedStartedAt: string | null;
   // The shortfall above is only useful if the driver can act on it while they
   // are still standing at the vehicle.
   onBack: () => void;
   onSubmit: (patch: { comment: string | null; defectReport: string | null }) => void;
 }) {
   const units = completenessByUnit(contexts, doneCells, absentCells);
+  const tenantInstant = useTenantInstant();
   const [comment, setComment] = useState("");
   const [defect, setDefect] = useState("");
   const [openedAt] = useState(() => Date.now());
@@ -113,6 +119,9 @@ export function CaptureReview({
         <p className="cap-screen-sub">
           {done} of {total} positions done · {elapsedWords(draft.startedAt, openedAt)}
         </p>
+        {resumedStartedAt !== null && (
+          <p className="cap-screen-sub">Started {tenantInstant(resumedStartedAt)}</p>
+        )}
       </header>
 
       {/* FR-INS-065: which unit is short, not just how many are missing. */}
