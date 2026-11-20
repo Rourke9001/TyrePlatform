@@ -820,6 +820,30 @@ describe("PositionSheet", () => {
     expectNothingForbiddenSpoken(container, /spare is here/i);
   });
 
+  // TYRE-491: the spare toggle is a tap on the sheet, so it clears the
+  // needs-a-reading mark, and "Spare is here" leaves the sheet open to show it.
+  it("clears the needs-a-reading mark when the driver taps 'Spare is here'", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const spare = { ...position, id: "s1", isSpare: true, axleClass: "SPARE", axleNumber: null };
+    render(
+      <PositionSheet
+        {...props({})}
+        rig={{ ...rig, position: spare, key: cellKey("v1", "s1"), displayNumber: null }}
+        absent
+        onAbsent={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /next ›/i }));
+    // The control: the mark is up before the tap.
+    expect(screen.getByLabelText("Tread reading 1 of 3")).toHaveAttribute("data-needs");
+    expect(screen.getByText("Tread reading 1 of 3 is empty.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /spare is here/i }));
+
+    expect(document.querySelector("[data-needs]")).toBeNull();
+    expect(screen.queryByText(/ is empty\.$/)).toBeNull();
+  });
+
   // TYRE-147: the sheet hides the diagram (capture.css), so the frame the
   // server maps by has to be ON the sheet. A spare has no side and no glyph.
   it("shows the plan-view glyph for the tyre's side and the one-line hint", () => {
