@@ -41,11 +41,13 @@ export default defineConfig({
     // state in one shared database: a second project's submit is refused by
     // the first's. Gated here, not skipped inside the file: a skip still
     // launches a browser and builds a context per project.
+    // captureLink.spec.ts is judged at phone size, and the ticket asks for
+    // its choice screen on both phones (TYRE-491).
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
       dependencies: ["bac-setup"],
-      testIgnore: /capture\.spec|dashboard\.spec|auth\.spec|production\.spec/,
+      testIgnore: /capture\.spec|captureLink\.spec|dashboard\.spec|auth\.spec|production\.spec/,
     },
     // The capture app is judged at phone dimensions or not at all: thumb reach,
     // 44px targets and sunlight legibility are the design, not the styling.

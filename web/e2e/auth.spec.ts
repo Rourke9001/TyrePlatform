@@ -1,6 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { captureAll, capturePosition, done, startInspection, submit } from "./captureSteps";
+import {
+  captureAll,
+  capturePosition,
+  done,
+  onScreen,
+  startInspection,
+  submit,
+} from "./captureSteps";
 import { lapseSession, storedUser, stubIdentityProvider, type IdpStub } from "./idp";
 import {
   apiGet,
@@ -252,6 +259,31 @@ test("sign-out is refused while an entry is held, and goes ahead once the outbox
       ),
     ),
   ).toEqual([]);
+});
+
+// TYRE-491: the refusal offers two controls, and a gloved thumb must reach
+// each without the other under it.
+test("the sign-out refusal shows Go to it and Sign out on screen, apart, at phone width", async ({
+  page,
+}) => {
+  test.setTimeout(WALK_TIMEOUT_MS);
+  const unit = await unitForDriver(page, "G");
+  await page.goto("/");
+  await signIn(page);
+  await startInspection(page, { vehicleId: unit.id, taskId: unit.taskId });
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: /still open on this phone/ }),
+  ).toBeVisible();
+
+  const out = await onScreen(page, page.getByRole("button", { name: "Sign out" }), "Sign out");
+  const go = await onScreen(page, page.getByRole("link", { name: "Go to it" }), "Go to it");
+  const apart =
+    go.x >= out.x + out.width ||
+    out.x >= go.x + go.width ||
+    go.y >= out.y + out.height ||
+    out.y >= go.y + go.height;
+  expect(apart, "Go to it and Sign out overlap").toBe(true);
 });
 
 // NFR-USE-004: the keypad and tiles sit at 56 to 64px for gloves, and the
