@@ -1046,6 +1046,11 @@ one transaction, run step 1's `SELECT` with its stop, followed by:
 expecting exactly one row that shows the tenant step 1 confirmed and the
 rehire's name.
 
+*Since TYRE-319, "My inspections" carries a "Carry on with <fleet number>" row
+and the sign-out refusal a "Go to it" link to an inspection held on the phone,
+so the capture-address fallback below is no longer the way back
+(docs/runbooks/provision-a-user.md, A leaver).*
+
 **A leaver.** First, on each phone they used, the person signs in as
 themselves and leaves nothing held. They open any inspection in progress the
 way it was started: its task on "My inspections", or the vehicle's capture

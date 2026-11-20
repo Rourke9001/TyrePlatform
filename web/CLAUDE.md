@@ -55,6 +55,11 @@ Online-first with a durable submit outbox — not an offline sync engine.
   build that cannot read it shows `ConfigFailure`, sends nothing, and
   retries in place on "Try again" or when the signal returns
   (`src/shell/boot.ts`). A dev build never fetches it.
+- An actor who is not tenant-wide opens a capture only from an open task of
+  theirs on that unit, judged from `GET /api/my/tasks`
+  (`src/capture/taskGate.ts`), and the server refuses a submit without one
+  (TY029). "My inspections" and the sign-out refusal link to an inspection
+  held on the phone (TYRE-319).
 - Each draft and outbox entry is stamped with the capturing driver's Entra
   `oid` and sends only under that driver's session; a sign-in by anyone else
   is undone while one is held, and sign-out is refused while anything is

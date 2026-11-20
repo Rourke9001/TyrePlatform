@@ -120,3 +120,7 @@
   font-weight: 700;
   color: var(--interactive);
 }
+
+.auth-goto:hover {
+  text-decoration-thickness: 2px;
+}
