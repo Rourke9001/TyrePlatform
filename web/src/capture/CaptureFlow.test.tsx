@@ -9,7 +9,7 @@ import { clearDevActorId, setDevActorId } from "../api/devTenant";
 import { myTasksQuery, type MyTask } from "../driver/driver.data";
 import { captureContext, renderWithActor, respond, testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
-import { formatTenantDate } from "../time/tenantTime";
+import { formatTenantDate, formatTenantInstant } from "../time/tenantTime";
 import { CaptureFlow } from "./CaptureFlow";
 import type { CaptureContext } from "./captureContext";
 import { captureContextQuery } from "./captureContext";
@@ -2365,5 +2365,38 @@ describe("the cited task at Start (TYRE-319, the owner's answer 3)", () => {
       "href",
       "/capture/v9?taskId=k9",
     );
+  });
+});
+
+// The owner's answer 2 (TYRE-323): a resumed inspection says when it began,
+// on the walk-around and the review, in the fleet's time (rule 6).
+describe("the start line on a resumed inspection", () => {
+  it("a resumed inspection says when it started, in the fleet's time, on the walk-around and the review", async () => {
+    const user = newUser();
+    const want = `Started ${formatTenantInstant(HELD_AT, "Asia/Kolkata")}`;
+    // The zone is what is tested, so the fleet's time must differ from UTC's.
+    expect(want).not.toBe(`Started ${formatTenantInstant(HELD_AT, "UTC")}`);
+    await holdDraft();
+    stubApi();
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, {
+      actor: { timezone: "Asia/Kolkata" },
+    });
+
+    expect(await screen.findByText(want)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /review and submit/i }));
+    expect(await screen.findByText(want)).toBeInTheDocument();
+  });
+
+  it("an inspection started in this visit shows no start line", async () => {
+    const user = newUser();
+    stubApi();
+    renderFlow();
+
+    await user.click(await startButton());
+    await walkAround();
+    expect(screen.queryByText(/^Started /)).toBeNull();
+    await user.click(screen.getByRole("button", { name: /review and submit/i }));
+    await screen.findByRole("heading", { name: "Review" });
+    expect(screen.queryByText(/^Started /)).toBeNull();
   });
 });

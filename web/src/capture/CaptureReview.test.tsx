@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
+import { renderWithActor } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
+import { formatTenantInstant } from "../time/tenantTime";
 import type { CaptureContext, CapturePosition } from "./captureContext";
 import { CaptureReview } from "./CaptureReview";
 import type { Draft, DraftPosition } from "./draft";
@@ -111,6 +113,7 @@ describe("CaptureReview", () => {
         draft={draft}
         doneCells={new Set(Object.keys(positions))}
         absentCells={new Set()}
+        resumedStartedAt={null}
         onBack={vi.fn()}
         onSubmit={vi.fn()}
       />,
@@ -159,6 +162,7 @@ describe("CaptureReview", () => {
         draft={draft}
         doneCells={new Set([cellKey("v1", "spare")])}
         absentCells={new Set()}
+        resumedStartedAt={null}
         onBack={vi.fn()}
         onSubmit={vi.fn()}
       />,
@@ -204,6 +208,7 @@ describe("CaptureReview", () => {
         draft={draft}
         doneCells={new Set([cellKey("v1", "spare")])}
         absentCells={new Set()}
+        resumedStartedAt={null}
         onBack={vi.fn()}
         onSubmit={vi.fn()}
       />,
@@ -254,6 +259,7 @@ describe("CaptureReview's elapsed time", () => {
         }}
         doneCells={new Set()}
         absentCells={new Set()}
+        resumedStartedAt={null}
         onBack={vi.fn()}
         onSubmit={vi.fn()}
       />,
@@ -270,5 +276,53 @@ describe("CaptureReview's elapsed time", () => {
     [1000 * 3600, "1,000 hr 0 min"],
   ])("reads %i seconds as %s", (seconds, words) => {
     expect(subtitleAfter(seconds)).toBe(`0 of 1 positions done · ${words}`);
+  });
+});
+
+// The owner's answer 2 (TYRE-323): a resumed inspection says when it began,
+// in the fleet's time (rule 6); a fresh one says nothing.
+describe("the review screen's start line", () => {
+  const AT = "2026-11-20T06:00:00.000Z";
+  const draft: Draft = {
+    clientUuid: "c1",
+    vehicleId: "v1",
+    fleetNumber: "BAC039SP",
+    combinationId: null,
+    observedMemberVehicleIds: ["v1"],
+    taskId: "k1",
+    startedAt: AT,
+    odometerKm: null,
+    comment: null,
+    defectReport: null,
+    positions: {},
+    warnings: [],
+    absentSpares: [],
+    driverSubject: "oid-driver-1",
+    legacy: false,
+  };
+  const review = (resumedStartedAt: string | null) =>
+    renderWithActor(
+      <CaptureReview
+        contexts={[unit("v1", "BAC039SP")]}
+        draft={draft}
+        doneCells={new Set()}
+        absentCells={new Set()}
+        resumedStartedAt={resumedStartedAt}
+        onBack={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+      { actor: { timezone: "Asia/Kolkata" } },
+    );
+
+  it("says when a resumed inspection started, in the fleet's time", () => {
+    review(AT);
+    expect(
+      screen.getByText(`Started ${formatTenantInstant(AT, "Asia/Kolkata")}`),
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing of the start for an inspection begun in this visit", () => {
+    review(null);
+    expect(screen.queryByText(/^Started /)).toBeNull();
   });
 });

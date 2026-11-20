@@ -21,7 +21,7 @@ import { lostWords, draftLostWords } from "./lostWords";
 import { appVersion, deviceId } from "./payload";
 import { PositionSheet } from "./PositionSheet";
 import { deriveProgress } from "./rig";
-import { useTenantDate } from "../time/tenantTime";
+import { useTenantDate, useTenantInstant } from "../time/tenantTime";
 import { useUnitLabels } from "../units/units";
 import { useDraftLifecycle } from "./useDraftLifecycle";
 import { useEntryHandlers } from "./useEntryHandlers";
@@ -219,6 +219,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const [openedAt] = useState(() => Date.now());
 
   const lifecycle = useDraftLifecycle(vehicleId, setActiveKey, setAttachedIds);
+  const tenantInstant = useTenantInstant();
   const { draft, setDraft, resumed, held, screen, setScreen } = lifecycle;
   // "A driver" in the ticket is an actor whose scope is not tenant-wide
   // (ADR-0011, U87). No actor yet counts as scoped, so the gate fails closed.
@@ -522,6 +523,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         draft={draft}
         doneCells={doneCells}
         absentCells={absent}
+        resumedStartedAt={lifecycle.resumedStartedAt}
         onBack={() => setScreen("capture")}
         onSubmit={handleSubmit}
       />
@@ -531,6 +533,12 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
       <section className="cap-screen cap-capture" aria-labelledby="capture-heading">
         <header className="cap-screen-head">
           <p className="cap-eyebrow">{motiveCtx?.fleetNumber}</p>
+          {/* The owner's answer 2 (TYRE-323): a resumed inspection says when
+            it began, in the fleet's time (rule 6). One a Start began in this
+            visit does not. */}
+          {lifecycle.resumedStartedAt !== null && (
+            <p className="cap-screen-sub">Started {tenantInstant(lifecycle.resumedStartedAt)}</p>
+          )}
           {/* FR-INS-065: progress belongs above the diagram, not only at review.
             A driver mid-walk-around needs to know which unit is short while
             they are still standing next to it. */}
