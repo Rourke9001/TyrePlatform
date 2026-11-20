@@ -13,6 +13,7 @@ import {
   heldBy,
   isStale,
   mayCarry,
+  NOT_ON_TASK_COPY,
   STAMP_HOLD_COPY,
   startOutboxHeartbeat,
 } from "./outbox";
@@ -106,6 +107,7 @@ export function OutboxIndicator() {
               confirm="Remove"
               onConfirm={() => remove(e.clientUuid)}
             />
+            {e.lastCode === "TY029" && <span>{NOT_ON_TASK_COPY}</span>}
             {removeFailed === e.clientUuid && (
               <span role="alert">Could not remove it. Try again.</span>
             )}

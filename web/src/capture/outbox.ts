@@ -53,6 +53,13 @@ export const CLOCK_AHEAD_COPY =
 
 export const SERVER_HOLD_COPY = "The server could not take it yet. It will send by itself.";
 
+// TYRE-319: what the done screen and the outbox band both say of an entry
+// refused TY029. Only work queued before the task check, or by an old copy
+// of the app, meets it: the capture gate keeps a current phone from queueing
+// one.
+export const NOT_ON_TASK_COPY =
+  "This inspection is not filed against one of your tasks, so the office could not accept it. Your readings are saved. Call the tyre office.";
+
 // U104: what the outbox band and the done screen say of an entry the phone's
 // subject may not carry. Only the driver its stamp names can send it.
 export const STAMP_HOLD_COPY = "The driver who captured it needs to sign in here to send it.";

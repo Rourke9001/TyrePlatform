@@ -7,7 +7,7 @@ import { me } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { db } from "./draft";
 import type { OutboxEntry, OutboxState } from "./outbox";
-import { CLOCK_AHEAD_COPY } from "./outbox";
+import { CLOCK_AHEAD_COPY, NOT_ON_TASK_COPY } from "./outbox";
 import { OutboxIndicator } from "./OutboxIndicator";
 import type { SubmitPayload } from "./payload";
 
@@ -223,6 +223,29 @@ describe("OutboxIndicator", () => {
     expect(remaining.clientUuid).toBe("u-202");
     expect(screen.getByRole("button", { name: /the office has bac 202/i })).toBeInTheDocument();
     expect(screen.queryByText("Could not remove it. Try again.")).toBeNull();
+  });
+
+  // TYRE-319: an entry refused for citing no task says so beside its vehicle.
+  it("the band words a refused TY029 entry, and not a TY003 one", async () => {
+    await outbox().put({
+      ...entry("u-029", "failed", "BAC 029"),
+      lastStatus: 422,
+      lastCode: "TY029",
+    });
+    await outbox().put({
+      ...entry("u-003", "failed", "BAC 003"),
+      lastStatus: 409,
+      lastCode: "TY003",
+    });
+    render(<OutboxIndicator />);
+
+    const office = await screen.findByRole("button", { name: /the office has bac 029/i });
+    const line = office.closest("div");
+    expect(line).toHaveTextContent(NOT_ON_TASK_COPY);
+    expect(screen.getAllByText(NOT_ON_TASK_COPY)).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: /the office has bac 003/i }).closest("div"),
+    ).not.toHaveTextContent(NOT_ON_TASK_COPY);
   });
 
   // TYRE-218: IndexedDB can refuse the delete. The entry stays, so the
