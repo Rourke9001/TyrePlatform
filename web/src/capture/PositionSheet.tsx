@@ -287,9 +287,10 @@ export function PositionSheet({
       footer={
         <Keypad
           // Next advances while the position is unfinished (staying on an
-          // empty box, TYRE-491) and finishes it once it is complete. Wiring it straight to finish() strands a
-          // 1-3mm tread: those never settle (30 is still under the 35mm
-          // ceiling, so another digit is possible), finish() returns early on
+          // empty box, TYRE-491) and finishes it once it is complete. Wiring it
+          // straight to finish() strands a 1-3mm tread: those never settle (30
+          // is still under the 35mm ceiling, so another digit is possible),
+          // finish() returns early on
           // an incomplete position, and the driver has no way forward, on
           // the exact reading the product exists to catch.
           onKey={(key) => {
