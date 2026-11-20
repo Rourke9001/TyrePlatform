@@ -70,6 +70,10 @@ export function PositionSheet({
     };
   });
   const [acknowledged, setAcknowledged] = useState(false);
+  // The box a Next stayed on. It holds until the next key or tap, with no
+  // timer deciding when it goes (TYRE-491, U178); beat grows with each stay
+  // so the shake and the words replay.
+  const [needs, setNeeds] = useState<{ index: number; beat: number } | null>(null);
   // NFR-OBS-007. Wall clock from when the sheet opened, plus anything a
   // previous visit already cost. A driver who backs out and returns is
   // measured for both, which is the honest reading of "time per position".
@@ -146,6 +150,7 @@ export function PositionSheet({
   function press(key: EntryKey) {
     const result = applyKey(state, key, opts);
     setState(result.state);
+    setNeeds(result.stayed ? { index: state.field, beat: (needs?.beat ?? 0) + 1 } : null);
     if (result.settled) scheduleAdvance(result.state);
   }
 
@@ -312,6 +317,7 @@ export function PositionSheet({
         readings={state.treads.map((t) => (t === null ? "" : String(t)))}
         governingIndex={null}
         activeIndex={state.field < count ? state.field : undefined}
+        needsReading={needs ?? undefined}
         onSelect={(i) => press({ type: "focus", field: i })}
         unitText="mm"
         pressure={{
