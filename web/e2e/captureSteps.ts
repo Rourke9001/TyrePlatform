@@ -18,8 +18,8 @@ export const PRESSURE = ["8", "0", "0"];
 export type Rig = "solo" | "whole" | { keep: string };
 
 // A driver's capture opens only through a task (TYRE-319), so the address
-// carries one. An options object, so a caller written for the old signature
-// is a type error rather than a capture with no task.
+// carries one. The task is a required field, so a call that passes a bare
+// vehicle id is a type error, never a capture with no task.
 export async function startInspection(
   page: Page,
   at: { vehicleId: string; taskId: string; rig?: Rig },

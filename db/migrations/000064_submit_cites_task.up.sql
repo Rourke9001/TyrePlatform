@@ -5,10 +5,9 @@
 --  docs/superpowers/specs/2026-11-20-task-only-capture-start-and-resume-design.md
 -- ============================================================================
 -- Since U143 a driver inspects a unit only when a task asks for it. The
--- submit route asks this for an actor who is not tenant-wide, after
--- app.actor_could_capture, so a unit never held answers TY007 first. The
--- Scope table lives in auth, so the exemption stays in Go, as the own-units
--- check's does. Written as db/CLAUDE.md, Adding a function, says.
+-- submit route asks this of an actor who is not tenant-wide, after the
+-- own-units check (capture.go). Written as db/CLAUDE.md, Adding a function,
+-- says.
 
 -- The task's state is never read: a task closed or cancelled after the
 -- capture began still passes, since the server refuses only a driver who
@@ -47,9 +46,9 @@ BEGIN
   -- FR-INS-052 as amended (U150): a rig inspection covers its motive, the
   -- towed units confirmed at its start, and any unit it attributes a reading
   -- or an absent spare to. A reading on the task's unit is not needed, since
-  -- a driver may submit a partial walk-around. The arrays are read through
-  -- actor_could_capture's guard, so an older client's absent or JSON null
-  -- list is no error.
+  -- a driver may submit a partial walk-around. Each key is read only when it
+  -- holds an array, so an older client's absent or JSON null list is no
+  -- error.
   --
   -- app.submit_inspection records the confirmed list unchecked, so the
   -- task's unit must also be one the actor could capture during the capture
