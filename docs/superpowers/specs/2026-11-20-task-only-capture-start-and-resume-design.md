@@ -224,6 +224,8 @@ unit.
 The existing screens for another driver's draft and for a draft on another
 vehicle come first, as today. Then:
 
+*20 Nov 2026: TYRE-491 amends row 2 under U245. A link with no task, or with a task not open for this unit, reaches the driver's one open task on the unit, through the motive's address for a coupled trailer, a pick screen when they hold more than one, and "Nothing is due" only when they hold none (docs/superpowers/specs/2026-11-20-capture-link-due-task-and-next-on-empty-design.md, section 1).*
+
 | # | Draft for this unit | The link's task | The driver sees |
 |---|---|---|---|
 | 1 | none | open for this unit | The Start screen, as today. No new tap. |
