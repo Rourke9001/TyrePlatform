@@ -186,4 +186,61 @@ describe("TreadReadings", () => {
       ["1,200", "true"],
     ]);
   });
+
+  // TYRE-491, the owner's answer 2: the box a Next could not leave.
+  describe("needsReading", () => {
+    it("marks the cell a Next stayed on and says it is empty, in the cell's own name", () => {
+      render(
+        <TreadReadings
+          readings={["13", "", ""]}
+          governingIndex={null}
+          activeIndex={1}
+          onSelect={vi.fn()}
+          needsReading={{ index: 1, beat: 1 }}
+        />,
+      );
+      expect(cell(2)).toHaveAttribute("data-needs", "b");
+      expect(cell(1)).not.toHaveAttribute("data-needs");
+      expect(cell(3)).not.toHaveAttribute("data-needs");
+      expect(screen.getByText("Tread reading 2 of 3 is empty.")).toBeInTheDocument();
+    });
+
+    it("marks the pressure cell at index readings.length", () => {
+      render(
+        <TreadReadings
+          readings={["13", "12", "12"]}
+          governingIndex={null}
+          onSelect={vi.fn()}
+          pressure={{ value: "", caption: "kPa", ariaLabel: "Pressure", onSelect: vi.fn() }}
+          needsReading={{ index: 3, beat: 2 }}
+        />,
+      );
+      expect(screen.getByRole("button", { name: "Pressure" })).toHaveAttribute("data-needs", "a");
+      expect(screen.getByText("Pressure is empty.")).toBeInTheDocument();
+    });
+
+    it("a new beat swaps the shake and says it again", () => {
+      const props = { readings: ["13", "", ""], governingIndex: null, onSelect: vi.fn() };
+      const { rerender } = render(
+        <TreadReadings {...props} activeIndex={1} needsReading={{ index: 1, beat: 1 }} />,
+      );
+      const first = screen.getByText("Tread reading 2 of 3 is empty.");
+      expect(cell(2)).toHaveAttribute("data-needs", "b");
+      rerender(<TreadReadings {...props} activeIndex={1} needsReading={{ index: 1, beat: 2 }} />);
+      expect(cell(2)).toHaveAttribute("data-needs", "a");
+      expect(screen.getByText("Tread reading 2 of 3 is empty.")).not.toBe(first);
+    });
+
+    it("keeps an empty live region with no mark, and none on a static row", () => {
+      const { container, rerender } = render(
+        <TreadReadings readings={["13", "", ""]} governingIndex={null} onSelect={vi.fn()} />,
+      );
+      expect(container.querySelector("[data-needs]")).toBeNull();
+      const region = container.querySelector("[aria-live='polite']");
+      expect(region).not.toBeNull();
+      expect(region).toHaveTextContent("");
+      rerender(<TreadReadings readings={["13", "", ""]} governingIndex={null} />);
+      expect(container.querySelector("[aria-live]")).toBeNull();
+    });
+  });
 });

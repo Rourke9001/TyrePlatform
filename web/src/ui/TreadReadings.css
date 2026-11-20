@@ -59,6 +59,41 @@ button.tr-tread__cell {
   box-shadow: 0 0 0 2px var(--interactive);
 }
 
+/* TYRE-491: a state style, so no colour sits inside a keyframe step
+   (captureContrast.test.ts). Two identical shakes: a CSS animation replays
+   only when its name changes. Under reduced motion base.css cuts the shake,
+   and the ring and the spoken words carry the cue alone. */
+.tr-tread__cell[data-needs] {
+  border-color: var(--critical);
+  box-shadow: 0 0 0 4px var(--critical);
+}
+
+.tr-tread__cell[data-needs="a"] {
+  animation: tr-needs-a var(--motion-medium) var(--motion-ease) 1;
+}
+
+.tr-tread__cell[data-needs="b"] {
+  animation: tr-needs-b var(--motion-medium) var(--motion-ease) 1;
+}
+
+@keyframes tr-needs-a {
+  25% {
+    transform: translateX(-6px);
+  }
+  75% {
+    transform: translateX(6px);
+  }
+}
+
+@keyframes tr-needs-b {
+  25% {
+    transform: translateX(-6px);
+  }
+  75% {
+    transform: translateX(6px);
+  }
+}
+
 .tr-tread__name {
   font-size: var(--type-caption-size);
   line-height: var(--type-caption-line);
