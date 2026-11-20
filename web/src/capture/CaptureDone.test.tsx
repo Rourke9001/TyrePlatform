@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureDone } from "./CaptureDone";
-import { STAMP_HOLD_COPY } from "./outbox";
+import { NOT_ON_TASK_COPY, STAMP_HOLD_COPY } from "./outbox";
 
 describe("CaptureDone", () => {
   it("says the inspection is saved and asks for a sign-in when a 401 is holding it", () => {
@@ -106,4 +106,13 @@ describe("CaptureDone", () => {
       expectNothingForbiddenSpoken(container, present);
     },
   );
+});
+
+// TYRE-319: work queued before the task check, or by an old copy of the app,
+// is refused TY029, and the driver is told why in words.
+describe("CaptureDone for a TY029 refusal", () => {
+  it("a TY029 refusal says the inspection is not filed against a task", () => {
+    render(<CaptureDone state="failed" lastCode="TY029" lastStatus={422} />);
+    expect(screen.getByText(NOT_ON_TASK_COPY)).toBeInTheDocument();
+  });
 });

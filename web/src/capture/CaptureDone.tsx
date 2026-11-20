@@ -1,7 +1,7 @@
 import { Icon } from "../ui/Icon";
 import { CheckIcon } from "../ui/icons/Check";
 import { CriticalIcon } from "../ui/icons/Critical";
-import { heldBy, SERVER_HOLD_COPY, STAMP_HOLD_COPY } from "./outbox";
+import { heldBy, NOT_ON_TASK_COPY, SERVER_HOLD_COPY, STAMP_HOLD_COPY } from "./outbox";
 import "./capture.css";
 
 // Nothing sends while the app is closed (FR-OFF-009, ADR-0009), so the two
@@ -81,8 +81,8 @@ export function CaptureDone({
   }
   // FR-OFF-013's recovery action, in plain language (NFR-USE-005). TY003 is
   // FR-INS-038's window, the one refusal a driver resolves by naming the
-  // vehicle to the office; every other refusal gets the honest general
-  // answer.
+  // vehicle to the office. TY029 says why in its own words (NOT_ON_TASK_COPY,
+  // TYRE-319); every other refusal gets the honest general answer.
   return (
     <section className="cap-screen cap-done" role="alert">
       <p className="cap-done-mark cap-done-mark--stop" aria-hidden="true">
@@ -90,9 +90,11 @@ export function CaptureDone({
       </p>
       <h1 className="cap-done-title">This one needs the office</h1>
       <p className="cap-done-body">
-        {lastCode === "TY003"
-          ? "This vehicle was already inspected a short while ago. Your readings are saved. Call the tyre office and they can accept it."
-          : "The office could not accept this inspection. Your readings are saved. Call the tyre office."}
+        {lastCode === "TY029"
+          ? NOT_ON_TASK_COPY
+          : lastCode === "TY003"
+            ? "This vehicle was already inspected a short while ago. Your readings are saved. Call the tyre office and they can accept it."
+            : "The office could not accept this inspection. Your readings are saved. Call the tyre office."}
       </p>
       <BackToWork />
     </section>
