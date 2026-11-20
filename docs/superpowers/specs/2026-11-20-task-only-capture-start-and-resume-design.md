@@ -238,6 +238,12 @@ Notes on the table:
 - While the tasks read is pending with no copy, rows 1 to 3 and 5 to 6
   show "Loading…". Row 4 never waits on it: a resume whose task matches
   must work with no signal.
+- A held draft never waits on a read that cannot answer. With a draft
+  held and no copy of the tasks, a read that is paused for want of signal,
+  or that has failed once, counts as "holds no copy", which is row 6. The
+  query's own retries would otherwise hold the inspection behind
+  "Loading…" for as long as the phone has no signal (`web/src/main.tsx:29`;
+  NFR-AVL-002). From the plan's red team, round 1.
 - A copy of the tasks kept through a failed refresh is used as it stands.
   The server is the control (section 1); the gate is there so a driver is
   not led into work the server will refuse.
@@ -317,9 +323,11 @@ with your inspection, started <start>".
   no error: the task rows still resume a draft for their own unit.
 - Another driver's draft shows no row. The capture route already says who
   must finish it.
-- The row does not wait on the tasks or trip reads, and they do not wait on
-  it. It must not move a task row after the list has painted: reserve its
-  place or paint it with the first frame that has the draft read.
+- The row does not wait on the tasks or trip reads. The task rows wait on
+  the draft read, so the row never moves a task after the list has
+  painted. That read is local to the phone and the capture route already
+  waits on it before it shows anything (`CaptureFlow.tsx:333`). A draft
+  read that fails shows the tasks without the row (Lead's calls, 14).
 
 `readHeldWork` gains what the row and the sign-out link need about the
 draft: its vehicle, task, fleet number, start and stamp. `HeldWork.draft`
@@ -499,6 +507,7 @@ U104 and U108 (the driver stamp and the sign-out refusal).
 | 11 | A mismatch the phone cannot verify, or cannot carry | The draft resumes with its own task | NFR-AVL-002; U150 completes every due task the inspection reads, so the link's task is not lost |
 | 12 | An ADR | None. The rule follows the own-units check's pattern, and nothing new is decided about tenancy, storage or transport | `docs/adr/0006`, `0011`, `0012` |
 | 13 | One inspection cites one task, so a second open task on the same unit due on a later day stays open after the submit | Accepted, and unchanged by this design. U150 sets which tasks an inspection completes, and B7 gives the driver the choice of which one to carry | SRS FR-INS-052 errata row (U150); TYRE-323 comment 13940; `000060:1326-1333` |
+| 14 | Whether "My inspections" waits on the draft read | The task rows wait on it. It is a local read, a reserved slot would leave a gap or shift the list, and the capture route waits on the same read. A failed read shows the tasks alone. From the plan's red team, round 1 | `web/src/capture/CaptureFlow.tsx:333`; `web/src/capture/useDraftLifecycle.ts:47-84` |
 
 ## Left to the builder
 
