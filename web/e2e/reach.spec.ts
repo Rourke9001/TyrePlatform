@@ -1,6 +1,6 @@
 import { expect, test, type Locator } from "@playwright/test";
 
-import { actAsDriver, assignedVehicle } from "./driver";
+import { actAsDriver, assignedVehicle, standingTask } from "./driver";
 
 // Runs on every project, unlike capture.spec.ts: a target clearing 44px on
 // desktop says nothing about a gloved thumb on a phone. Nothing here writes
@@ -23,7 +23,8 @@ async function expectAtLeast(target: Locator, px: number, what: string) {
 
 test("every capture target is thumb-sized", async ({ page, request }) => {
   const horse = await assignedVehicle(request, "HORSE");
-  await page.goto(`/capture/${horse.id}`);
+  const task = await standingTask(request);
+  await page.goto(`/capture/${horse.id}?taskId=${task.id}`);
   const start = page.getByRole("button", { name: /start inspection/i });
   // The rig's boxes arrive with the served context, so a count taken before
   // Start shows would find none (captureSteps.ts).

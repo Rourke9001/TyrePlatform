@@ -3,8 +3,8 @@ import { type Page } from "@playwright/test";
 import { actAs } from "./admin";
 
 // BAC Transport's seeded actors (db/seeds/gen_seed_fixture.py), read-only
-// from every spec but capture.spec.ts: BAC's rows are the Appendix E/J
-// acceptance fixture (TYRE-80, TYRE-208 F5).
+// from every spec but capture.spec.ts and bacTasks.setup.ts: BAC's rows are
+// the Appendix E/J acceptance fixture (TYRE-80, TYRE-208 F5).
 export const TENANT_BAC = "11111111-1111-1111-1111-111111111111";
 export const NOMSA_CONTROLLER = "14fc2c61-398c-3508-084e-d61e615e695e";
 export const PIETER_ORG_ADMIN = "e00cf25a-d426-83b3-df67-8c61f42c6bda";

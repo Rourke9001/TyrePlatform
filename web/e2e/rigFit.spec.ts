@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { startInspection } from "./captureSteps";
-import { actAsDriver, assignedVehicle } from "./driver";
+import { actAsDriver, assignedVehicle, standingTask } from "./driver";
 
 // A whole rig's tiles stay glove-sized with no sideways scroll on the
 // smallest supported phone (NFR-USE-004, TYRE-220). Read-only on BAC, as
@@ -23,7 +23,8 @@ test("every tile of the whole HORSE rig is glove-sized on a 360px phone", async 
 }) => {
   await page.setViewportSize(PHONE);
   const horse = await assignedVehicle(request, "HORSE");
-  await startInspection(page, horse.id, "whole");
+  const task = await standingTask(request);
+  await startInspection(page, { vehicleId: horse.id, taskId: task.id, rig: "whole" });
   const tiles = page.locator("[data-position-id]");
   await expect(tiles.first()).toBeVisible();
   // Atkinson's metrics, not a fallback face's, decide whether a tile spills.

@@ -1,6 +1,6 @@
 import { expect, test, type Locator } from "@playwright/test";
 
-import { actAsDriver, assignedVehicle } from "./driver";
+import { actAsDriver, assignedVehicle, standingTask } from "./driver";
 
 // A running position's four entry tiles (IR-UI-013, NFR-USE-004, TYRE-241)
 // and its go key (TYRE-220) stay on a phone screen with no sideways scroll.
@@ -37,7 +37,8 @@ for (const phone of PHONES) {
   }) => {
     await page.setViewportSize(phone);
     const horse = await assignedVehicle(request, "HORSE");
-    await page.goto(`/capture/${horse.id}`);
+    const task = await standingTask(request);
+    await page.goto(`/capture/${horse.id}?taskId=${task.id}`);
     await page.getByRole("button", { name: /start inspection/i }).click();
     await page.locator("[data-position-id]").first().click();
     // A running position. The glyph and hint take height a spare's sheet does not.
@@ -120,7 +121,8 @@ for (const phone of PHONES) {
 test("Tab and Shift+Tab never reach a control the open sheet hides", async ({ page, request }) => {
   await page.setViewportSize(PHONES[0]);
   const horse = await assignedVehicle(request, "HORSE");
-  await page.goto(`/capture/${horse.id}`);
+  const task = await standingTask(request);
+  await page.goto(`/capture/${horse.id}?taskId=${task.id}`);
   await page.getByRole("button", { name: /start inspection/i }).click();
   await page.locator("[data-position-id]").first().click();
   const layer = page.locator(".cap-sheet-layer");

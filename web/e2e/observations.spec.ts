@@ -55,7 +55,7 @@ test("a controller applies the difference a driver reported", async ({ page }) =
   // FR-AUT-005 as amended: the nomination on the motive is what lets the
   // driver capture the rig at all (app.v_capture_span reaches the coupled
   // units through it).
-  await nominateSandboxDriver(page, horseId);
+  const task = await nominateSandboxDriver(page, horseId);
 
   // effectiveFrom is read back, not assumed: POST /api/combinations answers
   // combinationJSON (api/internal/httpapi/combinations.go), and the instant
@@ -85,6 +85,8 @@ test("a controller applies the difference a driver reported", async ({ page }) =
     treadCount,
     combination_id: rig.id,
     observed_member_vehicle_ids: [horseId, keptId],
+    // A driver's submit cites the task it was opened from (TYRE-319, TY029).
+    task_id: task.id,
     // The rig's own instant, not a browser one: one clock fewer (lesson
     // 2026-09-03) and deterministic, since 000044 bounds the observed
     // instant into [effective_from, received_at]. app.submit_inspection
