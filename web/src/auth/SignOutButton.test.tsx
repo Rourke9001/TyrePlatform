@@ -332,3 +332,40 @@ describe("a sign-out the page outlives", () => {
     expect(fetchMe).toHaveBeenCalledTimes(2);
   });
 });
+
+// TYRE-319: a refusal over a held draft links to it, outside the words the
+// live region announces, so the refusal is announced once.
+describe("the way back from a refused sign-out (TYRE-319)", () => {
+  it("links a refused sign-out to the held inspection, outside the announced words", async () => {
+    const outbox = await import("../capture/outbox");
+    vi.spyOn(outbox, "heldCount").mockResolvedValue({
+      draft: {
+        vehicleId: "v1",
+        taskId: "k1",
+        fleetNumber: "BAC039SP",
+        startedAt: "2026-11-20T06:00:00.000Z",
+        driverSubject: "oid-a",
+        legacy: false,
+      },
+      entries: 0,
+    });
+    renderButton();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
+
+    const link = await screen.findByRole("link", { name: "Go to it" });
+    expect(link).toHaveAttribute("href", "/capture/v1?taskId=k1");
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent(/still open on this phone/);
+    expect(status).not.toContainElement(link);
+  });
+
+  it("offers no link when only outbox entries are held", async () => {
+    const outbox = await import("../capture/outbox");
+    vi.spyOn(outbox, "heldCount").mockResolvedValue({ draft: null, entries: 2 });
+    renderButton();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
+
+    expect(await screen.findByText(/2 inspections are still on this phone/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Go to it" })).toBeNull();
+  });
+});

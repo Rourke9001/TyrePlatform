@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { bearerMode, lastKnownSubject } from "../api/token";
+import { draftPath } from "../capture/draft";
 import { heldCount, type HeldWork } from "../capture/outbox";
 import { Button } from "../ui/Button";
 import { signOut } from "./oidc";
@@ -80,6 +81,14 @@ export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
       <p role="status" className="auth-note auth-live">
         {held !== null ? stillHeld(held) : ""}
       </p>
+      {/* TYRE-319: the way back to the held inspection. Outside the live
+          region, so the refusal is announced once, and a plain anchor for
+          BackToWork's reason (CaptureDone.tsx). */}
+      {held?.draft && (
+        <a className="auth-goto" href={draftPath(held.draft)}>
+          Go to it
+        </a>
+      )}
     </div>
   );
 }
