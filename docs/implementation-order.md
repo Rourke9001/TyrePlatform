@@ -94,7 +94,6 @@ migration, an endpoint, a route or a screen, or is several defects.
 
 | # | Launch | Carries | Lane | Before it starts |
 |---|---|---|---|---|
-| 6 | `make pipeline T=TYRE-319` | 323; fold 390 | database, API, web, capture | none |
 | 7 | `make pipeline T=TYRE-325` | none; it adds the void button | API, web | none |
 | 8 | `make pipeline T=TYRE-240` | 176 with fold 278; the behaviour fixes 118, 119, 182, 291, 327 and 328, 330's f8, f15 and f16, the favicon, and B41's back-dating field | web, API | none. The favicon reuses the tyre mark under `web/public/icons/` (#234). In Progress on the board with no branch: its Tread ports merged as #153 and #154 |
 | 9 | `make pipeline T=TYRE-243` | slice 1, the lifecycle | database, API, web | none |
@@ -109,7 +108,7 @@ migration, an endpoint, a route or a screen, or is several defects.
 
 | # | Launch | Carries | Lane | Before it starts |
 |---|---|---|---|---|
-| 16 | `make pipeline T=TYRE-448` | 285, 152's photo screens and 319's Today screen: the capture slice (U145) | web, capture, API, database | rows 6 and 11 merged. It merges before driver training |
+| 16 | `make pipeline T=TYRE-448` | 285, 152's photo screens and 319's Today screen: the capture slice (U145) | web, capture, API, database | row 11 merged. It merges before driver training |
 | 17 | `make pipeline T="TYRE-457 TYRE-460 TYRE-461"` | a small-fix bundle | web | none |
 | 18 | `make pipeline T=TYRE-458` | none | API, web, capture | none. The field needs no migration, because `api/internal/httpapi/capture.go` reads positions in its own query, so the lead may call it a small fix |
 | 19 | `make pipeline T=TYRE-168` | 190's F10, with 189's F4 | database | none. It merges before row 20 |
@@ -145,7 +144,7 @@ TYRE-464, 468 and 479 have no ruling on timing, only the board's Medium:
 | 37 | `make pipeline T=TYRE-434` | none | API, database, infrastructure | row 3 merged |
 | 38 | `make pipeline T=TYRE-377` | none | API, database | none |
 | 39 | `make pipeline T=TYRE-76` | none | database, API, web | none. An ADR-0006 amendment rides in the PR |
-| 40 | `make pipeline T=TYRE-441` | 455: one spec (U162) | database, API, web, capture | row 6 merged. 455's SRS errata paste blocks its close |
+| 40 | `make pipeline T=TYRE-441` | 455: one spec (U162) | database, API, web, capture | none. 455's SRS errata paste blocks its close |
 | 41 | `make pipeline T=TYRE-243` | slice 3, rule administration | database, API, web | row 22's state directory and branch deleted |
 | 42 | `make pipeline T=TYRE-366` | none | API, web | only if BAC runs two or more operating groups; rows 13 and 14 merged |
 
