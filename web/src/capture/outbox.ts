@@ -1,7 +1,7 @@
 import { ApiError, apiPostAs } from "../api/client";
 import { sender, type Sender } from "../api/token";
 import { ACCESS_COPY } from "../auth/actorContext";
-import { clearDraft, db, loadDraft } from "./draft";
+import { clearDraft, db, loadDraft, type Draft } from "./draft";
 import type { SubmitMeta, SubmitPayload } from "./payload";
 import { toSubmitPayload } from "./payload";
 
@@ -302,9 +302,31 @@ export async function heldStamps(): Promise<string[]> {
   }
 }
 
+// What "My inspections" and the sign-out refusal need to name a held draft
+// and link back to it (TYRE-319).
+export interface HeldDraft {
+  vehicleId: string;
+  taskId: string | null;
+  fleetNumber: string | null;
+  startedAt: string;
+  driverSubject: string | null;
+  legacy: boolean;
+}
+
 export interface HeldWork {
-  draft: boolean;
+  draft: HeldDraft | null;
   entries: number;
+}
+
+function heldDraftOf(draft: Draft | undefined): HeldDraft | null {
+  if (draft === undefined) return null;
+  const { vehicleId, taskId, fleetNumber, startedAt, driverSubject, legacy } = draft;
+  return { vehicleId, taskId, fleetNumber, startedAt, driverSubject, legacy };
+}
+
+// Rejects on a failed read, as readHeldWork does.
+export async function readHeldDraft(): Promise<HeldDraft | null> {
+  return heldDraftOf(await loadDraft());
 }
 
 // PD-S3: a draft and every outbox entry, whatever its state. The draft is
@@ -314,7 +336,7 @@ export interface HeldWork {
 // one (TYRE-154, spec section 4).
 export async function readHeldWork(): Promise<HeldWork> {
   const [draft, entries] = await Promise.all([loadDraft(), table().count()]);
-  return { draft: draft !== undefined, entries };
+  return { draft: heldDraftOf(draft), entries };
 }
 
 // A failed read is nothing held, which sign-out relies on (spec section 4,
@@ -323,7 +345,7 @@ export async function heldCount(): Promise<HeldWork> {
   try {
     return await readHeldWork();
   } catch {
-    return { draft: false, entries: 0 };
+    return { draft: null, entries: 0 };
   }
 }
 

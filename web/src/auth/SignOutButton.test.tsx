@@ -223,7 +223,7 @@ describe("SignOutButton (PD-S3)", () => {
     await user.click(button);
     expect(button).toHaveAttribute("aria-disabled", "true");
     await user.click(button);
-    release({ draft: false, entries: 0 });
+    release({ draft: null, entries: 0 });
     const oidc = await import("./oidc");
     await vi.waitFor(() => expect(oidc.signOut).toHaveBeenCalledTimes(1));
     expect(outbox.heldCount).toHaveBeenCalledTimes(1);
@@ -246,7 +246,7 @@ describe("SignOutButton (PD-S3)", () => {
     expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).toHaveAccessibleName("Sign out");
 
-    release({ draft: false, entries: 0 });
+    release({ draft: null, entries: 0 });
     await vi.waitFor(() => expect(button).toHaveAccessibleName("Signing out…"));
     expect(button).toHaveAttribute("aria-disabled", "true");
   });

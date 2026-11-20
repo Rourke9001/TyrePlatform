@@ -26,7 +26,7 @@ function useHeldWork(enabled: boolean): HeldState {
     let live = true;
     readHeldWork().then(
       (work) => {
-        if (live) setHeld(work.draft || work.entries > 0 ? "some" : "none");
+        if (live) setHeld(work.draft !== null || work.entries > 0 ? "some" : "none");
       },
       () => {
         if (live) setHeld("some");

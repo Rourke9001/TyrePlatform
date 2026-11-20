@@ -217,6 +217,20 @@ export async function saveHeader(patch: {
   await mutate((draft) => ({ ...draft, ...patch }));
 }
 
+// TYRE-323 (U147 B7): "Carry on for this task" files the readings already
+// taken against the task the driver opened. Only the driver's tap calls it
+// (FR-OFF-014).
+export async function repointTask(taskId: string): Promise<void> {
+  await mutate((draft) => ({ ...draft, taskId }));
+}
+
+// The capture address a held draft reopens at, its task in the query so the
+// gate lets it straight in (TYRE-319).
+export function draftPath(d: { vehicleId: string; taskId: string | null }): string {
+  const path = `/capture/${d.vehicleId}`;
+  return d.taskId === null ? path : `${path}?taskId=${encodeURIComponent(d.taskId)}`;
+}
+
 // TYRE-155/FR-INS-066: one tap on the spare sheet, recorded as an
 // observation. Idempotent on the mark: a stale double-tap must not double
 // the row app.submit_inspection would otherwise reject as a repeat reading

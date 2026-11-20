@@ -19,6 +19,7 @@ import {
   listOutbox,
   mayCarry,
   queueDraft,
+  readHeldDraft,
   readHeldWork,
   startOutboxHeartbeat,
 } from "./outbox";
@@ -518,7 +519,17 @@ describe("the driver stamp (U104)", () => {
 
     expect((await heldStamps()).sort()).toEqual([DRIVER, "oid-other"].sort());
     // U108: a draft never sends by itself, so the sign-out refusal names it apart.
-    expect(await heldCount()).toEqual({ draft: true, entries: 2 });
+    expect(await heldCount()).toEqual({
+      draft: {
+        vehicleId: "v9",
+        taskId: null,
+        fleetNumber: null,
+        startedAt: "2026-09-30T06:00:00Z",
+        driverSubject: "oid-other",
+        legacy: false,
+      },
+      entries: 2,
+    });
   });
 
   // A latched or unconfigured store throws from the credential before the
@@ -615,7 +626,7 @@ describe("heldStamps and heldCount when storage fails (spec section 4)", () => {
     vi.spyOn(db.table("outbox"), "count").mockRejectedValue(new Error("blocked"));
 
     expect(await heldStamps()).toEqual([]);
-    expect(await heldCount()).toEqual({ draft: false, entries: 0 });
+    expect(await heldCount()).toEqual({ draft: null, entries: 0 });
   });
 });
 
@@ -628,13 +639,23 @@ describe("readHeldWork (TYRE-154)", () => {
       taskId: null,
       startedAt: "2026-11-19T06:00:00Z",
     });
-    expect(await readHeldWork()).toEqual({ draft: true, entries: 1 });
+    expect(await readHeldWork()).toEqual({
+      draft: {
+        vehicleId: "v9",
+        taskId: null,
+        fleetNumber: null,
+        startedAt: "2026-11-19T06:00:00Z",
+        driverSubject: "oid-someone-else",
+        legacy: false,
+      },
+      entries: 1,
+    });
   });
 
   it("rejects where heldCount reads nothing held", async () => {
     vi.spyOn(db.table("outbox"), "count").mockRejectedValue(new Error("blocked"));
     await expect(readHeldWork()).rejects.toThrow();
-    expect(await heldCount()).toEqual({ draft: false, entries: 0 });
+    expect(await heldCount()).toEqual({ draft: null, entries: 0 });
   });
 });
 
@@ -739,5 +760,34 @@ describe("flushes that overlap (TYRE-389)", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await listOutbox()).toEqual([]);
+  });
+});
+
+describe("readHeldDraft (TYRE-319)", () => {
+  it("summarises the held draft for the carry-on row and the sign-out link", async () => {
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: "k1",
+      startedAt: "2026-11-20T06:00:00.000Z",
+      fleetNumber: "BAC039SP",
+    });
+    expect(await readHeldDraft()).toEqual({
+      vehicleId: "v1",
+      taskId: "k1",
+      fleetNumber: "BAC039SP",
+      startedAt: "2026-11-20T06:00:00.000Z",
+      driverSubject: DRIVER,
+      legacy: false,
+    });
+  });
+
+  it("is null with no draft", async () => {
+    expect(await readHeldDraft()).toBeNull();
+  });
+
+  it("rejects when the store cannot be read", async () => {
+    vi.spyOn(db.drafts, "get").mockRejectedValue(new Error("blocked"));
+    await expect(readHeldDraft()).rejects.toThrow("blocked");
   });
 });
