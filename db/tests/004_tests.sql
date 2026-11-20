@@ -16199,16 +16199,6 @@ BEGIN
   RAISE NOTICE 'PASS  79z section 79 leaves no residue';
 END $$;
 
--- The shared prelude's helpers (db/tests/helpers.sql), dropped once the
--- last section that calls them has run.
-DROP FUNCTION pg_temp.t76_due(uuid, timestamptz);
-DROP FUNCTION pg_temp.t76_try(text);
-DROP FUNCTION pg_temp.t76_could(jsonb, uuid);
-DROP FUNCTION pg_temp.t76_capture(uuid[], timestamptz, timestamptz);
-DROP FUNCTION pg_temp.t76_expect(text, uuid, timestamptz, text);
-DROP FUNCTION pg_temp.t76_who(uuid, timestamptz);
-DROP FUNCTION pg_temp.t76_units();
-
 \echo '== 80. TYRE-371: app_job logs in, bypasses no row security, is a member of app_rw alone, owns nothing, is granted nothing itself in schema app but EXECUTE on the tenant listing, is named by no default privilege, role setting or parameter privilege, and the app login holds no membership in it (rules 1 and 3, ADR-0025)'
 DO $$
 DECLARE
@@ -16253,6 +16243,291 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS  80 app_job logs in, bypasses no row security, is a member of app_rw alone, owns nothing, is granted nothing itself in schema app but EXECUTE on the tenant listing, is named by no default privilege, role setting or parameter privilege, and app_login holds no membership in it';
 END $$;
+
+\echo '== 81. TYRE-319: a scoped submit cites an inspection task on a unit it covers and the actor could capture during it; a closed task, a late task and a replay pass (FR-AUT-005 as amended, FR-INS-052, FR-OFF-011, FR-OFF-015, U143, U147 B16; as BAC, each case rolled back)'
+\echo '== 81a. the rule is an invoker plpgsql function with its search path pinned, executable by app_rw alone (db/CLAUDE.md, Adding a function)'
+DO $$
+DECLARE got text;
+BEGIN
+  SELECT format('definer %s, volatility %s, language %s, config %s, acl %s',
+                p.prosecdef, p.provolatile, l.lanname, p.proconfig, x.acl) INTO got
+    FROM pg_proc p
+    JOIN pg_language l ON l.oid = p.prolang
+    CROSS JOIN LATERAL (
+      SELECT string_agg(CASE a.grantee WHEN 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END || ':' || a.privilege_type,
+                        ',' ORDER BY CASE a.grantee WHEN 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END) AS acl
+        FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
+       WHERE a.grantee <> p.proowner) x
+   WHERE p.oid = to_regprocedure('app.submit_cites_task(jsonb)');
+  IF got IS NULL THEN
+    RAISE EXCEPTION 'FAIL 81a: app.submit_cites_task(jsonb) does not exist';
+  END IF;
+  IF got IS DISTINCT FROM format('definer f, volatility s, language plpgsql, config %s, acl app_rw:EXECUTE',
+                                 ARRAY['search_path=app, pg_temp']) THEN
+    RAISE EXCEPTION 'FAIL 81a: app.submit_cites_task(jsonb) reads %, not a stable invoker plpgsql function with its search path pinned, executable by app_rw alone', got;
+  END IF;
+  RAISE NOTICE 'PASS  81a app.submit_cites_task(jsonb) is a stable invoker plpgsql function with its search path pinned, executable by app_rw alone';
+END $$;
+
+\echo '== 81b. no task, a task not in the fleet, a task on a unit the submit does not cover, and one on a unit listed as attached that the actor never held are refused by name; a covered towed unit passes (U147 B16, FR-INS-052; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; t1 constant uuid := md5('t76t1')::uuid;
+  t2 constant uuid := md5('t76t2')::uuid; r1 constant uuid := md5('t76r1')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid;
+  rig uuid; k_r1 uuid; k_t1 uuid; k_t2 uuid; p jsonb; c record; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM app.start_trip(h1, d1);
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '1 hour') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2);
+  -- Planted after the start: a task due today on a covered unit holds a
+  -- start (U148, TY028).
+  k_r1 := pg_temp.t76_due(r1, now() + interval '1 day');
+  k_t1 := pg_temp.t76_due(t1, now() + interval '1 day');
+  k_t2 := pg_temp.t76_due(t2, now() + interval '1 day');
+  PERFORM set_config('app.actor_id', d1::text, true);
+  p := pg_temp.t76_capture(ARRAY[h1], now() - interval '2 minutes', now())
+       || jsonb_build_object('observed_member_vehicle_ids', jsonb_build_array(h1, t1));
+  FOR c IN SELECT * FROM (VALUES
+      ('no task_id key', p, 'TY029 this inspection names no inspection task'),
+      ('a JSON null task_id', p || '{"task_id": null}'::jsonb, 'TY029 this inspection names no inspection task'),
+      ('a task id no task carries', p || jsonb_build_object('task_id', gen_random_uuid()),
+       'TY029 this inspection names a task that is not in this fleet'),
+      ('a task on a unit the submit does not name', p || jsonb_build_object('task_id', k_r1),
+       'TY029 this inspection names a task on T76-R1, which it does not cover'),
+      ('a task on a unit listed as attached that the actor never held',
+       p || jsonb_build_object('observed_member_vehicle_ids', jsonb_build_array(h1, t1, t2), 'task_id', k_t2),
+       'TY029 this inspection names a task on T76-T2, which it does not cover'),
+      ('the control, a task on the towed unit the trip covers', p || jsonb_build_object('task_id', k_t1), 'ok')
+    ) v(label, payload, want) LOOP
+    got := pg_temp.t76_try(format('SELECT app.submit_cites_task(%L::jsonb)', c.payload));
+    IF got IS DISTINCT FROM c.want THEN
+      RAISE EXCEPTION 'FAIL 81b: % was answered %, not %', c.label, got, c.want;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS  81b no task, an unknown task, an uncovered unit''s task and a never-held attached unit''s task are each refused by name, and a covered towed unit''s task passes';
+END $$;
+ROLLBACK;
+
+\echo '== 81c. another fleet''s task reads as not in this fleet, never as an uncovered unit, and passes in its own fleet (rule 1; as BAC and Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  t2f constant uuid := '22222222-2222-2222-2222-222222222222';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+  k uuid; n int; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', t2f::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (t2f, md5('t2veh1')::uuid, '2099-06-15 12:00+00') RETURNING id INTO k;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM pg_temp.t76_units();
+  PERFORM app.start_trip(h1, d1);
+  PERFORM set_config('app.actor_id', d1::text, true);
+  -- A leaked row would read "does not cover", a different message.
+  got := pg_temp.t76_try(format('SELECT app.submit_cites_task(%L::jsonb)',
+           pg_temp.t76_capture(ARRAY[h1], now() - interval '2 minutes', now()) || jsonb_build_object('task_id', k)));
+  IF got IS DISTINCT FROM 'TY029 this inspection names a task that is not in this fleet' THEN
+    RAISE EXCEPTION 'FAIL 81c: as BAC, Second Fleet''s task was answered %', got;
+  END IF;
+  SELECT count(*) INTO n FROM app.inspection_task WHERE id = k;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 81c: as BAC, % rows of Second Fleet''s task are visible', n;
+  END IF;
+  PERFORM set_config('app.tenant_id', t2f::text, true);
+  PERFORM set_config('app.actor_id', md5('driver2')::text, true);
+  got := pg_temp.t76_try(format('SELECT app.submit_cites_task(%L::jsonb)',
+           pg_temp.t76_capture(ARRAY[md5('t2veh1')::uuid], now() - interval '2 minutes', now())
+           || jsonb_build_object('task_id', k)));
+  IF got IS DISTINCT FROM 'ok' THEN
+    RAISE EXCEPTION 'FAIL 81c: in Second Fleet, its trip driver citing its own task was answered %', got;
+  END IF;
+  RAISE NOTICE 'PASS  81c another fleet''s task is not in this fleet, and the same task passes in its own fleet';
+END $$;
+ROLLBACK;
+
+\echo '== 81d. a task on the motive or on a towed unit the submit covers passes, read or not, whatever the shape of the observed list; an unread unit''s task stays open after the submit (FR-INS-052, U150; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; t1 constant uuid := md5('t76t1')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid;
+  rig uuid; k_h1 uuid; k_t1 uuid; whole jsonb; solo jsonb; p jsonb; c record; res record; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM app.start_trip(h1, d1);
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '1 hour') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2);
+  k_h1 := pg_temp.t76_due(h1, now() + interval '1 day');
+  k_t1 := pg_temp.t76_due(t1, now() + interval '1 day');
+  PERFORM set_config('app.actor_id', d1::text, true);
+  whole := pg_temp.t76_capture(ARRAY[h1, t1], now() - interval '2 minutes', now())
+          || jsonb_build_object('observed_member_vehicle_ids', jsonb_build_array(h1, t1));
+  solo := pg_temp.t76_capture(ARRAY[h1], now() - interval '2 minutes', now());
+  p := solo || jsonb_build_object('observed_member_vehicle_ids', jsonb_build_array(h1, t1));
+  FOR c IN SELECT * FROM (VALUES
+      ('a rig read whole, citing the motive''s task', whole || jsonb_build_object('task_id', k_h1)),
+      ('a rig read whole, citing the towed unit''s task', whole || jsonb_build_object('task_id', k_t1)),
+      ('a solo capture with no observed list', solo || jsonb_build_object('task_id', k_h1)),
+      ('a JSON null observed list', solo || jsonb_build_object('observed_member_vehicle_ids', NULL, 'task_id', k_h1)),
+      ('an observed list that is not an array', solo || jsonb_build_object('observed_member_vehicle_ids', 'x', 'task_id', k_h1)),
+      ('the motive read alone, citing the attached unit''s task', p || jsonb_build_object('task_id', k_t1))
+    ) v(label, payload) LOOP
+    got := pg_temp.t76_try(format('SELECT app.submit_cites_task(%L::jsonb)', c.payload));
+    IF got IS DISTINCT FROM 'ok' THEN
+      RAISE EXCEPTION 'FAIL 81d: % was answered %, not ok', c.label, got;
+    END IF;
+  END LOOP;
+  SELECT * INTO res FROM app.submit_inspection(p || jsonb_build_object('task_id', k_t1));
+  IF NOT res.created THEN
+    RAISE EXCEPTION 'FAIL 81d: the motive''s capture citing the attached unit''s task was not created';
+  END IF;
+  SELECT k.state || '/' || COALESCE(k.completed_inspection_id::text, '-') INTO got
+    FROM app.inspection_task k WHERE k.id = k_t1;
+  IF got IS DISTINCT FROM 'OPEN/-' THEN
+    RAISE EXCEPTION 'FAIL 81d: the unread unit''s cited task reads %, not OPEN/-', got;
+  END IF;
+  RAISE NOTICE 'PASS  81d a covered unit''s task passes, read or not and whatever the observed list''s shape, and an unread unit''s task stays open after the submit';
+END $$;
+ROLLBACK;
+
+\echo '== 81e. a task cancelled or completed before the call passes, and the submit leaves it as it was (TYRE-323, TYRE-440 comment 13871; as BAC, each case rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+  k uuid; p jsonb; res record; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM app.start_trip(h1, d1);
+  k := pg_temp.t76_due(h1, now() + interval '1 day');
+  UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = '81e' WHERE id = k;
+  PERFORM set_config('app.actor_id', d1::text, true);
+  p := pg_temp.t76_capture(ARRAY[h1], now() - interval '2 minutes', now()) || jsonb_build_object('task_id', k);
+  got := pg_temp.t76_try(format('SELECT app.submit_cites_task(%L::jsonb)', p));
+  IF got IS DISTINCT FROM 'ok' THEN
+    RAISE EXCEPTION 'FAIL 81e: a cancelled task was answered %', got;
+  END IF;
+  SELECT * INTO res FROM app.submit_inspection(p);
+  IF NOT res.created THEN
+    RAISE EXCEPTION 'FAIL 81e: the capture citing a cancelled task was not created';
+  END IF;
+  SELECT k2.state || '/' || COALESCE(k2.completed_inspection_id::text, '-') INTO got
+    FROM app.inspection_task k2 WHERE k2.id = k;
+  IF got IS DISTINCT FROM 'CANCELLED/-' THEN
+    RAISE EXCEPTION 'FAIL 81e: the cancelled task reads % after the submit, not CANCELLED/-', got;
+  END IF;
+  RAISE NOTICE 'PASS  81e a cancelled task passes, the capture is stored and the task stays cancelled';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+  k uuid; prior uuid; p jsonb; res record; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM app.start_trip(h1, d1);
+  -- No readings, so FR-INS-038's window (TY003) does not meet the submit below.
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at)
+  VALUES (bac, h1, d1, gen_random_uuid(), now() - interval '10 hours 10 minutes', now() - interval '10 hours')
+  RETURNING id INTO prior;
+  k := pg_temp.t76_due(h1, now() + interval '1 day');
+  UPDATE app.inspection_task SET state = 'COMPLETED', completed_inspection_id = prior WHERE id = k;
+  PERFORM set_config('app.actor_id', d1::text, true);
+  p := pg_temp.t76_capture(ARRAY[h1], now() - interval '2 minutes', now()) || jsonb_build_object('task_id', k);
+  got := pg_temp.t76_try(format('SELECT app.submit_cites_task(%L::jsonb)', p));
+  IF got IS DISTINCT FROM 'ok' THEN
+    RAISE EXCEPTION 'FAIL 81e: a completed task was answered %', got;
+  END IF;
+  SELECT * INTO res FROM app.submit_inspection(p);
+  IF NOT res.created THEN
+    RAISE EXCEPTION 'FAIL 81e: the capture citing a completed task was not created';
+  END IF;
+  SELECT k2.state || '/' || CASE WHEN k2.completed_inspection_id = prior THEN 'prior' ELSE COALESCE(k2.completed_inspection_id::text, '-') END
+    INTO got FROM app.inspection_task k2 WHERE k2.id = k;
+  IF got IS DISTINCT FROM 'COMPLETED/prior' THEN
+    RAISE EXCEPTION 'FAIL 81e: the completed task reads % after the submit, not COMPLETED/prior', got;
+  END IF;
+  RAISE NOTICE 'PASS  81e a completed task passes, the capture is stored and the task keeps its own citation';
+END $$;
+ROLLBACK;
+
+\echo '== 81f. a replay of the actor''s own stored capture passes with no task; another driver''s client_uuid is no replay (FR-OFF-011; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h5 constant uuid := md5('t76h5')::uuid;
+  d2 constant uuid := md5('t76d2')::uuid; d3 constant uuid := md5('t76d3')::uuid;
+  cu uuid := gen_random_uuid(); p jsonb; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at)
+  VALUES (bac, h5, d2, cu, now() - interval '3 hours', now() - interval '170 minutes');
+  p := pg_temp.t76_capture(ARRAY[h5], now() - interval '3 hours', now() - interval '170 minutes')
+       || jsonb_build_object('client_uuid', cu);
+  PERFORM set_config('app.actor_id', d2::text, true);
+  got := pg_temp.t76_try(format('SELECT app.submit_cites_task(%L::jsonb)', p));
+  IF got IS DISTINCT FROM 'ok' THEN
+    RAISE EXCEPTION 'FAIL 81f: a replay of the actor''s own capture with no task was answered %', got;
+  END IF;
+  PERFORM set_config('app.actor_id', d3::text, true);
+  got := pg_temp.t76_try(format('SELECT app.submit_cites_task(%L::jsonb)', p));
+  IF got IS DISTINCT FROM 'TY029 this inspection names no inspection task' THEN
+    RAISE EXCEPTION 'FAIL 81f: another driver''s client_uuid with no task was answered %', got;
+  END IF;
+  RAISE NOTICE 'PASS  81f a replay of the actor''s own capture passes with no task, and another driver''s client_uuid is no replay';
+END $$;
+ROLLBACK;
+
+\echo '== 81z. nothing section 81 planted outlives its rollback'
+DO $$
+DECLARE got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  got := (SELECT count(*) FROM app.vehicle WHERE fleet_number LIKE 'T76-%') || '/'
+         || (SELECT count(*) FROM app.app_user WHERE display_name LIKE 'T76 %');
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  got := got || '/' || (SELECT count(*) FROM app.inspection_task WHERE due_at = '2099-06-15 12:00+00');
+  IF got IS DISTINCT FROM '0/0/0' THEN
+    RAISE EXCEPTION 'FAIL 81z: BAC''s T76 units/T76 users/Second Fleet''s planted tasks read %, not 0/0/0', got;
+  END IF;
+  RAISE NOTICE 'PASS  81z section 81 leaves no residue';
+END $$;
+
+-- The shared prelude's helpers (db/tests/helpers.sql), dropped once the
+-- last section that calls them has run.
+DROP FUNCTION pg_temp.t76_due(uuid, timestamptz);
+DROP FUNCTION pg_temp.t76_try(text);
+DROP FUNCTION pg_temp.t76_could(jsonb, uuid);
+DROP FUNCTION pg_temp.t76_capture(uuid[], timestamptz, timestamptz);
+DROP FUNCTION pg_temp.t76_expect(text, uuid, timestamptz, text);
+DROP FUNCTION pg_temp.t76_who(uuid, timestamptz);
+DROP FUNCTION pg_temp.t76_units();
 
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

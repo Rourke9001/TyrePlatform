@@ -87,6 +87,12 @@ func TestRefusalForPgError(t *testing.T) {
 			isClient: true,
 		},
 		{
+			name:     "TY029 forwards as 422 in its own words",
+			sqlErr:   &pgconn.PgError{Code: "TY029", Message: "this inspection names no inspection task"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: "TY029", message: "this inspection names no inspection task"},
+			isClient: true,
+		},
+		{
 			name:   "a foreign key violation loses its constraint and table names",
 			sqlErr: &pgconn.PgError{Code: "23503", Message: fkMessage},
 			want: refusal{

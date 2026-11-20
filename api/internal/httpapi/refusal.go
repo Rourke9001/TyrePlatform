@@ -133,6 +133,10 @@ var submitStatus = map[string]int{
 	// not allow. 422 like its neighbours.
 	"TY028": http.StatusUnprocessableEntity,
 
+	// TY029 is a scoped submit that cites no task it covers (000064, TYRE-319).
+	// Permanent, so the outbox hands it to the office (ADR-0012).
+	"TY029": http.StatusUnprocessableEntity,
+
 	// TY008 has no entry and never will unless configuration editing is
 	// reopened: the unit PATCH is what keeps it unreachable from the API
 	// (units.go's patchUnitRequest). An entry could carry no test able to
