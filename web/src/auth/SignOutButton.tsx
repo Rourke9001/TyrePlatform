@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { bearerMode, lastKnownSubject } from "../api/token";
+import { bearerMode, lastKnownSubject, stampSubject } from "../api/token";
 import { draftPath } from "../capture/draft";
-import { heldCount, type HeldWork } from "../capture/outbox";
+import { heldCount, mayCarry, type HeldWork } from "../capture/outbox";
 import { Button } from "../ui/Button";
 import { signOut } from "./oidc";
 import "./auth.css";
@@ -83,8 +83,9 @@ export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
       </p>
       {/* TYRE-319: the way back to the held inspection. Outside the live
           region, so the refusal is announced once, and a plain anchor for
-          BackToWork's reason (CaptureDone.tsx). */}
-      {held?.draft && (
+          BackToWork's reason (CaptureDone.tsx). Another driver's draft gets
+          no link, as it gets no carry-on row (DriverHome.tsx). */}
+      {held?.draft && mayCarry(held.draft, stampSubject()) && (
         <a className="auth-goto" href={draftPath(held.draft)}>
           Go to it
         </a>
