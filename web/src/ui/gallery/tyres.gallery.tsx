@@ -101,6 +101,15 @@ export const section: GallerySection = {
         unitText={MM}
         pressure={pressure("", false)}
       />
+      <TreadReadings
+        readings={["13", "", ""]}
+        governingIndex={null}
+        activeIndex={1}
+        needsReading={{ index: 1, beat: 0 }}
+        onSelect={ignore}
+        unitText={MM}
+        pressure={pressure("", false)}
+      />
       <Keypad onKey={ignore} goLabel="Next ›" ariaLabel="Number keypad" />
       <TreadReadings
         readings={["13", "12", "14"]}

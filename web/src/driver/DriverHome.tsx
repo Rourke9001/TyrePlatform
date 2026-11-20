@@ -5,10 +5,11 @@ import { draftPath } from "../capture/draft";
 import { mayCarry, readHeldDraft, type HeldDraft } from "../capture/outbox";
 import { Card } from "../ui/Card";
 import { ListRow } from "../ui/ListRow";
-import { useTenantDate, useTenantInstant } from "../time/tenantTime";
-import { useMyTasks, useMyTrip, type MyTask } from "./driver.data";
+import { useTenantInstant } from "../time/tenantTime";
+import { useMyTasks, useMyTrip } from "./driver.data";
 import { homeView } from "./driver.view";
 import { InstallHint } from "./InstallHint";
+import { TaskLink, TaskLinks } from "./TaskLink";
 import "./driver.css";
 
 // The draft held on this phone, read once per visit as InstallHint reads
@@ -146,32 +147,6 @@ function CarryOnRow({ draft }: { draft: HeldDraft }) {
     <ListRow to={draftPath(draft)}>
       Carry on with {draft.fleetNumber ?? "your inspection"}, started{" "}
       {tenantInstant(draft.startedAt)}
-    </ListRow>
-  );
-}
-
-function TaskLinks({ tasks }: { tasks: readonly MyTask[] }) {
-  return (
-    <ul className="tr-list driver-home__list">
-      {tasks.map((t) => (
-        <li key={t.id}>
-          <TaskLink task={t} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-// The whole task is the target: this is the one tap between a driver opening
-// the app and entering their first reading, and it carries the task so
-// submitting can close it.
-function TaskLink({ task }: { task: MyTask }) {
-  const tenantDate = useTenantDate();
-  return (
-    <ListRow to={`/capture/${task.captureVehicleId ?? task.vehicleId}?taskId=${task.id}`}>
-      {task.fleetNumber}, due {tenantDate(task.dueAt)}
-      {/* Never colour alone (NFR-USE-009): overdue says so in words. */}
-      {task.overdue ? " (overdue)" : ""}
     </ListRow>
   );
 }

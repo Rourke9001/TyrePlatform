@@ -820,6 +820,30 @@ describe("PositionSheet", () => {
     expectNothingForbiddenSpoken(container, /spare is here/i);
   });
 
+  // TYRE-491: the spare toggle is a tap on the sheet, so it clears the
+  // needs-a-reading mark, and "Spare is here" leaves the sheet open to show it.
+  it("clears the needs-a-reading mark when the driver taps 'Spare is here'", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const spare = { ...position, id: "s1", isSpare: true, axleClass: "SPARE", axleNumber: null };
+    render(
+      <PositionSheet
+        {...props({})}
+        rig={{ ...rig, position: spare, key: cellKey("v1", "s1"), displayNumber: null }}
+        absent
+        onAbsent={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /next ›/i }));
+    // The control: the mark is up before the tap.
+    expect(screen.getByLabelText("Tread reading 1 of 3")).toHaveAttribute("data-needs");
+    expect(screen.getByText("Tread reading 1 of 3 is empty.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /spare is here/i }));
+
+    expect(document.querySelector("[data-needs]")).toBeNull();
+    expect(screen.queryByText(/ is empty\.$/)).toBeNull();
+  });
+
   // TYRE-147: the sheet hides the diagram (capture.css), so the frame the
   // server maps by has to be ON the sheet. A spare has no side and no glyph.
   it("shows the plan-view glyph for the tyre's side and the one-line hint", () => {
@@ -870,5 +894,129 @@ describe("the pressure field's grouping", () => {
     }
 
     expect(within(screen.getByLabelText("Pressure")).getByText("1,100")).toBeVisible();
+  });
+});
+
+// TYRE-491, the owner's answer 2: a Next on an empty box stays, marks it and
+// says so, and the mark holds until the next key or tap (U178: no timer).
+describe("Next on an empty box (TYRE-491)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const nextKey = () => screen.getByRole("button", { name: /next ›/i });
+  const spoken = (name: string) => `${name} is empty.`;
+
+  it("the ticket's sequence: 8, the auto-advance, then Next leaves reading 2 focused, empty, marked and said", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onChange = vi.fn<(p: DraftPosition) => void>();
+    render(<PositionSheet {...props({ onChange })} />);
+    await user.click(screen.getByRole("button", { name: "8" }));
+    await advance(250);
+    const second = screen.getByLabelText("Tread reading 2 of 3");
+    expect(second).toHaveAttribute("aria-current", "true");
+    const writes = onChange.mock.calls.length;
+
+    await user.click(nextKey());
+
+    expect(second).toHaveAttribute("aria-current", "true");
+    expect(second).toHaveAttribute("data-empty", "true");
+    expect(second).toHaveAttribute("data-needs");
+    expect(screen.getByText(spoken("Tread reading 2 of 3"))).toBeInTheDocument();
+    const third = screen.getByLabelText("Tread reading 3 of 3");
+    expect(third).not.toHaveAttribute("aria-current");
+    expect(third).toHaveAttribute("data-empty", "true");
+    expect(third).not.toHaveAttribute("data-needs");
+    expect(onChange).toHaveBeenCalledTimes(writes);
+
+    await user.click(screen.getByRole("button", { name: "5" }));
+    expect(second).not.toHaveAttribute("data-needs");
+    expect(screen.queryByText(/ is empty\.$/)).toBeNull();
+  });
+
+  it("an empty pressure with every tread filled stays, marked and said", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<PositionSheet {...props({})} />);
+    for (let i = 0; i < 3; i++) {
+      await user.click(screen.getByRole("button", { name: "9" }));
+      await advance(250);
+    }
+    expect(screen.getByLabelText("Pressure")).toHaveAttribute("aria-current", "true");
+
+    await user.click(nextKey());
+
+    expect(screen.getByLabelText("Pressure")).toHaveAttribute("data-needs");
+    expect(screen.getByText(spoken("Pressure"))).toBeInTheDocument();
+  });
+
+  it("Review Focus 1: a second Next stays again, shakes again and is said again", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onChange = vi.fn<(p: DraftPosition) => void>();
+    render(<PositionSheet {...props({ onChange })} />);
+    await user.click(screen.getByRole("button", { name: "8" }));
+    await advance(250);
+    const writes = onChange.mock.calls.length;
+    const second = screen.getByLabelText("Tread reading 2 of 3");
+
+    await user.click(nextKey());
+    const shake = second.getAttribute("data-needs");
+    const words = screen.getByText(spoken("Tread reading 2 of 3"));
+    await user.click(nextKey());
+
+    expect(second.getAttribute("data-needs")).not.toBe(shake);
+    expect(screen.getByText(spoken("Tread reading 2 of 3"))).not.toBe(words);
+    expect(second).toHaveAttribute("aria-current", "true");
+    expect(onChange).toHaveBeenCalledTimes(writes);
+  });
+
+  it("Review Focus 2: a tap on another box clears the mark, which does not follow focus", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<PositionSheet {...props({})} />);
+    await user.click(screen.getByRole("button", { name: "8" }));
+    await advance(250);
+    await user.click(nextKey());
+    // The control: the mark is up before the tap.
+    expect(screen.getByLabelText("Tread reading 2 of 3")).toHaveAttribute("data-needs");
+    expect(screen.getByText(spoken("Tread reading 2 of 3"))).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Tread reading 3 of 3"));
+
+    expect(document.querySelector("[data-needs]")).toBeNull();
+    expect(screen.queryByText(/ is empty\.$/)).toBeNull();
+  });
+
+  it("Review Focus 3: at 0.5 mm a half after the auto-advance and a stayed Next reaches back (U160)", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(<PositionSheet {...props({})} rig={{ ...rig, context: halves }} ctx={halves} />);
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await advance(250);
+    await user.click(nextKey());
+    expect(screen.getByLabelText("Tread reading 2 of 3")).toHaveAttribute("data-needs");
+
+    await user.click(screen.getByRole("button", { name: "½" }));
+    await advance(250);
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("13.5")).toBeVisible();
+    const second = screen.getByLabelText("Tread reading 2 of 3");
+    expect(second).toHaveAttribute("aria-current", "true");
+    expect(second).toHaveAttribute("data-empty", "true");
+    expect(second).not.toHaveAttribute("data-needs");
+  });
+
+  it("a normal position shows no mark and costs no extra tap", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onDone = vi.fn<(p: DraftPosition) => void>();
+    render(<PositionSheet {...props({ onDone })} />);
+
+    await enter(user, ["9", "9", "9"], "800");
+    await advance(300);
+
+    expect(onDone).toHaveBeenCalledOnce();
+    expect(document.querySelector("[data-needs]")).toBeNull();
   });
 });

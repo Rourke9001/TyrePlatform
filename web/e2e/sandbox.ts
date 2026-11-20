@@ -61,11 +61,16 @@ export async function apiPost(page: Page, path: string, data: unknown): Promise<
 
 // FR-AUT-005 as amended: a nomination lets the Sandbox driver capture a unit
 // no trip of theirs holds, and the rig it heads (spec, Capture). The task is
-// due the tenant's today, so a submit with a reading on the unit closes it
-// and the reach goes with it (U150).
-export async function nominateSandboxDriver(page: Page, unitId: string): Promise<{ id: string }> {
+// due the tenant's today unless a day is named, so a submit with a reading
+// on the unit closes it and the reach goes with it (U150).
+export async function nominateSandboxDriver(
+  page: Page,
+  unitId: string,
+  dueOn?: string,
+): Promise<{ id: string }> {
   return (await apiPost(page, `/api/vehicles/${unitId}/inspection-tasks`, {
     nomineeUserId: SANDBOX_DRIVER,
+    ...(dueOn === undefined ? {} : { dueOn }),
   })) as { id: string };
 }
 

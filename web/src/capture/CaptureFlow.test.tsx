@@ -3,7 +3,15 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { focusManager, onlineManager, QueryClient } from "@tanstack/react-query";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 
-import { Link, Route, Routes } from "react-router";
+import {
+  Link,
+  Route,
+  Routes,
+  useLocation,
+  useNavigationType,
+  useParams,
+  useSearchParams,
+} from "react-router";
 
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
 import { myTasksQuery, type MyTask } from "../driver/driver.data";
@@ -2027,6 +2035,9 @@ const k3: MyTask = {
   fleetNumber: "BAC711TR",
   captureVehicleId: "v1",
 };
+// An unrelated unit's task.
+const k9: MyTask = { ...k1, id: "k9", vehicleId: "v9", fleetNumber: "BAC100SP" };
+const PICK = "More than one inspection is due on this vehicle. Choose the one to start.";
 const HELD_AT = "2026-11-20T06:00:00.000Z";
 const NOTHING_DUE =
   "Nothing is due on this vehicle for you. An inspection starts from a task on My inspections.";
@@ -2037,6 +2048,37 @@ function renderScoped(linkTaskId: string | null, client = testQueryClient()) {
     client,
     actor: { role: "DRIVER", scope: "DEPOT" },
   });
+}
+
+// The route's own wiring (routes.tsx CaptureRoute), so a forward can be seen.
+function RoutedFlow() {
+  const { vehicleId = "" } = useParams();
+  const [params] = useSearchParams();
+  return <CaptureFlow vehicleId={vehicleId} taskId={params.get("taskId")} />;
+}
+
+function Where() {
+  const at = useLocation();
+  const how = useNavigationType();
+  return <p>{`${how} ${at.pathname}${at.search}`}</p>;
+}
+
+function renderRouted(at: string, client = testQueryClient()) {
+  return renderWithActor(
+    <>
+      <Routes>
+        <Route path="/capture/:vehicleId" element={<RoutedFlow />} />
+        <Route path="/my" element={<p>My page</p>} />
+      </Routes>
+      <Where />
+    </>,
+    {
+      withRouter: true,
+      initialEntries: ["/my", at],
+      client,
+      actor: { role: "DRIVER", scope: "DEPOT" },
+    },
+  );
 }
 
 async function holdDraft(observed: string[] = ["v1"], taskId = "k1") {
@@ -2072,8 +2114,8 @@ describe("the task gate (TYRE-319)", () => {
     expect(screen.queryByText("Loading…")).toBeNull();
   });
 
-  it("row 2: no link task shows no form, the words and the way back", async () => {
-    stubApi(201, [context], null, [k1]);
+  it("row 2c: no task of the driver's on this unit shows no form, the words and the way back", async () => {
+    stubApi(201, [context], null, [k9]);
     renderScoped(null);
 
     expect(await screen.findByText(NOTHING_DUE)).toBeInTheDocument();
@@ -2081,15 +2123,132 @@ describe("the task gate (TYRE-319)", () => {
     expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
   });
 
-  it.each([
-    ["not listed", [k2]],
-    ["listed but captured through another unit", [{ ...k1, captureVehicleId: "v9" }]],
-  ])("row 2: a link task %s is nothing due", async (_name, tasks) => {
-    stubApi(201, [context], null, tasks);
+  it("row 2c: a link task not listed, with nothing due on the unit, is nothing due", async () => {
+    stubApi(201, [context], null, [k9]);
     renderScoped("k1");
 
     expect(await screen.findByText(NOTHING_DUE)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
+  });
+
+  it("a link with no task waits on a pending read", async () => {
+    stubApi(201, [context], null, "pending");
+    const client = testQueryClient();
+    renderScoped(null, client);
+
+    await landed(client, "v1", () => true);
+    // Long enough for a wrongly shown "Nothing is due" to paint, so a gate
+    // that skips the wait fails here.
+    await expect(screen.findByText(NOTHING_DUE, undefined, { timeout: 500 })).rejects.toThrow();
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
+  });
+
+  it("row 2a: one open task shows Start with nothing else to tap, and the submit cites it", async () => {
+    const user = newUser();
+    const api = stubApi(201, [context], null, [k1]);
+    renderScoped(null);
+
+    const start = await startButton();
+    expect(screen.queryByText(PICK)).toBeNull();
+    expect(screen.queryByText(NOTHING_DUE)).toBeNull();
+    await user.click(start);
+    await walkAround();
+    expect((await loadDraft())?.taskId).toBe("k1");
+    await capturePosition(user);
+    await user.click(screen.getByRole("button", { name: /review and submit/i }));
+    await user.click(screen.getByRole("button", { name: /submit inspection/i }));
+    await screen.findByText("Inspection sent");
+    const [, init] = api.mock.calls.find(([, i]) => i?.method === "POST") ?? [];
+    expect((JSON.parse(init?.body ?? "{}") as { task_id?: string }).task_id).toBe("k1");
+  });
+
+  it("row 2a: a link task that is not usable stands aside for the one open task", async () => {
+    const user = newUser();
+    stubApi(201, [context], null, [k1]);
+    renderScoped("k9");
+
+    await user.click(await startButton());
+    await walkAround();
+    expect((await loadDraft())?.taskId).toBe("k1");
+  });
+
+  it("row 2a: a towed unit's lone task, unticked, blocks Start with that unit's fleet number", async () => {
+    const user = newUser();
+    stubApi(201, [rigMotive, trailer], null, [k3]);
+    renderScoped(null);
+
+    await startButton();
+    await user.click(screen.getByRole("checkbox", { name: /BAC711TR/ }));
+    expect(
+      screen.getByText(
+        "This inspection is for BAC711TR. Tick it to inspect it, or tell your fleet office it is not attached.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
+
+    await user.click(screen.getByRole("checkbox", { name: /BAC711TR/ }));
+    await startButton();
+  });
+
+  it("row 2b: several tasks show the pick screen, and a row opens that task's Start", async () => {
+    const user = newUser();
+    stubApi(201, [context], null, [k2, k1]);
+    renderRouted("/capture/v1");
+
+    expect(await screen.findByText(PICK)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
+    const rows = screen.getAllByRole("link", { name: /^BAC039SP, due / });
+    expect(rows.map((r) => r.getAttribute("href"))).toEqual([
+      "/capture/v1?taskId=k1",
+      "/capture/v1?taskId=k2",
+    ]);
+    await user.click(rows[1]);
+    await user.click(await startButton());
+    await walkAround();
+    expect((await loadDraft())?.taskId).toBe("k2");
+  });
+
+  it("row 2d: a coupled trailer's address replaces itself with the motive's, naming its task", async () => {
+    const user = newUser();
+    stubApi(201, [rigMotive, trailer], null, [k3]);
+    renderRouted("/capture/v2");
+
+    expect(await screen.findByText("REPLACE /capture/v1?taskId=k3")).toBeInTheDocument();
+    await user.click(await startButton());
+    await walkAround();
+    const draft = await loadDraft();
+    expect(draft?.taskId).toBe("k3");
+    expect(draft?.vehicleId).toBe("v1");
+  });
+
+  it("row 2d: the same when the link names the trailer's own task", async () => {
+    stubApi(201, [rigMotive, trailer], null, [k3]);
+    renderRouted("/capture/v2?taskId=k3");
+
+    expect(await screen.findByText("REPLACE /capture/v1?taskId=k3")).toBeInTheDocument();
+    await startButton();
+  });
+
+  it("Review Focus 4: row 2d forwards when the trailer's own read is refused", async () => {
+    stubApi(201, [rigMotive], null, [k3]);
+    renderRouted("/capture/v2");
+
+    expect(await screen.findByText("REPLACE /capture/v1?taskId=k3")).toBeInTheDocument();
+    await startButton();
+  });
+
+  it("Review Focus 5: a refetch that leaves one task on the pick screen shows its Start and writes nothing", async () => {
+    const client = testQueryClient();
+    stubApi(201, [context], null, [k1, k2]);
+    renderRouted("/capture/v1", client);
+    await screen.findByText(PICK);
+
+    stubApi(201, [context], null, [k1]);
+    await act(() => client.refetchQueries({ queryKey: myTasksQuery().queryKey }));
+    await startButton();
+    expect(screen.queryByText(PICK)).toBeNull();
+    expect(await loadDraft()).toBeUndefined();
   });
 
   it("row 3: a failed read says so, reloads, and offers the way back", async () => {

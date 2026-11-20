@@ -40,6 +40,10 @@ export interface EntryResult {
   // may advance without waiting for a tap. The caller owns the timing; a
   // reducer that scheduled its own would not be testable.
   settled: boolean;
+  // A Next that had nowhere to send the driver from an empty box. The very
+  // same state comes back, which is what lets a half still reach back (U160)
+  // and the sheet write nothing (TYRE-491).
+  stayed?: boolean;
 }
 
 export function newEntryState(treadReadingCount: number): EntryState {
@@ -95,6 +99,14 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
       // empty, where the go key's "Next" is sending the driver. Staying put
       // would empty the buffer under a value the next digits then replace.
       const empty = state.treads.findIndex((t) => t === null);
+      // TYRE-491, the owner's answer 2 (U246): Next on an empty box with no
+      // empty reading to send the driver to stays, so a Next by habit after
+      // an auto-advance leaves no box behind. It reads the box, never a
+      // clock (U178).
+      const here = isPressure(state, opts) ? state.pressureKpa : state.treads[state.field];
+      if (here === null && (!isPressure(state, opts) || empty < 0)) {
+        return { state, settled: false, stayed: true };
+      }
       const field = isPressure(state, opts) ? (empty < 0 ? state.field : empty) : state.field + 1;
       if (field === state.field) return { state, settled: false };
       return {

@@ -18,8 +18,9 @@ export const PRESSURE = ["8", "0", "0"];
 export type Rig = "solo" | "whole" | { keep: string };
 
 // A driver's capture opens only through a task (TYRE-319), so the address
-// carries one. The task is a required field, so a call that passes a bare
-// vehicle id is a type error, never a capture with no task.
+// names the task the test cites: a bare address would find the one due, and
+// the submit's cited task would then be the spec's guess (TYRE-491). The task
+// is a required field, so a bare vehicle id is a type error.
 export async function startInspection(
   page: Page,
   at: { vehicleId: string; taskId: string; rig?: Rig },
@@ -52,7 +53,7 @@ export async function startHere(page: Page, rig: Rig = "solo") {
 
 // A field auto-advances 200ms after a digit that cannot grow further; one
 // still growing needs the go key. A go press that lands after auto-advance
-// skips the next reading silently.
+// stays on the box it moved to (TYRE-491), so the check after it still holds.
 export async function advanceTo(page: Page, next: Locator) {
   try {
     await expect(next).toHaveAttribute("aria-current", "true", { timeout: 500 });
@@ -141,6 +142,20 @@ export async function captureUnit(page: Page, fleetNumber: string): Promise<numb
     await capturePosition(page);
     captured++;
   }
+}
+
+// The box a locator finds, which must lie wholly inside the viewport with no
+// scroll, so a control a gloved thumb needs is on screen (NFR-USE-004).
+export async function onScreen(page: Page, target: Locator, what: string) {
+  await expect(target, what).toBeVisible();
+  const box = await target.boundingBox();
+  const view = page.viewportSize();
+  if (box === null || view === null) throw new Error(`${what} has no box or no viewport`);
+  expect(box.x, `${what} starts left of the screen`).toBeGreaterThanOrEqual(0);
+  expect(box.y, `${what} starts above the screen`).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width, `${what} runs past the right edge`).toBeLessThanOrEqual(view.width);
+  expect(box.y + box.height, `${what} runs below the screen`).toBeLessThanOrEqual(view.height);
+  return box;
 }
 
 // Scoped to a heading, not just role, because OutboxIndicator and other

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { MyTask } from "../driver/driver.data";
-import { citedTask, gateFor, openForUnit, type GateDraft } from "./taskGate";
+import { citedTask, gateFor, openForUnit, taskPath, type GateDraft } from "./taskGate";
 
 function task(overrides: Partial<MyTask> & { id: string }): MyTask {
   return {
@@ -19,7 +19,17 @@ const k2 = task({ id: "k2" });
 // A towed unit's task, captured through the motive v1.
 const k3 = task({ id: "k3", vehicleId: "v2", fleetNumber: "BAC711TR", captureVehicleId: "v1" });
 
+// An unrelated unit's task.
+const k9 = task({ id: "k9", vehicleId: "v9" });
+
 const held: GateDraft = { vehicleId: "v1", taskId: "k1", observedMemberVehicleIds: ["v1", "v2"] };
+
+describe("taskPath", () => {
+  it("is the task's capture unit with the task named", () => {
+    expect(taskPath(k1)).toBe("/capture/v1?taskId=k1");
+    expect(taskPath(k3)).toBe("/capture/v1?taskId=k3");
+  });
+});
 
 describe("openForUnit", () => {
   it("finds a listed task captured through this unit, by the task's own unit or its capture unit", () => {
@@ -39,29 +49,85 @@ describe("gateFor", () => {
     });
   });
 
-  it("row 2: no link task is nothing due, without waiting on the read", () => {
+  it("a link with no task waits on a pending read", () =>
     expect(gateFor({ unit: "v1", linkTaskId: null, draft: null, tasks: "pending" })).toEqual({
-      kind: "nothing-due",
+      kind: "loading",
+    }));
+
+  it("row 2a: no link task and one open task for this unit starts it, an unrelated unit's not counted", () => {
+    expect(gateFor({ unit: "v1", linkTaskId: null, draft: null, tasks: [k1, k9] })).toEqual({
+      kind: "start",
+      task: k1,
     });
-    expect(gateFor({ unit: "v1", linkTaskId: null, draft: null, tasks: [k1] })).toEqual({
-      kind: "nothing-due",
+    expect(gateFor({ unit: "v1", linkTaskId: null, draft: null, tasks: [k3] })).toEqual({
+      kind: "start",
+      task: k3,
     });
   });
 
-  it("row 2: a link task not listed, or captured through another unit, is nothing due", () => {
+  it("row 2a: a link task that is not usable stands aside for the one task", () => {
     expect(gateFor({ unit: "v1", linkTaskId: "k9", draft: null, tasks: [k1] })).toEqual({
+      kind: "start",
+      task: k1,
+    });
+    const elsewhere = task({ id: "kx", vehicleId: "v8", captureVehicleId: "v9" });
+    expect(gateFor({ unit: "v1", linkTaskId: "kx", draft: null, tasks: [elsewhere, k1] })).toEqual({
+      kind: "start",
+      task: k1,
+    });
+  });
+
+  it("row 2d: a coupled trailer's address with its one task forwards to it, named or not", () => {
+    expect(gateFor({ unit: "v2", linkTaskId: null, draft: null, tasks: [k3] })).toEqual({
+      kind: "forward",
+      task: k3,
+    });
+    expect(gateFor({ unit: "v2", linkTaskId: "k3", draft: null, tasks: [k3] })).toEqual({
+      kind: "forward",
+      task: k3,
+    });
+  });
+
+  it("row 2b: several tasks for the unit are picked, earliest due first, ties in list order", () => {
+    const late = task({ id: "late", dueAt: "2026-12-02T21:59:59Z" });
+    // k1 and k3 share a due time, k1 listed first.
+    expect(
+      gateFor({ unit: "v1", linkTaskId: null, draft: null, tasks: [late, k1, k9, k3] }),
+    ).toEqual({ kind: "pick", tasks: [k1, k3, late] });
+    expect(gateFor({ unit: "v1", linkTaskId: "k9", draft: null, tasks: [late, k1] })).toEqual({
+      kind: "pick",
+      tasks: [k1, late],
+    });
+  });
+
+  it("row 2b: a coupled trailer's address with several of its tasks", () => {
+    const k4 = task({
+      id: "k4",
+      vehicleId: "v2",
+      captureVehicleId: "v1",
+      dueAt: "2026-12-02T21:59:59Z",
+    });
+    expect(gateFor({ unit: "v2", linkTaskId: null, draft: null, tasks: [k4, k3] })).toEqual({
+      kind: "pick",
+      tasks: [k3, k4],
+    });
+  });
+
+  it("row 2c: nothing due when no listed task is for this unit", () => {
+    expect(gateFor({ unit: "v1", linkTaskId: null, draft: null, tasks: [] })).toEqual({
       kind: "nothing-due",
     });
-    const elsewhere = task({ id: "k1", captureVehicleId: "v9" });
-    expect(gateFor({ unit: "v1", linkTaskId: "k1", draft: null, tasks: [elsewhere] })).toEqual({
+    expect(gateFor({ unit: "v1", linkTaskId: "k9", draft: null, tasks: [k9] })).toEqual({
       kind: "nothing-due",
     });
   });
 
-  it("row 3: a failed read with no copy", () => {
-    expect(gateFor({ unit: "v1", linkTaskId: "k1", draft: null, tasks: "failed" })).toEqual({
-      kind: "tasks-failed",
-    });
+  it("row 3: a failed read with no copy, link or not", () => {
+    for (const linkTaskId of ["k1", null]) {
+      expect(gateFor({ unit: "v1", linkTaskId, draft: null, tasks: "failed" })).toEqual({
+        kind: "tasks-failed",
+      });
+    }
   });
 
   it("waits while the read is pending and a link task needs checking", () => {

@@ -7,19 +7,27 @@ export type TasksRead = readonly MyTask[] | "pending" | "failed";
 
 export type GateDraft = Pick<Draft, "vehicleId" | "taskId" | "observedMemberVehicleIds">;
 
-// The rows of the TYRE-319 spec's section 2 table.
+// The rows of the TYRE-319 spec's section 2 table, row 2 as TYRE-491 amends
+// it (U245).
 export type Gate =
   | { kind: "loading" }
-  | { kind: "start"; task: MyTask }
-  | { kind: "nothing-due" }
+  | { kind: "start"; task: MyTask } // rows 1 and 2a
+  | { kind: "forward"; task: MyTask } // row 2d
+  | { kind: "pick"; tasks: readonly MyTask[] } // row 2b, earliest due first
+  | { kind: "nothing-due" } // row 2c
   | { kind: "tasks-failed" }
   | { kind: "resume" }
   | { kind: "choose"; task: MyTask };
 
 // A rig is entered through its motive, so a towed unit's task is open for
 // the motive's route, not its own (000060, v_my_inspection_task).
-function captureUnit(t: MyTask): string {
+export function captureUnit(t: MyTask): string {
   return t.captureVehicleId ?? t.vehicleId;
+}
+
+// The one address a task opens at: its capture unit with the task named.
+export function taskPath(t: MyTask): string {
+  return `/capture/${captureUnit(t)}?taskId=${t.id}`;
 }
 
 export function openForUnit(
@@ -60,11 +68,26 @@ export function gateFor(input: {
     }
     return { kind: "resume" };
   }
-  if (linkTaskId === null) return { kind: "nothing-due" };
   if (tasks === "pending") return { kind: "loading" };
   if (tasks === "failed") return { kind: "tasks-failed" };
-  const task = openForUnit(tasks, linkTaskId, unit);
-  return task === undefined ? { kind: "nothing-due" } : { kind: "start", task };
+  const linked = openForUnit(tasks, linkTaskId, unit);
+  if (linked !== undefined) return { kind: "start", task: linked };
+  // A link task that is not usable counts as none (TYRE-491, Lead's call 2).
+  // The unit's tasks include a task's own unit because a coupled trailer's
+  // address must lead to its task (U245).
+  const mine = tasks.filter((t) => captureUnit(t) === unit || t.vehicleId === unit);
+  if (mine.length === 0) return { kind: "nothing-due" };
+  if (mine.length > 1) {
+    // The order citedTask prefers; sort is stable, so ties keep list order.
+    return {
+      kind: "pick",
+      tasks: [...mine].sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt)),
+    };
+  }
+  const only = mine[0];
+  return captureUnit(only) === unit
+    ? { kind: "start", task: only }
+    : { kind: "forward", task: only };
 }
 
 // The owner's answer 3 (TYRE-319 spec, section 2): the link's task when its

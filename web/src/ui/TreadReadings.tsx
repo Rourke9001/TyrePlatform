@@ -51,6 +51,12 @@ export interface TreadReadingsProps extends Omit<
   // whole mark is aria-hidden, so cellLabel carries any spoken word.
   governingText?: string;
   size?: "md" | "lg";
+  // TYRE-491, the owner's answer 2: the box a Next could not leave, marked
+  // by more than colour (NFR-USE-009). index counts the tread cells then the
+  // pressure cell, as EntryState.field does. beat changes on each stay and
+  // its parity picks one of two shakes, because a CSS animation replays only
+  // when its name changes.
+  needsReading?: { index: number; beat: number };
 }
 
 const defaultCellLabel = (i: number, n: number) => `Tread reading ${i + 1} of ${n}`;
@@ -75,11 +81,22 @@ interface CellProps {
   label?: string;
   active: boolean;
   governing: boolean;
+  needs?: "a" | "b";
   pill?: ReactNode;
   onClick?: () => void;
 }
 
-function Cell({ name, value, unitText, label, active, governing, pill, onClick }: CellProps) {
+function Cell({
+  name,
+  value,
+  unitText,
+  label,
+  active,
+  governing,
+  needs,
+  pill,
+  onClick,
+}: CellProps) {
   const hidden = label ? true : undefined;
   const body = (
     <>
@@ -105,6 +122,7 @@ function Cell({ name, value, unitText, label, active, governing, pill, onClick }
     className: "tr-tread__cell",
     "data-empty": value === "" ? "true" : undefined,
     "data-governing": governing ? "true" : undefined,
+    "data-needs": needs,
     "aria-current": active ? ("true" as const) : undefined,
   };
   if (!onClick) return <div {...shared}>{body}</div>;
@@ -128,6 +146,7 @@ export function TreadReadings({
   condition,
   governingText,
   size = "md",
+  needsReading,
   className,
   ...rest
 }: TreadReadingsProps) {
@@ -135,6 +154,14 @@ export function TreadReadings({
   const cells = n + (pressure ? 1 : 0);
   const names = cellNames(n, naming, side);
   const tone = condition ? PILL_TONE[condition] : undefined;
+  const needsOf = (i: number) =>
+    needsReading?.index === i ? (needsReading.beat % 2 === 0 ? "a" : "b") : undefined;
+  const needsName =
+    needsReading === undefined
+      ? null
+      : needsReading.index < n
+        ? cellLabel(needsReading.index, n)
+        : (pressure?.ariaLabel ?? pressure?.caption ?? "Pressure");
   const pill = (
     <span
       className={cx("tr-tread__low", tone && `tr-tread__low--${tone}`)}
@@ -169,6 +196,7 @@ export function TreadReadings({
             label={onSelect ? cellLabel(i, n) : undefined}
             active={activeIndex === i}
             governing={governingIndex === i}
+            needs={needsOf(i)}
             pill={governingIndex === i ? pill : undefined}
             onClick={onSelect ? () => onSelect(i) : undefined}
           />
@@ -181,10 +209,19 @@ export function TreadReadings({
             label={pressure.onSelect ? (pressure.ariaLabel ?? pressure.caption) : undefined}
             active={pressure.active ?? false}
             governing={false}
+            needs={needsOf(n)}
             onClick={pressure.onSelect}
           />
         ) : null}
       </div>
+      {/* Always rendered, empty until a stay, so the first message is an
+          update and is spoken. Polite and role-less: the sheet's warnings
+          already hold role="alert". */}
+      {onSelect ? (
+        <p className="tr-vh" aria-live="polite">
+          {needsName === null ? null : <span key={needsReading?.beat}>{needsName} is empty.</span>}
+        </p>
+      ) : null}
     </div>
   );
 }
