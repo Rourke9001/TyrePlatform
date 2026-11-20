@@ -359,6 +359,48 @@ describe("the way back from a refused sign-out (TYRE-319)", () => {
     expect(status).not.toContainElement(link);
   });
 
+  // CR-3: the link goes where the carry-on row goes, and "My inspections"
+  // shows no row for another driver's draft (DriverHome.tsx).
+  it("offers no link to a draft stamped for another driver", async () => {
+    await startDraft({
+      driverSubject: "oid-b",
+      vehicleId: "v1",
+      taskId: "k1",
+      startedAt: "2026-11-20T06:00:00.000Z",
+    });
+    renderButton();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
+
+    expect(await screen.findByText(/still open on this phone/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Go to it" })).toBeNull();
+  });
+
+  // U104: a legacy draft is carried by whoever signs in, so it keeps the
+  // link; an unstamped one that is not legacy is nobody's.
+  it.each([
+    { legacy: true, href: "/capture/v1" },
+    { legacy: false, href: null },
+  ])("with no stamp and legacy $legacy, links to $href", async ({ legacy, href }) => {
+    const outbox = await import("../capture/outbox");
+    vi.spyOn(outbox, "heldCount").mockResolvedValue({
+      draft: {
+        vehicleId: "v1",
+        taskId: null,
+        fleetNumber: null,
+        startedAt: "2026-11-20T06:00:00.000Z",
+        driverSubject: null,
+        legacy,
+      },
+      entries: 0,
+    });
+    renderButton();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
+
+    expect(await screen.findByText(/still open on this phone/)).toBeInTheDocument();
+    const link = screen.queryByRole("link", { name: "Go to it" });
+    expect(link?.getAttribute("href") ?? null).toBe(href);
+  });
+
   it("offers no link when only outbox entries are held", async () => {
     const outbox = await import("../capture/outbox");
     vi.spyOn(outbox, "heldCount").mockResolvedValue({ draft: null, entries: 2 });
