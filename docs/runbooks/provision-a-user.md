@@ -216,22 +216,14 @@ them (U104). The leaver step below exists so that never happens.
    the leaver opens the app on each phone, signed in as themselves (they
    sign in again if it asks), and works through these in order:
 
-   - **An inspection in progress.** They open it the way it was started:
-     its task on "My inspections", or the vehicle's capture address,
-     `/capture/<vehicle id>`, if it was started off the vehicle alone. Any
-     task listed on "My inspections" also leads to it. A task for the same
-     vehicle opens it. A task for another vehicle says "An inspection for
-     another vehicle is still open on this phone", and "Go to it" opens it.
-     Then either "Review and submit ›" and "Submit inspection", or "Discard
-     this inspection" and "Discard". On the "another vehicle" screen,
-     "Discard it" and "Discard" do the same without opening it.
-
-     If neither path reaches it, open the capture address of any vehicle
-     they drive, in the browser the app was used in. That address is the
-     vehicle's page under "Units", `/fleet/units/<vehicle id>`, with
-     `fleet/units` changed to `capture`, and it leads to the inspection the
-     same way. An app added to the home screen has no address bar to open
-     it in. TYRE-390 adds a way back to an open inspection in the app.
+   - **An inspection in progress.** They open it from the "Carry on with
+     <fleet number>, started <date and time>" row at the top of "My
+     inspections", or from "Go to it" under the sign-out refusal (TYRE-319).
+     A task for another vehicle says "An inspection for another vehicle is
+     still open on this phone", and "Go to it" opens it. Then either
+     "Review and submit ›" and "Submit inspection", or "Discard this
+     inspection" and "Discard". On the "another vehicle" screen, "Discard
+     it" and "Discard" do the same without opening it.
    - **"1 inspection needs the office"** (or "2 inspections need the
      office"). The office takes those readings by phone first. Then, for
      each one, the leaver taps "The office has <fleet number>" and
