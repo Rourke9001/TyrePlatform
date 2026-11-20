@@ -30,6 +30,7 @@ const unitWord = (kind: string) => UNIT_WORD[kind] ?? kind;
 export function CaptureStart({
   motive,
   storageBlocked,
+  startBlockedFor,
   attachedIds,
   onToggleAttached,
   onStart,
@@ -41,6 +42,10 @@ export function CaptureStart({
   // CaptureFlow carries the reason and retry above; this control just stops
   // looking live (NFR-USE-005).
   storageBlocked: boolean;
+  // The link's task's unit when no ticked unit carries an open task, so
+  // there is nothing to file the inspection against (TYRE-319, the owner's
+  // answer 3). Null when Start is offered.
+  startBlockedFor: string | null;
   // Ticked members seeded from ALL of motive.combination.members (motive
   // included, disabled), narrowed only by unticking.
   attachedIds: string[];
@@ -83,6 +88,7 @@ export function CaptureStart({
   const held = warnings.length > 0 && !plausible;
 
   function start() {
+    if (startBlockedFor !== null) return;
     if (rejection) return;
     if (held) return;
     onStart({
@@ -249,15 +255,22 @@ export function CaptureStart({
         identifies the phone to the platform, not you. Nothing else about the fleet is stored here.
       </p>
 
-      <Button
-        variant="primary"
-        size="glove"
-        block
-        onClick={start}
-        disabled={storageBlocked || rejection !== null || held}
-      >
-        Start inspection
-      </Button>
+      {startBlockedFor !== null ? (
+        <p role="status" className="cap-alert cap-alert--caution">
+          This inspection is for {startBlockedFor}. Tick it to inspect it, or tell your fleet office
+          it is not attached.
+        </p>
+      ) : (
+        <Button
+          variant="primary"
+          size="glove"
+          block
+          onClick={start}
+          disabled={storageBlocked || rejection !== null || held}
+        >
+          Start inspection
+        </Button>
+      )}
     </section>
   );
 }

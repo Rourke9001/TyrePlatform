@@ -56,10 +56,10 @@ function Landing() {
   return canViewFleet ? <Dashboard /> : <Navigate to="/my" replace />;
 }
 
-// FR-INS-048's one tap into the work. The vehicle is in the path and the task
-// is a query parameter because an inspection can be started off a task or off
-// the vehicle alone (FR-INS-049). The same screen, with or without a task to
-// close.
+// FR-INS-048's one tap into the work. The task rides in the query so capture
+// can check it is open for the unit in the path: an actor who is not
+// tenant-wide starts only from one (TYRE-319, U143), and a tenant-wide actor
+// may open the unit alone.
 function CaptureRoute() {
   const { vehicleId } = useParams();
   const [params] = useSearchParams();

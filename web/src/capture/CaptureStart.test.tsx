@@ -37,11 +37,16 @@ const motive: CaptureContext = {
 
 type Init = Parameters<typeof CaptureStart>[0]["onStart"];
 
-function renderStart(onStart: Init, over: Partial<CaptureContext> = {}) {
+function renderStart(
+  onStart: Init,
+  over: Partial<CaptureContext> = {},
+  startBlockedFor: string | null = null,
+) {
   return render(
     <CaptureStart
       motive={{ ...motive, ...over }}
       storageBlocked={false}
+      startBlockedFor={startBlockedFor}
       attachedIds={["v1"]}
       onToggleAttached={vi.fn()}
       onStart={onStart}
@@ -336,6 +341,7 @@ describe("CaptureStart's odometer unit", () => {
         <CaptureStart
           motive={motive}
           storageBlocked={false}
+          startBlockedFor={null}
           attachedIds={["v1"]}
           onToggleAttached={vi.fn()}
           onStart={vi.fn()}
@@ -344,5 +350,23 @@ describe("CaptureStart's odometer unit", () => {
     );
     expect(screen.getAllByText(/XKM/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/\bkm\b/)).not.toBeInTheDocument();
+  });
+});
+
+// TYRE-319 (the owner's answer 3): with no ticked unit carrying a task there
+// is nothing to file the inspection against, so Start is not offered.
+describe("a blocked Start", () => {
+  it("offers no button and ignores the keypad's go key", async () => {
+    const onStart = vi.fn();
+    renderStart(onStart, { lastOdometerKm: null, averageDailyKm: null }, "BAC711TR");
+
+    expect(
+      screen.getByText(
+        "This inspection is for BAC711TR. Tick it to inspect it, or tell your fleet office it is not attached.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Done ›" }));
+    expect(onStart).not.toHaveBeenCalled();
   });
 });

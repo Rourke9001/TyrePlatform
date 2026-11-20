@@ -1,18 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { focusManager, onlineManager, type QueryClient } from "@tanstack/react-query";
+import { focusManager, onlineManager, QueryClient } from "@tanstack/react-query";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 import { Link, Route, Routes } from "react-router";
 
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
+import { myTasksQuery, type MyTask } from "../driver/driver.data";
 import { captureContext, renderWithActor, respond, testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { formatTenantDate } from "../time/tenantTime";
 import { CaptureFlow } from "./CaptureFlow";
 import type { CaptureContext } from "./captureContext";
 import { captureContextQuery } from "./captureContext";
-import { clearDraft, db, loadDraft, markSpareAbsent, startDraft } from "./draft";
+import { clearDraft, db, loadDraft, markSpareAbsent, savePosition, startDraft } from "./draft";
 import { listOutbox } from "./outbox";
 import { readStorageFaults, writeFailed } from "./storageFaults";
 
@@ -114,13 +115,21 @@ const spareOnly: CaptureContext = {
 // GET the context of whichever unit was asked for, POST the inspection. Routed
 // on method and on the vehicle in the path, so neither the order the component
 // calls in nor which unit it asks for first decides whether the test passes.
+// GET /api/my/tasks is answered from myTasks: "pending" never settles and
+// "failed" rejects as a dead network does.
 function stubApi(
   submitStatus = 201,
   served: CaptureContext[] = [context],
   submitCode: string | null = null,
+  myTasks: MyTask[] | "pending" | "failed" = [],
 ) {
   const byId = new Map(served.map((c) => [c.vehicleId, c]));
-  const api = vi.fn((url: string, init?: { method?: string; body?: string }) => {
+  const api = vi.fn((url: string, init?: { method?: string; body?: string }): Promise<unknown> => {
+    if (url.startsWith("/api/my/tasks")) {
+      if (myTasks === "pending") return new Promise<never>(() => undefined);
+      if (myTasks === "failed") return Promise.reject(new TypeError("Failed to fetch"));
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(myTasks) });
+    }
     if (init?.method === "POST") {
       const reply =
         submitStatus < 400 ? { inspectionId: "i1" } : { code: submitCode, message: "refused" };
@@ -1998,4 +2007,363 @@ describe("a refresh that fails with a copy in hand", () => {
       expect(screen.getByRole("button", { name: /start inspection/i })).toBeEnabled();
     },
   );
+});
+// TYRE-319: a scoped actor's capture opens only from an open task of theirs
+// on that unit, by the rows of the spec's section 2 table.
+const k1: MyTask = {
+  id: "k1",
+  vehicleId: "v1",
+  fleetNumber: "BAC039SP",
+  dueAt: "2026-11-21T21:59:59Z",
+  state: "OPEN",
+  overdue: false,
+};
+const k2: MyTask = { ...k1, id: "k2", dueAt: "2026-11-22T21:59:59Z" };
+// A towed unit's task, captured through the motive.
+const k3: MyTask = {
+  ...k1,
+  id: "k3",
+  vehicleId: "v2",
+  fleetNumber: "BAC711TR",
+  captureVehicleId: "v1",
+};
+const HELD_AT = "2026-11-20T06:00:00.000Z";
+const NOTHING_DUE =
+  "Nothing is due on this vehicle for you. An inspection starts from a task on My inspections.";
+const CHOICE = /The task you opened is a different one/;
+
+function renderScoped(linkTaskId: string | null, client = testQueryClient()) {
+  return renderWithActor(<CaptureFlow vehicleId="v1" taskId={linkTaskId} />, {
+    client,
+    actor: { role: "DRIVER", scope: "DEPOT" },
+  });
+}
+
+async function holdDraft(observed: string[] = ["v1"], taskId = "k1") {
+  await startDraft({
+    driverSubject: DRIVER,
+    vehicleId: "v1",
+    taskId,
+    startedAt: HELD_AT,
+    fleetNumber: "BAC039SP",
+    observedMemberVehicleIds: observed,
+  });
+}
+
+const walkAround = () => screen.findByRole("heading", { name: /^\d+ of \d+ done$/ });
+const startButton = () => screen.findByRole("button", { name: /start inspection/i });
+const tasksAsked = (api: ReturnType<typeof stubApi>) =>
+  api.mock.calls.some(([url]) => url.startsWith("/api/my/tasks"));
+
+describe("the task gate (TYRE-319)", () => {
+  it("row 1: a link to an open task shows Start", async () => {
+    stubApi(201, [context], null, [k1]);
+    renderScoped("k1");
+    await startButton();
+  });
+
+  it("row 1, cached: Start shows at once while the list's refetch is still in flight", async () => {
+    stubApi(201, [context], null, "pending");
+    const client = testQueryClient();
+    client.setQueryData(myTasksQuery().queryKey, [k1]);
+    renderScoped("k1", client);
+
+    await startButton();
+    expect(screen.queryByText("Loading…")).toBeNull();
+  });
+
+  it("row 2: no link task shows no form, the words and the way back", async () => {
+    stubApi(201, [context], null, [k1]);
+    renderScoped(null);
+
+    expect(await screen.findByText(NOTHING_DUE)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "My inspections" })).toHaveAttribute("href", "/my");
+    expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
+  });
+
+  it.each([
+    ["not listed", [k2]],
+    ["listed but captured through another unit", [{ ...k1, captureVehicleId: "v9" }]],
+  ])("row 2: a link task %s is nothing due", async (_name, tasks) => {
+    stubApi(201, [context], null, tasks);
+    renderScoped("k1");
+
+    expect(await screen.findByText(NOTHING_DUE)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
+  });
+
+  it("row 3: a failed read says so, reloads, and offers the way back", async () => {
+    const user = newUser();
+    stubApi(201, [context], null, "failed");
+    renderScoped("k1");
+
+    expect(
+      await screen.findByText("Could not load your inspections. Find signal and try again."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "My inspections" })).toHaveAttribute("href", "/my");
+    expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
+
+    stubApi(201, [context], null, [k1]);
+    await user.click(screen.getByRole("button", { name: "Reload" }));
+    await startButton();
+  });
+
+  it("waits on a pending read before a link task can start", async () => {
+    stubApi(201, [context], null, "pending");
+    const client = testQueryClient();
+    renderScoped("k1", client);
+
+    await landed(client, "v1", () => true);
+    expect(await screen.findByText("Loading…")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
+  });
+
+  it("row 4: the draft's own task resumes at once, read pending", async () => {
+    await holdDraft();
+    stubApi(201, [context], null, "pending");
+    renderScoped("k1");
+    await walkAround();
+  });
+
+  it("row 4: a link with no task resumes the draft", async () => {
+    await holdDraft();
+    stubApi(201, [context], null, "pending");
+    renderScoped(null);
+    await walkAround();
+  });
+
+  it("row 5: a different open task on a unit the draft covers offers the choice", async () => {
+    await holdDraft();
+    stubApi(201, [context], null, [k1, k2]);
+    renderScoped("k2");
+
+    expect(
+      await screen.findByText(
+        /You have an inspection of BAC039SP in progress on this phone, started .+\. The task you opened is a different one\./,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^\d+ of \d+ done$/ })).toBeNull();
+  });
+
+  it("row 5: a towed unit's task the draft confirmed attached offers the choice", async () => {
+    await holdDraft(["v1", "v2"]);
+    stubApi(201, [rigMotive, trailer], null, [k3]);
+    renderScoped("k3");
+    expect(await screen.findByText(CHOICE)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["a task not open", ["v1"], [k1], "k2"],
+    ["a towed unit's task the draft does not cover", ["v1"], [k3], "k3"],
+  ])("row 6: %s resumes with the draft's own task", async (_name, observed, tasks, link) => {
+    await holdDraft(observed);
+    stubApi(201, [context], null, tasks);
+    renderScoped(link);
+
+    await walkAround();
+    expect(screen.queryByText(CHOICE)).toBeNull();
+    expect((await loadDraft())?.taskId).toBe("k1");
+  });
+
+  it("row 6: a failed read resumes", async () => {
+    await holdDraft();
+    stubApi(201, [context], null, "failed");
+    renderScoped("k2");
+    await walkAround();
+    expect((await loadDraft())?.taskId).toBe("k1");
+  });
+
+  it("row 6: offline, a read that is paused resumes the draft at once (NFR-AVL-002)", async () => {
+    const user = newUser();
+    stubApi(201, [context], null, [k1]);
+    const client = testQueryClient();
+    const first = renderScoped("k1", client);
+    await user.click(await startButton());
+    await walkAround();
+    first.unmount();
+
+    client.removeQueries({ queryKey: myTasksQuery().queryKey });
+    onlineManager.setOnline(false);
+    try {
+      renderScoped("k2", client);
+      await walkAround();
+      expect(screen.queryByText("Loading…")).toBeNull();
+      expect((await loadDraft())?.taskId).toBe("k1");
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  it("row 6: a read that has failed once and is retrying resumes the draft", async () => {
+    await holdDraft();
+    stubApi(201, [context], null, "failed");
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: 3, retryDelay: 60_000 } },
+    });
+    try {
+      renderScoped("k2", client);
+      await walkAround();
+      expect(client.getQueryState(myTasksQuery().queryKey)?.status).toBe("pending");
+    } finally {
+      await client.cancelQueries();
+      client.clear();
+    }
+  });
+
+  it("Review Focus 1: a refetch that lists the link's task after a row 6 resume keeps the walk-around", async () => {
+    await holdDraft();
+    stubApi(201, [context], null, "failed");
+    const client = testQueryClient();
+    renderScoped("k2", client);
+    await walkAround();
+
+    stubApi(201, [context], null, [k1, k2]);
+    await act(() => client.refetchQueries({ queryKey: myTasksQuery().queryKey }));
+    await waitFor(() =>
+      expect(client.getQueryState(myTasksQuery().queryKey)?.status).toBe("success"),
+    );
+    await walkAround();
+    expect(screen.queryByText(CHOICE)).toBeNull();
+  });
+
+  it("a tenant-wide actor starts with no task and never reads the list", async () => {
+    const api = stubApi(201, [context], null, [k1]);
+    renderFlow();
+    await startButton();
+    expect(tasksAsked(api)).toBe(false);
+  });
+});
+
+describe("the choice screen (TYRE-323, B7)", () => {
+  async function holdWithReading() {
+    await holdDraft();
+    await savePosition({
+      positionId: "p1",
+      vehicleId: "v1",
+      tyreId: "ty1",
+      treads: [13, 13, 14],
+      pressureKpa: 800,
+      pressureTemperature: "UNKNOWN",
+      damageFlag: false,
+      note: null,
+      seconds: 6,
+      warnings: [],
+    });
+    return loadDraft();
+  }
+
+  it("Carry on for this task writes the task and keeps every reading", async () => {
+    const user = newUser();
+    const before = await holdWithReading();
+    stubApi(201, [context], null, [k1, k2]);
+    renderScoped("k2");
+
+    await screen.findByText(CHOICE);
+    await user.click(screen.getByRole("button", { name: "Carry on for this task" }));
+    await walkAround();
+    const after = await loadDraft();
+    expect(after?.taskId).toBe("k2");
+    expect({ ...after, taskId: "k1" }).toEqual(before);
+  });
+
+  it("Start again discards only after the confirm, then starts for the link's task", async () => {
+    const user = newUser();
+    const before = await holdWithReading();
+    stubApi(201, [context], null, [k1, k2]);
+    renderScoped("k2");
+
+    await screen.findByText(CHOICE);
+    await user.click(screen.getByRole("button", { name: "Start again" }));
+    expect(await loadDraft()).toEqual(before);
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    await user.click(await startButton());
+    await walkAround();
+    expect((await loadDraft())?.taskId).toBe("k2");
+  });
+
+  it("leaving the choice screen writes nothing", async () => {
+    const before = await holdWithReading();
+    stubApi(201, [context], null, [k1, k2]);
+    const { unmount } = renderScoped("k2");
+
+    await screen.findByText(CHOICE);
+    unmount();
+    expect(await loadDraft()).toEqual(before);
+  });
+
+  it("a carry-on whose write fails keeps the choice screen and the draft's task", async () => {
+    const user = newUser();
+    await holdWithReading();
+    stubApi(201, [context], null, [k1, k2]);
+    renderScoped("k2");
+
+    await screen.findByText(CHOICE);
+    vi.spyOn(db.drafts, "put").mockRejectedValueOnce(new Error("quota"));
+    await user.click(screen.getByRole("button", { name: "Carry on for this task" }));
+
+    expect(await screen.findByText(DEGRADED)).toBeInTheDocument();
+    expect(screen.getByText(CHOICE)).toBeInTheDocument();
+    expect((await loadDraft())?.taskId).toBe("k1");
+  });
+});
+
+describe("the cited task at Start (TYRE-319, the owner's answer 3)", () => {
+  // The link's task is the towed unit's, captured through the motive.
+  const kt: MyTask = { ...k3, id: "kt", dueAt: "2026-12-02T21:59:59Z" };
+
+  it("case 1: the link's towed unit, ticked, is cited", async () => {
+    const user = newUser();
+    stubApi(201, [rigMotive, trailer], null, [kt]);
+    renderScoped("kt");
+
+    await user.click(await startButton());
+    await walkAround();
+    expect((await loadDraft())?.taskId).toBe("kt");
+  });
+
+  it("case 2: with it unticked, the earliest ticked task on this route is cited", async () => {
+    const user = newUser();
+    stubApi(201, [rigMotive, trailer], null, [kt, k2, k1]);
+    renderScoped("kt");
+
+    await user.click(await screen.findByRole("checkbox", { name: /BAC711TR/ }));
+    await user.click(await startButton());
+    await walkAround();
+    expect((await loadDraft())?.taskId).toBe("k1");
+  });
+
+  it("case 3: nothing ticked carries a task, so Start is not offered until it is ticked again", async () => {
+    const user = newUser();
+    stubApi(201, [rigMotive, trailer], null, [kt]);
+    renderScoped("kt");
+
+    await startButton();
+    await user.click(screen.getByRole("checkbox", { name: /BAC711TR/ }));
+    expect(
+      screen.getByText(
+        "This inspection is for BAC711TR. Tick it to inspect it, or tell your fleet office it is not attached.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
+
+    await user.click(screen.getByRole("checkbox", { name: /BAC711TR/ }));
+    await startButton();
+  });
+
+  it("the other vehicle's Go to it carries that draft's task", async () => {
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v9",
+      taskId: "k9",
+      startedAt: HELD_AT,
+      fleetNumber: "BAC100SP",
+    });
+    stubApi(201, [context], null, [k1]);
+    renderScoped("k1");
+
+    expect(await screen.findByRole("link", { name: "Go to it" })).toHaveAttribute(
+      "href",
+      "/capture/v9?taskId=k9",
+    );
+  });
 });

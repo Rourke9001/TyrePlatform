@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { ApiError } from "../api/apiError";
 import { bearerMode, stampSubject } from "../api/token";
-import { ACCESS_COPY, failureOf } from "../auth/actorContext";
+import { ACCESS_COPY, failureOf, useActor } from "../auth/actorContext";
 import { SignInButton } from "../auth/SignInButton";
 import { Button } from "../ui/Button";
 import { inertOutside } from "../ui/inertOutside";
@@ -14,7 +14,7 @@ import { CaptureReview } from "./CaptureReview";
 import { CaptureStart } from "./CaptureStart";
 import { ConfirmDiscard } from "./ConfirmDiscard";
 import type { RecordedWarning } from "./draft";
-import { saveHeader } from "./draft";
+import { draftPath, saveHeader } from "./draft";
 import { useCaptureContext } from "./captureContext";
 import { attemptSend, listOutbox, mayCarry, queueDraft } from "./outbox";
 import { lostWords, draftLostWords } from "./lostWords";
@@ -27,6 +27,9 @@ import { useDraftLifecycle } from "./useDraftLifecycle";
 import { useEntryHandlers } from "./useEntryHandlers";
 import { inspectionEnded, useStorageFaults, writeFailed } from "./storageFaults";
 import { useRigComposition } from "./useRigComposition";
+import { citedTask } from "./taskGate";
+import { TaskChoice } from "./TaskChoice";
+import { useTaskGate } from "./useTaskGate";
 import "./capture.css";
 
 interface Outcome {
@@ -163,6 +166,7 @@ function LoadFailure({
   saved,
   reloadLabel,
   onReload,
+  wayBack = false,
 }: {
   error: unknown;
   refused: string;
@@ -170,6 +174,8 @@ function LoadFailure({
   saved: boolean;
   reloadLabel: string;
   onReload: () => void;
+  // Adds "My inspections" where the controls do not carry it already.
+  wayBack?: boolean;
 }) {
   const answer = answerOf(error, refused);
   const reason =
@@ -190,6 +196,7 @@ function LoadFailure({
         onReload={onReload}
         emphasis="primary"
       />
+      {wayBack && answer.kind !== "refused" && <BackToWork />}
     </section>
   );
 }
@@ -211,8 +218,18 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   // wear-rate comparison must not move with a re-render.
   const [openedAt] = useState(() => Date.now());
 
-  const lifecycle = useDraftLifecycle(vehicleId, taskId, setActiveKey, setAttachedIds);
+  const lifecycle = useDraftLifecycle(vehicleId, setActiveKey, setAttachedIds);
   const { draft, setDraft, resumed, held, screen, setScreen } = lifecycle;
+  // "A driver" in the ticket is an actor whose scope is not tenant-wide
+  // (ADR-0011, U87). No actor yet counts as scoped, so the gate fails closed.
+  const scoped = useActor()?.scope !== "TENANT";
+  const resumedDraft = lifecycle.resumedStartedAt !== null ? draft : null;
+  const { gate, tasks, linkTask, tasksError, reload, settle } = useTaskGate({
+    vehicleId,
+    linkTaskId: taskId,
+    scoped,
+    resumedDraft,
+  });
   const faults = useStorageFaults();
   // Read once the draft has loaded, so a resumed draft's units are keyed on
   // its own window and never asked of the server first at now (U148); the
@@ -263,6 +280,12 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     absent,
   });
 
+  const cited = scoped
+    ? citedTask({ linkTask, tasks, unit: vehicleId, ticked: confirmedIds ?? [vehicleId] })
+    : undefined;
+  const startBlockedFor =
+    scoped && cited === undefined ? (linkTask?.fleetNumber ?? "this vehicle") : null;
+
   function handleStart(init: {
     odometerKm: number | null;
     observedMemberVehicleIds: string[];
@@ -270,9 +293,16 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   }) {
     const ctx = motive.data;
     if (!ctx) return;
+    // The task goes into the draft at Start, from the units ticked then (the
+    // owner's answer 3). A tenant-wide actor's draft carries the link's task.
+    let startTaskId = taskId;
+    if (scoped) {
+      if (cited === undefined) return;
+      startTaskId = cited.id;
+    }
     setAttachedIds(init.observedMemberVehicleIds);
     rigComp.hold();
-    void lifecycle.startDraftAndAdvance(ctx, init);
+    void lifecycle.startDraftAndAdvance(ctx, { ...init, taskId: startTaskId });
   }
 
   function handleSubmit(patch: { comment: string | null; defectReport: string | null }) {
@@ -356,7 +386,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           An inspection for another vehicle is still open on this phone. Finish that one first.
         </p>
         {/* A plain anchor for BackToWork's reason (CaptureDone.tsx). */}
-        <a className="cap-primary" href={`/capture/${held.vehicleId}`}>
+        <a className="cap-primary" href={draftPath(held)}>
           Go to it
         </a>
         <ConfirmDiscard
@@ -367,6 +397,47 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           onConfirm={lifecycle.discardHeld}
         />
       </section>
+    );
+  } else if (resumedDraft !== null && gate.kind === "loading") {
+    body = <p className="cap-wait">Loading…</p>;
+  } else if (resumedDraft !== null && gate.kind === "choose") {
+    // A failed write leaves the choice up under the storage banner.
+    const task = gate.task;
+    body = (
+      <TaskChoice
+        draft={resumedDraft}
+        onCarryOn={() =>
+          void lifecycle.carryOn(task.id).then((ok) => {
+            if (ok) settle();
+          })
+        }
+        onStartAgain={lifecycle.discardCurrent}
+      />
+    );
+  } else if (screen === "start" && draft === null && gate.kind === "loading") {
+    body = <p className="cap-wait">Loading…</p>;
+  } else if (screen === "start" && draft === null && gate.kind === "nothing-due") {
+    // U143: a driver inspects only when a task asks for it.
+    body = (
+      <section className="cap-screen">
+        <p role="status" className="cap-alert cap-alert--caution">
+          Nothing is due on this vehicle for you. An inspection starts from a task on My
+          inspections.
+        </p>
+        <BackToWork />
+      </section>
+    );
+  } else if (screen === "start" && draft === null && gate.kind === "tasks-failed") {
+    body = (
+      <LoadFailure
+        error={tasksError}
+        refused="this vehicle"
+        loading="your inspections"
+        saved={false}
+        reloadLabel="Reload"
+        onReload={reload}
+        wayBack
+      />
     );
   } else if (!shownMotive) {
     // NFR-AVL-002: starting requires the server; every threshold and
@@ -424,6 +495,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         <CaptureStart
           motive={shownMotive}
           storageBlocked={faults.unavailable}
+          startBlockedFor={startBlockedFor}
           attachedIds={confirmedIds ?? [vehicleId]}
           onToggleAttached={toggleAttached}
           onStart={handleStart}
