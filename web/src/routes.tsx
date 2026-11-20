@@ -58,8 +58,9 @@ function Landing() {
 
 // FR-INS-048's one tap into the work. The task rides in the query so capture
 // can check it is open for the unit in the path: an actor who is not
-// tenant-wide starts only from one (TYRE-319, U143), and a tenant-wide actor
-// may open the unit alone.
+// tenant-wide starts only from one (TYRE-319, U143), and a link with none
+// finds the one due on the unit (TYRE-491). A tenant-wide actor may open the
+// unit alone.
 function CaptureRoute() {
   const { vehicleId } = useParams();
   const [params] = useSearchParams();

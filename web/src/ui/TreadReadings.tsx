@@ -215,8 +215,8 @@ export function TreadReadings({
         ) : null}
       </div>
       {/* Always rendered, empty until a stay, so the first message is an
-          update and is spoken (the same reason auth.css gives). Polite and
-          role-less: the sheet's warnings already hold role="alert". */}
+          update and is spoken. Polite and role-less: the sheet's warnings
+          already hold role="alert". */}
       {onSelect ? (
         <p className="tr-vh" aria-live="polite">
           {needsName === null ? null : <span key={needsReading?.beat}>{needsName} is empty.</span>}

@@ -2137,8 +2137,8 @@ describe("the task gate (TYRE-319)", () => {
     renderScoped(null, client);
 
     await landed(client, "v1", () => true);
-    // Gives the old gate's "Nothing is due" time to paint, so this case fails
-    // without the change.
+    // Long enough for a wrongly shown "Nothing is due" to paint, so a gate
+    // that skips the wait fails here.
     await expect(screen.findByText(NOTHING_DUE, undefined, { timeout: 500 })).rejects.toThrow();
     expect(screen.getByText("Loading…")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
