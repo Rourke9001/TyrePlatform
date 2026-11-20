@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { MyTask } from "../driver/driver.data";
-import { citedTask, gateFor, openForUnit, type GateDraft } from "./taskGate";
+import { citedTask, gateFor, openForUnit, taskPath, type GateDraft } from "./taskGate";
 
 function task(overrides: Partial<MyTask> & { id: string }): MyTask {
   return {
@@ -20,6 +20,13 @@ const k2 = task({ id: "k2" });
 const k3 = task({ id: "k3", vehicleId: "v2", fleetNumber: "BAC711TR", captureVehicleId: "v1" });
 
 const held: GateDraft = { vehicleId: "v1", taskId: "k1", observedMemberVehicleIds: ["v1", "v2"] };
+
+describe("taskPath", () => {
+  it("is the task's capture unit with the task named", () => {
+    expect(taskPath(k1)).toBe("/capture/v1?taskId=k1");
+    expect(taskPath(k3)).toBe("/capture/v1?taskId=k3");
+  });
+});
 
 describe("openForUnit", () => {
   it("finds a listed task captured through this unit, by the task's own unit or its capture unit", () => {

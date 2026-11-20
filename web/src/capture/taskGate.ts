@@ -18,8 +18,13 @@ export type Gate =
 
 // A rig is entered through its motive, so a towed unit's task is open for
 // the motive's route, not its own (000060, v_my_inspection_task).
-function captureUnit(t: MyTask): string {
+export function captureUnit(t: MyTask): string {
   return t.captureVehicleId ?? t.vehicleId;
+}
+
+// The one address a task opens at: its capture unit with the task named.
+export function taskPath(t: MyTask): string {
+  return `/capture/${captureUnit(t)}?taskId=${t.id}`;
 }
 
 export function openForUnit(
