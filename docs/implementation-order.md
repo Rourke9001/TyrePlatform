@@ -89,7 +89,6 @@ migration, an endpoint, a route or a screen, or is several defects.
 |---|---|---|---|---|
 | 2 | `make pipeline T=TYRE-371` | merged in PR #229, the runner half only; email moved to TYRE-243 (U233) | infrastructure, database, API | the owner's staging steps in `environment-release.md`, The daily job (the job's daily run on staging) |
 | 3 | `make pipeline T=TYRE-438` | fold 437's fix | infrastructure | the owner's call to narrow `id-tyre-deploy-prod` or re-accept it; a platform apply. It merges before BAC onboards (B43) |
-| 5 | `make pipeline T=TYRE-154` | none | web, capture | the owner supplies the app icon (192 and 512 px, and an apple-touch icon); row 8's favicon uses the same mark |
 
 **Sprint 2**
 
@@ -97,7 +96,7 @@ migration, an endpoint, a route or a screen, or is several defects.
 |---|---|---|---|---|
 | 6 | `make pipeline T=TYRE-319` | 323; fold 390 | database, API, web, capture | none |
 | 7 | `make pipeline T=TYRE-325` | none; it adds the void button | API, web | none |
-| 8 | `make pipeline T=TYRE-240` | 176 with fold 278; the behaviour fixes 118, 119, 182, 291, 327 and 328, 330's f8, f15 and f16, the favicon, and B41's back-dating field | web, API | row 5's icon. In Progress on the board with no branch: its Tread ports merged as #153 and #154 |
+| 8 | `make pipeline T=TYRE-240` | 176 with fold 278; the behaviour fixes 118, 119, 182, 291, 327 and 328, 330's f8, f15 and f16, the favicon, and B41's back-dating field | web, API | none. The favicon reuses the tyre mark under `web/public/icons/` (#234). In Progress on the board with no branch: its Tread ports merged as #153 and #154 |
 | 9 | `make pipeline T=TYRE-243` | slice 1, the lifecycle | database, API, web | none |
 | 10 | `make pipeline T=TYRE-432` | fold 425 | database | none. It merges before BAC's tenant is provisioned (Two ordering rules) |
 | 11 | `make pipeline T=TYRE-152` | its first PR: the server, the queue and the office read | infrastructure, API, web | an ADR first (upload through the API); a role assignment on the photos container |
@@ -209,7 +208,7 @@ Of the 59 tickets still open in sprints 1 to 4 and readiness, 24 are
 features, 5 are platform pieces and 30 are fixes; the fixes travel in about a
 dozen batched PRs, so feature work sets the pace.
 
-- **Features:** 76, 99, 100, 102, 109, 133, 152, 154, 243, 284, 285, 286,
+- **Features:** 76, 99, 100, 102, 109, 133, 152, 243, 284, 285, 286,
   287, 292, 319, 320, 322, 325, 366, 367, 377, 441, 448, 455.
 - **Platform:** 321, 371, 398, 434, 438.
 - **Fixes:** 105, 112, 113, 115, 120, 121, 123, 131, 140, 159, 168,
@@ -266,7 +265,7 @@ whose board search found no ticket (the same section, U212).
 The capture route's entry has three ceilings, JavaScript and CSS in gzip
 bytes and fonts in raw bytes, each with 10% headroom over the figure it was
 set from (U200, TYRE-474). Every capture-route change in the queue adds
-bytes: the capture fixes, photos, the manifest and capture's remaining
+bytes: the capture fixes, photos and capture's remaining
 screens. A rise under a ceiling passes and shows in the PR's "Capture bundle
 size" job summary, and the PR names the import that grew the entry, so the
 growth is a decision, not an accident (U84, ADR-0015). A change that would
@@ -281,9 +280,9 @@ tenant, created at TYRE-321's live onboarding (U139).
 
 ## Blocked on people, not code
 
-**The owner:** supply the app icon that the run queue's rows 5 and 8 need;
-decide `id-tyre-deploy-prod`'s role for row 3; run TYRE-381's device check
-and TYRE-472's staging check (The run queue, Not a pipeline run). Also have
+**The owner:** decide `id-tyre-deploy-prod`'s role for row 3; run TYRE-381's device check,
+TYRE-472's staging check (The run queue, Not a pipeline run) and TYRE-154's
+iPhone and Android checks on staging (merged in #234). Also have
 the SRS Cowork agent paste U166's errata for
 NFR-BAK-005 and 006 and fix the release log's staging database row
 (`docs/HANDOFF_srs_errata_TYRE-321_U166_2026-11-03.md`, gitignored). Staging is at 60 since
