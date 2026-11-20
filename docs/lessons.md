@@ -170,7 +170,8 @@ second (`elegant_darwin`) showed in `docker ps` after `TaskStop`, and
 `docker ps`. If a `golang` container still holds :8080, stop it by name with
 `docker stop <name>`, and confirm
 `curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/me` prints
-000.
+000. Never stop it by killing the PID `netstat` shows listening on :8080: that
+PID is Docker Desktop's backend, and killing it stops the daemon (TYRE-491).
 
 ## 2026-11-08 - A Go check in front of a Postgres cast passed texts the cast refuses (2026-11-07; TYRE-379, #166)
 
