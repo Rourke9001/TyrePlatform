@@ -475,6 +475,7 @@ the PR, and the new states in `/dev/design` where a gallery section fits.
 | The way back to a held inspection whose task has left the list | A carry-on row on "My inspections", and the sign-out link |
 | Where a resumed inspection shows its start time | One line on the walk-around and review screens, on a resumed inspection only |
 | The driver unticks the unit the task is for | The inspection goes ahead only against another open task on a ticked unit; otherwise Start is not offered and the screen says to tell the fleet office |
+| The spec, with the lead's calls | Approved, 20 Nov 2026 (U244) |
 
 Earlier rulings this design applies: U143 and TYRE-440 comment 13871 (the
 rule, and a late submit is accepted), U147 items B7, B16 and C6, U150 (one
