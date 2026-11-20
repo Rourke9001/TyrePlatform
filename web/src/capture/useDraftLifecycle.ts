@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 
 import type { CaptureContext } from "./captureContext";
 import type { Draft, RecordedWarning } from "./draft";
-import { clearDraft, loadDraft, saveHeader, startDraft } from "./draft";
+import { clearDraft, loadDraft, repointTask, saveHeader, startDraft } from "./draft";
 import { stampSubject } from "../api/token";
 import { mayCarry } from "./outbox";
 import { halfEnteredCell } from "./payload";
@@ -19,7 +19,6 @@ export type Screen = "start" | "capture" | "review" | "done";
 // copies.
 export function useDraftLifecycle(
   vehicleId: string,
-  taskId: string | null,
   setActiveKey: Dispatch<SetStateAction<string | null>>,
   setAttachedIds: Dispatch<SetStateAction<string[] | null>>,
 ) {
@@ -88,6 +87,7 @@ export function useDraftLifecycle(
       odometerKm: number | null;
       observedMemberVehicleIds: string[];
       warnings: RecordedWarning[];
+      taskId: string | null;
     },
   ) {
     const driverSubject = stampSubject();
@@ -101,7 +101,7 @@ export function useDraftLifecycle(
       await startDraft({
         driverSubject,
         vehicleId,
-        taskId,
+        taskId: init.taskId,
         // Rule 6: stored UTC. The tenant's timezone is applied on the way
         // out, not on the way in.
         startedAt: new Date().toISOString(),
@@ -117,6 +117,20 @@ export function useDraftLifecycle(
       // to send: this is the same standing refusal as a device that would
       // not let the app read one.
       storageRefused();
+    }
+  }
+
+  // TYRE-323 (U147 B7): "Carry on for this task". The resume's start stays,
+  // so the walk-around still says when the inspection began. A failed write
+  // leaves the draft on its own task, so the caller keeps the choice open.
+  async function carryOn(taskId: string): Promise<boolean> {
+    try {
+      await repointTask(taskId);
+      setDraft((await loadDraft()) ?? null);
+      return true;
+    } catch {
+      writeFailed();
+      return false;
     }
   }
 
@@ -167,6 +181,7 @@ export function useDraftLifecycle(
     signInNeeded,
     otherDriverHeld,
     startDraftAndAdvance,
+    carryOn,
     retryStorage,
     discardHeld,
     discardCurrent,
