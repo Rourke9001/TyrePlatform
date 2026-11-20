@@ -110,3 +110,13 @@
   overflow: hidden;
   clip-path: inset(50%);
 }
+
+/* NFR-USE-004: a glove target. Underlined, so it reads as a link without
+   its colour (NFR-USE-009). */
+.auth-goto {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-glove);
+  font-weight: 700;
+  color: var(--interactive);
+}

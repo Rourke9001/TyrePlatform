@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 
 import { renderWithActor, requestedUrl, respond, testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
-import { formatTenantDate } from "../time/tenantTime";
+import { clearDevActorId, setDevActorId } from "../api/devTenant";
+import { formatTenantDate, formatTenantInstant } from "../time/tenantTime";
 import * as outbox from "../capture/outbox";
 import { clearDraft, db, startDraft } from "../capture/draft";
 import { DriverHome } from "./DriverHome";
@@ -561,5 +562,121 @@ describe("the install hint (TYRE-154)", () => {
     renderHome();
 
     await steps();
+  });
+});
+
+// TYRE-319 (the owner's answer 1): an inspection held on the phone is one tap
+// from "My inspections", whether or not its task is still listed.
+describe("the carry-on row (TYRE-319)", () => {
+  const DRIVER = "oid-driver-1";
+  const AT = "2026-11-20T06:00:00.000Z";
+  const AT_TEXT = formatTenantInstant(AT, "Africa/Johannesburg");
+  const heldH1 = {
+    vehicleId: "h1",
+    taskId: "k1",
+    fleetNumber: "H1",
+    startedAt: AT,
+    driverSubject: DRIVER,
+    legacy: false,
+  };
+
+  beforeEach(async () => {
+    await db.open();
+    await clearDraft();
+    await db.table("outbox").clear();
+    setDevActorId(DRIVER);
+  });
+
+  afterEach(async () => {
+    clearDevActorId();
+    vi.restoreAllMocks();
+    await clearDraft();
+  });
+
+  const hold = (
+    over: { driverSubject?: string; taskId?: string | null; fleetNumber?: string | null } = {},
+  ) =>
+    startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "h1",
+      taskId: "k1",
+      startedAt: AT,
+      fleetNumber: "H1",
+      ...over,
+    });
+  const lists = () => stub(ok([task({ id: "k2", ...H1 })]), ok(onTrip()));
+  const taskRow = () => screen.findByRole("link", { name: `H1, due ${DUE_TEXT}` });
+
+  it("shows the driver's own held draft above every task, to its task's address", async () => {
+    await hold();
+    lists();
+    renderHome();
+
+    const row = await screen.findByRole("link", { name: `Carry on with H1, started ${AT_TEXT}` });
+    expect(row).toHaveAttribute("href", "/capture/h1?taskId=k1");
+    const first = await taskRow();
+    expect(row.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("links a draft with no task to the unit alone", async () => {
+    await hold({ taskId: null });
+    lists();
+    renderHome();
+
+    expect(
+      await screen.findByRole("link", { name: `Carry on with H1, started ${AT_TEXT}` }),
+    ).toHaveAttribute("href", "/capture/h1");
+  });
+
+  it("names a draft with no fleet number as your inspection", async () => {
+    await hold({ fleetNumber: null });
+    lists();
+    renderHome();
+
+    expect(
+      await screen.findByRole("link", {
+        name: `Carry on with your inspection, started ${AT_TEXT}`,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no row for another driver's draft", async () => {
+    await hold({ driverSubject: "oid-other" });
+    lists();
+    renderHome();
+
+    await taskRow();
+    expect(screen.queryByRole("link", { name: /^Carry on/ })).toBeNull();
+  });
+
+  it("a rejected draft read shows the task rows without the carry-on row (Lead's call 14)", async () => {
+    vi.spyOn(outbox, "readHeldDraft").mockRejectedValue(new Error("idb"));
+    lists();
+    renderHome();
+
+    await taskRow();
+    expect(screen.queryByRole("link", { name: /^Carry on/ })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Loading…")).toBeNull();
+  });
+
+  it("paints no task row before the draft read has settled", async () => {
+    let settle: (d: typeof heldH1) => void = () => undefined;
+    vi.spyOn(outbox, "readHeldDraft").mockReturnValue(new Promise((resolve) => (settle = resolve)));
+    lists();
+    const client = testQueryClient();
+    renderWithActor(<DriverHome />, { withRouter: true, client });
+
+    await waitFor(() =>
+      expect(client.getQueryState(myTasksQuery().queryKey)?.status).toBe("success"),
+    );
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^H1,/ })).toBeNull();
+
+    act(() => settle(heldH1));
+    expect(
+      await screen.findByRole("link", { name: `Carry on with H1, started ${AT_TEXT}` }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: `H1, due ${DUE_TEXT}` })).toBeInTheDocument();
   });
 });
