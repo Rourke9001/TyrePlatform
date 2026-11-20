@@ -12,7 +12,7 @@ import "./auth.css";
 function stillHeld({ draft, entries }: HeldWork): string {
   const open = "You can't sign out yet. An inspection is still open on this phone.";
   if (entries === 0) return `${open} Finish it, then sign out.`;
-  if (draft) {
+  if (draft !== null) {
     return entries === 1
       ? `${open} Finish it. 1 more inspection is on this phone too. Sign out once they have all sent, or remove any the office refused.`
       : `${open} Finish it. ${entries} more inspections are on this phone too. Sign out once they have all sent, or remove any the office refused.`;
@@ -45,7 +45,7 @@ export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
     setHeld(null);
     try {
       const work = await heldCount();
-      if (work.draft || work.entries > 0) {
+      if (work.draft !== null || work.entries > 0) {
         setHeld(work);
         return;
       }

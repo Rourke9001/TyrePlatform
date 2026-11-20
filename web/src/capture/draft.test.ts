@@ -6,8 +6,10 @@ import {
   cellKey,
   clearDraft,
   db,
+  draftPath,
   loadDraft,
   markSpareAbsent,
+  repointTask,
   saveHeader,
   savePosition,
   startDraft,
@@ -449,6 +451,50 @@ describe("the draft buffer", () => {
     const reloaded = await loadDraft();
     expect(reloaded?.positions[cellKey("v1", "s1")]).toBeDefined();
     expect(reloaded?.absentSpares).toEqual([]);
+  });
+
+  it("repoints the task and keeps every entry (TYRE-323)", async () => {
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: "k1",
+      startedAt: "2026-11-20T06:00:00.000Z",
+      fleetNumber: "BAC039SP",
+      observedMemberVehicleIds: ["v1", "v2"],
+    });
+    await savePosition({
+      positionId: "p1",
+      vehicleId: "v1",
+      tyreId: "ty1",
+      treads: [13, 13, 14],
+      pressureKpa: 800,
+      pressureTemperature: "UNKNOWN",
+      damageFlag: false,
+      note: null,
+      seconds: 6,
+      warnings: [],
+    });
+    await markSpareAbsent("v2", "s1");
+    await saveHeader({
+      odometerKm: 1,
+      warnings: [{ code: "FR-INS-037", enteredValue: "1", response: "CONFIRMED" }],
+    });
+    const before = await loadDraft();
+
+    await repointTask("k2");
+
+    const after = await loadDraft();
+    expect(after?.taskId).toBe("k2");
+    expect({ ...after, taskId: "k1" }).toEqual(before);
+  });
+
+  it("refuses to repoint with no draft", async () => {
+    await expect(repointTask("k2")).rejects.toThrow(/No inspection in progress/);
+  });
+
+  it("names a draft's address with and without its task", () => {
+    expect(draftPath({ vehicleId: "v1", taskId: "k1" })).toBe("/capture/v1?taskId=k1");
+    expect(draftPath({ vehicleId: "v1", taskId: null })).toBe("/capture/v1");
   });
 });
 
