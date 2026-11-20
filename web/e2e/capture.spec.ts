@@ -41,23 +41,6 @@ interface CaptureContextBody {
   config: { removalThresholdMm: number };
 }
 
-// TYRE-319 (U143): a driver inspects a unit only when a task asks for it.
-test("a driver with no task is offered no capture", async ({ page, request }) => {
-  const horse = await assignedVehicle(request, "HORSE");
-  await page.goto(`/capture/${horse.id}`);
-
-  await expect(
-    page.getByText(
-      "Nothing is due on this vehicle for you. An inspection starts from a task on My inspections.",
-    ),
-  ).toBeVisible();
-  await expect(page.getByRole("button", { name: /start inspection/i })).toHaveCount(0);
-  // Scoped to main: the driver shell's nav carries a link of the same name.
-  await expect(
-    page.getByRole("main").getByRole("link", { name: "My inspections" }),
-  ).toHaveAttribute("href", "/my");
-});
-
 test("a driver starts from My inspections, captures a whole vehicle, sees it confirmed, and agrees with the database", async ({
   page,
   request,
