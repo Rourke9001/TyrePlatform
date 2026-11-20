@@ -102,11 +102,11 @@ describe("applyKey at whole-millimetre granularity", () => {
     expect(state.treads[0]).toBe(9);
   });
 
-  it("moves to the next field on next, and to pressure after the last tread", () => {
-    let s = newEntryState(3);
-    s = applyKey(s, { type: "next" }, whole).state;
+  it("moves to the next field on next from a filled one, and to pressure after the last tread", () => {
+    let s = applyKey(type(newEntryState(3), "1", whole).state, { type: "next" }, whole).state;
     expect(s.field).toBe(1);
-    s = applyKey(applyKey(s, { type: "next" }, whole).state, { type: "next" }, whole).state;
+    s = applyKey(type(s, "2", whole).state, { type: "next" }, whole).state;
+    s = applyKey(type(s, "3", whole).state, { type: "next" }, whole).state;
     expect(s.field).toBe(3); // count === 3, so field 3 is pressure
   });
 
@@ -162,6 +162,52 @@ describe("applyKey at whole-millimetre granularity", () => {
     const after = type(moved, "12", whole).state;
     expect(after.treads).toEqual([12, 12, 13]);
     expect(after.pressureKpa).toBe(850);
+  });
+});
+
+describe("Next on an empty box (TYRE-491, the owner's answer 2)", () => {
+  it("stays on an empty tread and changes nothing", () => {
+    const s = newEntryState(3);
+    const r = applyKey(s, { type: "next" }, whole);
+    expect(r.state).toBe(s);
+    expect(r.stayed).toBe(true);
+    expect(r.settled).toBe(false);
+  });
+
+  it("stays on an empty pressure once every tread is filled", () => {
+    const atPressure = { ...newEntryState(3), treads: [12, 12, 12], field: 3 };
+    const r = applyKey(atPressure, { type: "next" }, whole);
+    expect(r.state).toBe(atPressure);
+    expect(r.stayed).toBe(true);
+  });
+
+  it("goes from an empty pressure to an empty tread, as before", () => {
+    const s = { ...newEntryState(3), treads: [12, null, 13], field: 3 };
+    const r = applyKey(s, { type: "next" }, whole);
+    expect(r.state.field).toBe(1);
+    expect(r.stayed).toBeFalsy();
+  });
+
+  it("does not stay on a filled box", () => {
+    const r = applyKey(type(newEntryState(3), "4", whole).state, { type: "next" }, whole);
+    expect(r.state.field).toBe(1);
+    expect(r.stayed).toBeFalsy();
+    const done = { ...newEntryState(3), treads: [12, 12, 12], pressureKpa: 800, field: 3 };
+    expect(applyKey(done, { type: "next" }, whole).stayed).toBeFalsy();
+  });
+
+  it("a stay keeps the reach-back armed, so a half still finds the reading the keypad left (U160)", () => {
+    const moved = applyKey(
+      type(newEntryState(3), "13", halves).state,
+      { type: "next" },
+      halves,
+    ).state;
+    const stay = applyKey(moved, { type: "next" }, halves);
+    expect(stay.state).toBe(moved);
+    expect(stay.stayed).toBe(true);
+    const r = applyKey(stay.state, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([13.5, null, null]);
+    expect(r.state.field).toBe(1);
   });
 });
 
@@ -375,21 +421,24 @@ describe("the half key straight after the keypad moves on", () => {
     expect(r.settled).toBe(true);
   });
 
-  it("does not reach back to a cell that was tapped and cleared", () => {
+  // TYRE-491, the owner's answer 2: Next on an empty box stays, so after a
+  // cleared cell there is no other reading for a half to reach.
+  it("a Next on a cell tapped and cleared stays, so no half can reach back past it", () => {
     let s = applyKey(reopened(), { type: "focus", field: 0 }, halves).state;
     s = applyKey(s, { type: "delete" }, halves).state;
-    s = applyKey(s, { type: "next" }, halves).state;
-    const r = applyKey(s, { type: "half" }, halves);
-    expect(r.state.treads).toEqual([null, 12.5, 12]);
-    expect(r.settled).toBe(true);
+    const stay = applyKey(s, { type: "next" }, halves);
+    expect(stay.stayed).toBe(true);
+    expect(stay.state.field).toBe(0);
+    expect(applyKey(stay.state, { type: "half" }, halves).state.treads).toEqual([null, 12, 12]);
   });
 
-  it("does not reach back to a cell typed into and then cleared", () => {
+  it("a Next on a cell typed into and then cleared stays, so no half can reach back past it", () => {
     let s = applyKey(reopened(), { type: "digit", digit: "1" }, halves).state;
     s = applyKey(s, { type: "delete" }, halves).state;
-    s = applyKey(s, { type: "next" }, halves).state;
-    const r = applyKey(s, { type: "half" }, halves);
-    expect(r.state.treads).toEqual([null, 12.5, 12]);
+    const stay = applyKey(s, { type: "next" }, halves);
+    expect(stay.stayed).toBe(true);
+    expect(stay.state.field).toBe(0);
+    expect(applyKey(stay.state, { type: "half" }, halves).state.treads).toEqual([null, 12, 12]);
   });
 
   // A half counts as touching the cell, so a double tap that spans the
