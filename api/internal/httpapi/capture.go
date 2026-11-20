@@ -461,6 +461,14 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 				if !authorized {
 					return errVehicleNotVisible
 				}
+				// TYRE-319 (FR-AUT-005 as amended): the submit must also cite a
+				// task it covers, asked after the own-units check so a unit
+				// never held answers TY007 first. The rule is
+				// app.submit_cites_task's (000064).
+				if _, err := tx.Exec(r.Context(),
+					`SELECT app.submit_cites_task($1::jsonb)`, string(raw)); err != nil {
+					return fmt.Errorf("checking the cited task: %w", err)
+				}
 			}
 			return tx.QueryRow(r.Context(),
 				`SELECT inspection_id, created FROM app.submit_inspection($1::jsonb)`, string(raw)).

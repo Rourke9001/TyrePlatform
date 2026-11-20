@@ -285,6 +285,19 @@ an array is left to `app.submit_inspection`, which refuses it by name. A
 replay of the actor's own stored capture is answered as one whoever holds
 the unit now (FR-OFF-011).
 
+Since U143 a driver inspects a unit only when a task asks for it, so a
+scoped actor's submit must also cite a task (`app.submit_cites_task`,
+000064, TYRE-319). The task's unit must be one the submit covers: its own
+unit, the units confirmed attached at Start, or any unit it attributes a
+reading or an absent spare to (FR-INS-052 as amended). It must also be one
+the actor could capture during the capture, since the confirmed list is
+recorded unchecked. A reading on that unit is not needed, so a partial
+walk-around passes. A task closed or cancelled after the capture began
+still passes, and so does a replay. For a scoped actor the order on the
+wire is the capability, the own-units check (`TY007`), the task check
+(`TY029`), then `app.submit_inspection`'s own refusals. A tenant-wide actor
+meets neither check.
+
 The capture read, `GET /api/capture/vehicles/{id}`, judges at now through
 `app.v_capture_vehicle`, as `/api/my/vehicles` does. A resumed draft sends
 its own `startedAt`, and the read then admits a unit the actor could capture

@@ -200,7 +200,8 @@ func TestSubmitReplayContract(t *testing.T) {
 	plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
-	payload := captureFixture(t, ctx, admin, tenantID, vehicleID)
+	payload := citing(t, captureFixture(t, ctx, admin, tenantID, vehicleID),
+		plantOpenTask(t, ctx, admin, tenantID, vehicleID, standingDue))
 
 	first := post(t, h, "/api/inspections", tenantID.String(), driverID.String(), payload)
 	require.Equal(t, http.StatusCreated, first.Code, first.Body.String())
@@ -227,6 +228,7 @@ func TestSubmitRefusals(t *testing.T) {
 	// require() fires before the FR-AUT-005 scope check ever runs.
 	plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
 	techID := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	task := plantOpenTask(t, ctx, admin, tenantID, vehicleID, standingDue)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	require.Equal(t, http.StatusForbidden,
@@ -251,10 +253,10 @@ func TestSubmitRefusals(t *testing.T) {
 	// cannot share a status with 422's malformed vehicle.
 	require.Equal(t, http.StatusCreated,
 		post(t, h, "/api/inspections", tenantID.String(), driverID.String(),
-			captureFixture(t, ctx, admin, tenantID, vehicleID)).Code)
+			citing(t, captureFixture(t, ctx, admin, tenantID, vehicleID), task)).Code)
 	require.Equal(t, http.StatusConflict,
 		post(t, h, "/api/inspections", tenantID.String(), driverID.String(),
-			captureFixture(t, ctx, admin, tenantID, vehicleID)).Code)
+			citing(t, captureFixture(t, ctx, admin, tenantID, vehicleID), task)).Code)
 }
 
 // ADR-0013 decision 5: the submit hands its payload to SQL unparsed, and
@@ -270,13 +272,14 @@ func TestSubmitRefusesAVehicleIDFormTheCastDoesNotRead(t *testing.T) {
 	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "vehicle-id-forms")
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
+	task := plantOpenTask(t, ctx, admin, tenantID, vehicleID, standingDue)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	// A whole payload, so a body that got past Go would reach the cast and
 	// not stop at an earlier refusal for a missing field.
 	payload := func(set map[string]string) string {
 		var body map[string]any
-		require.NoError(t, json.Unmarshal([]byte(captureFixture(t, ctx, admin, tenantID, vehicleID)), &body))
+		require.NoError(t, json.Unmarshal([]byte(citing(t, captureFixture(t, ctx, admin, tenantID, vehicleID), task)), &body))
 		for key, value := range set {
 			body[key] = value
 		}
@@ -420,10 +423,11 @@ func TestSubmitAuthorizesEveryVehicleInASuperlinkPayload(t *testing.T) {
 	tenantID, motiveID, trailerID := plantCaptureFixture(t, ctx, admin, "superlink")
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	plantTrip(t, ctx, admin, tenantID, motiveID, driverID)
+	task := plantOpenTask(t, ctx, admin, tenantID, motiveID, standingDue)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal([]byte(captureFixture(t, ctx, admin, tenantID, motiveID)), &body))
+	require.NoError(t, json.Unmarshal([]byte(citing(t, captureFixture(t, ctx, admin, tenantID, motiveID), task)), &body))
 
 	trailerPositionID, trailerTyreID := capturePositionAndTyre(t, ctx, admin, trailerID)
 	readings, ok := body["readings"].([]any)
@@ -458,10 +462,11 @@ func TestSubmitRefusesReadingAgainstUnauthorizedVehicle(t *testing.T) {
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	plantTrip(t, ctx, admin, tenantID, motiveID, driverID)
 	unrelatedVehicleID, unrelatedPositionID := plantUnrelatedVehicle(t, ctx, admin, tenantID)
+	task := plantOpenTask(t, ctx, admin, tenantID, motiveID, standingDue)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal([]byte(captureFixture(t, ctx, admin, tenantID, motiveID)), &body))
+	require.NoError(t, json.Unmarshal([]byte(citing(t, captureFixture(t, ctx, admin, tenantID, motiveID), task)), &body))
 	readings, ok := body["readings"].([]any)
 	require.True(t, ok)
 	body["readings"] = append(readings, map[string]any{
@@ -529,6 +534,7 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
 	controllerID := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	task := plantOpenTask(t, ctx, admin, tenantID, vehicleID, standingDue)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	firstReading := func(body map[string]any) map[string]any {
@@ -581,6 +587,11 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 		{"an empty readings array", func(b map[string]any) {
 			b["readings"] = []any{}
 		}, "TY005", "carries an empty readings array", false},
+		// The function's own cast meets it first, so it is the canned refusal,
+		// never TY029 (TYRE-319).
+		{"a task_id that is not a uuid", func(b map[string]any) {
+			b["task_id"] = "not-a-uuid"
+		}, "invalid_submission", "refused as invalid", false},
 	}
 
 	for _, tc := range tests {
@@ -588,6 +599,7 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 			var body map[string]any
 			require.NoError(t, json.Unmarshal(
 				[]byte(captureFixture(t, ctx, admin, tenantID, vehicleID)), &body))
+			body["task_id"] = task.String()
 			tc.mutate(body)
 			raw, err := json.Marshal(body)
 			require.NoError(t, err)
@@ -901,11 +913,13 @@ func TestSubmitAcceptsATripClosedDuringTheCapture(t *testing.T) {
 	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "window-closed")
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	plantTripSpan(t, ctx, admin, tenantID, motiveID, driverID, "2 hours", "30 minutes")
+	task := plantOpenTask(t, ctx, admin, tenantID, motiveID, standingDue)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	now := time.Now()
-	rec := postCapture(t, h, tenantID, driverID,
-		captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-40*time.Minute), now.Add(-10*time.Minute)))
+	body := captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-40*time.Minute), now.Add(-10*time.Minute))
+	body["task_id"] = task.String()
+	rec := postCapture(t, h, tenantID, driverID, body)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 }
 
@@ -971,11 +985,13 @@ func TestSubmitAcceptsALongCaptureOnItsLastPart(t *testing.T) {
 		`INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
 		 VALUES ($1, $2, $3, now() - interval '5 hours')`, tenantID, motiveID, driverID)
 	require.NoError(t, err)
+	task := plantOpenTask(t, ctx, admin, tenantID, motiveID, standingDue)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	now := time.Now()
-	rec := postCapture(t, h, tenantID, driverID,
-		captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-14*time.Hour), now))
+	body := captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-14*time.Hour), now)
+	body["task_id"] = task.String()
+	rec := postCapture(t, h, tenantID, driverID, body)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 }
 
@@ -1054,10 +1070,12 @@ func TestSubmitAcceptsASoloCaptureWithANullCombination(t *testing.T) {
 	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "window-solo")
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	plantTrip(t, ctx, admin, tenantID, motiveID, driverID)
+	task := plantOpenTask(t, ctx, admin, tenantID, motiveID, standingDue)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	now := time.Now()
 	body := captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-2*time.Minute), now)
+	body["task_id"] = task.String()
 	body["combination_id"] = nil
 	rec := postCapture(t, h, tenantID, driverID, body)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
@@ -1090,7 +1108,8 @@ func TestSubmitReplayIsAnsweredAfterTheTripEnds(t *testing.T) {
 	require.Equal(t, stored.String(), got.InspectionID)
 }
 
-// ScopeTenant stays exempt from the own-units check, in Go (spec, Capture).
+// ScopeTenant stays exempt from the own-units check, in Go (spec, Capture),
+// and from the task check (TYRE-319).
 func TestSubmitByAControllerNeedsNoTrip(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -1102,6 +1121,101 @@ func TestSubmitByAControllerNeedsNoTrip(t *testing.T) {
 	rec := postCapture(t, h, tenantID, controllerID,
 		captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-2*time.Minute), now))
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+}
+
+// A task due on no tenant's today, so neither a trip start's gate (U148) nor
+// a submit's close of the day's tasks (U150) meets it.
+const standingDue = "2099-01-01T21:59:59Z"
+
+// citing is payload naming task, as a capture opened from that task does
+// (TYRE-319).
+func citing(t *testing.T, payload string, task uuid.UUID) string {
+	t.Helper()
+	var body map[string]any
+	require.NoError(t, json.Unmarshal([]byte(payload), &body))
+	body["task_id"] = task.String()
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+	return string(raw)
+}
+
+// TYRE-319 (FR-AUT-005 as amended, U147 B16): an actor who is not
+// tenant-wide cites a task on a unit the submit covers, and a refusal stores
+// nothing. A depot manager is bound like a driver until TYRE-76.
+func TestSubmitByAScopedActorMustCiteATaskItCovers(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	for _, tc := range []struct {
+		name string
+		role auth.Role
+		// cite sets the body's task and returns the refusal's words.
+		cite func(t *testing.T, tenantID uuid.UUID, body map[string]any) string
+	}{
+		{"no task key", auth.RoleDriver, func(_ *testing.T, _ uuid.UUID, body map[string]any) string {
+			delete(body, "task_id")
+			return "this inspection names no inspection task"
+		}},
+		{"a null task", auth.RoleDriver, func(_ *testing.T, _ uuid.UUID, body map[string]any) string {
+			body["task_id"] = nil
+			return "this inspection names no inspection task"
+		}},
+		{"an unknown task", auth.RoleDriver, func(_ *testing.T, _ uuid.UUID, body map[string]any) string {
+			body["task_id"] = uuid.NewString()
+			return "this inspection names a task that is not in this fleet"
+		}},
+		{"a task it does not cover", auth.RoleDriver, func(t *testing.T, tenantID uuid.UUID, body map[string]any) string {
+			other, _ := plantUnrelatedVehicle(t, ctx, admin, tenantID)
+			body["task_id"] = plantOpenTask(t, ctx, admin, tenantID, other, standingDue).String()
+			var fleet string
+			require.NoError(t, admin.QueryRow(ctx,
+				`SELECT fleet_number FROM app.vehicle WHERE id = $1`, other).Scan(&fleet))
+			return "this inspection names a task on " + fleet + ", which it does not cover"
+		}},
+		{"a depot manager, no task", auth.RoleDepotManager, func(_ *testing.T, _ uuid.UUID, body map[string]any) string {
+			delete(body, "task_id")
+			return "this inspection names no inspection task"
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "cite-task")
+			actor := plantUser(t, ctx, admin, tenantID, tc.role)
+			plantTrip(t, ctx, admin, tenantID, motiveID, actor)
+			inspections := func() int {
+				var n int
+				require.NoError(t, admin.QueryRow(ctx,
+					`SELECT count(*) FROM app.inspection WHERE vehicle_id = $1`, motiveID).Scan(&n))
+				return n
+			}
+			before := inspections()
+
+			now := time.Now()
+			body := captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-2*time.Minute), now)
+			want := tc.cite(t, tenantID, body)
+			rec := postCapture(t, h, tenantID, actor, body)
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			require.Equal(t, refusalBody{Code: "TY029", Message: want}, decodeRefusal(t, rec.Body.Bytes()))
+			require.Equal(t, before, inspections(), "a refused submit stores nothing")
+		})
+	}
+}
+
+// The own-units check answers first, so a unit never held reads TY007
+// whatever task the submit cites (TYRE-319 spec, section 1).
+func TestSubmitOnAUnitNeverHeldIsNotVisibleWhateverItsTask(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "cite-never-held")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	task := plantOpenTask(t, ctx, admin, tenantID, motiveID, standingDue)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	now := time.Now()
+	body := captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-2*time.Minute), now)
+	requireNotVisible(t, postCapture(t, h, tenantID, driverID, body))
+	body["task_id"] = task.String()
+	requireNotVisible(t, postCapture(t, h, tenantID, driverID, body))
 }
 
 // A draft resumed after its trip ended reads its unit through the submit's
