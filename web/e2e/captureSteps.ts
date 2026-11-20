@@ -12,27 +12,40 @@ export const TREADS = [
 ];
 export const PRESSURE = ["8", "0", "0"];
 
-// Solo capture: untick every coupled trailer so the submit specs consume one
-// unit's window, not three. Unticking is FR-INS-063's observation, recorded
-// by the server.
+// Solo capture unticks every coupled trailer so the submit specs consume one
+// unit's window, not three; { keep } leaves that one trailer ticked. Unticking
+// is FR-INS-063's observation, recorded by the server.
+export type Rig = "solo" | "whole" | { keep: string };
+
+// A driver's capture opens only through a task (TYRE-319), so the address
+// carries one. An options object, so a caller written for the old signature
+// is a type error rather than a capture with no task.
 export async function startInspection(
   page: Page,
-  vehicleId: string,
-  rig: "solo" | "whole" = "solo",
+  at: { vehicleId: string; taskId: string; rig?: Rig },
 ) {
-  await page.goto(`/capture/${vehicleId}`);
+  await page.goto(`/capture/${at.vehicleId}?taskId=${at.taskId}`);
+  await startHere(page, at.rig);
+}
+
+// The Start screen already open, as a tap on "My inspections" leaves it.
+export async function startHere(page: Page, rig: Rig = "solo") {
   const start = page.getByRole("button", { name: /start inspection/i });
   // NFR-AVL-002: the rig's checkboxes arrive with the served context. Counting
   // them before that resolves finds none and starts the WHOLE rig silently.
   await expect(start).toBeVisible();
-  if (rig === "solo") {
+  if (rig !== "whole") {
+    const keep = rig === "solo" ? null : rig.keep;
     // getByRole's own disabled option, not filter({ hasNot }). hasNot matches
     // DESCENDANTS, and an <input> has none, so the motive unit's own disabled
     // checkbox would be included and uncheck() would hang on it.
     for (const box of await page.getByRole("checkbox", { disabled: false }).all()) {
-      if (await box.isChecked()) await box.uncheck();
+      const kept = keep !== null && (await box.locator("..").innerText()).includes(keep);
+      if (!kept && (await box.isChecked())) await box.uncheck();
     }
-    await expect(page.getByRole("checkbox", { disabled: false, checked: true })).toHaveCount(0);
+    await expect(page.getByRole("checkbox", { disabled: false, checked: true })).toHaveCount(
+      keep === null ? 0 : 1,
+    );
   }
   await start.click();
 }
@@ -102,6 +115,32 @@ export async function captureAll(page: Page, first: string[][] = TREADS): Promis
   await capturePosition(page, first);
   for (let i = 1; i < total; i++) await capturePosition(page);
   return total;
+}
+
+// Captures every cell of one unit of the rig, whichever sheet the walk opens
+// between them, and returns how many. A cell still to do is named
+// "Position n, <fleet>, Not done" or "Spare, <fleet>, Not done"
+// (CaptureDiagram.tsx).
+export async function captureUnit(page: Page, fleetNumber: string): Promise<number> {
+  const fleet = fleetNumber.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const notDone = page.getByRole("button", {
+    name: new RegExp(`^(Position \\d+|Spare), ${fleet}, Not done`),
+  });
+  const sheet = page.getByRole("region", { name: /^Position \d|^Spare, / });
+  await expect(page.locator("[data-position-id]").first()).toBeVisible();
+  let captured = 0;
+  for (;;) {
+    // The walk opens the next outstanding cell itself, which may be another
+    // unit's, and the open sheet hides the diagram.
+    if ((await sheet.count()) > 0) {
+      await sheet.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(sheet).toHaveCount(0);
+    }
+    if ((await notDone.count()) === 0) return captured;
+    await notDone.first().click();
+    await capturePosition(page);
+    captured++;
+  }
 }
 
 // Scoped to a heading, not just role, because OutboxIndicator and other

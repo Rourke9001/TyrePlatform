@@ -20,6 +20,16 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
+    // TYRE-319: a driver's capture opens only from a task, and BAC's fixture
+    // seeds none, so this plants BAC's standing task through the API before
+    // any project reads BAC, and U50's "no BAC write races a BAC read" holds.
+    // It is due in 2099, so no submit's close of the day's tasks (U150) and
+    // no trip start's gate (U148) meets it.
+    {
+      name: "bac-setup",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /bacTasks\.setup\.ts/,
+    },
     // dashboard.spec.ts reads BAC and asserts the pinned 19, 11, 9 and
     // R16,537.50 (CLAUDE.md, the three-way agreement). capture.spec.ts
     // writes BAC on android, and fullyParallel would let that write land
@@ -28,6 +38,7 @@ export default defineConfig({
       name: "bac-readonly",
       use: { ...devices["Desktop Chrome"] },
       testMatch: /dashboard\.spec/,
+      dependencies: ["bac-setup"],
     },
     // capture.spec.ts submits, and FR-INS-038's duplicate window is tenant
     // state in one shared database: a second project's submit is refused by
@@ -36,6 +47,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      dependencies: ["bac-setup"],
       testIgnore: /capture\.spec|dashboard\.spec|auth\.spec|production\.spec/,
     },
     // The capture app is judged at phone dimensions or not at all: thumb reach,
@@ -62,6 +74,7 @@ export default defineConfig({
     {
       name: "ios",
       use: { ...devices["iPhone 14"] },
+      dependencies: ["bac-setup"],
       testIgnore:
         /capture\.spec|admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec|dashboard\.spec|auth\.spec|production\.spec/,
     },

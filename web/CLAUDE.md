@@ -112,7 +112,10 @@ headers or answers 401 itself where a case needs one, such as a call with no
 bearer or a refused submit (`e2e/idp.ts`; spec section 7 of
 `docs/superpowers/specs/2026-09-30-b9-sign-in-design.md`), because the provider
 cannot be reached from CI and the Go half of sign-in is proved by its own tests
-(TYRE-317). Five projects:
+(TYRE-317). Six projects:
+`bac-setup` (Desktop Chrome, `bacTasks.setup.ts` only, which plants BAC's
+standing task on HORSE, due 2099-12-31, through the API before any project
+reads BAC, since a driver's capture opens only from a task, TYRE-319),
 `bac-readonly` (Desktop Chrome, `dashboard.spec.ts` only, the web leg of the
 three-way agreement, which `android` depends on so no BAC write races a BAC
 read), `chromium` at a desktop viewport, `android` (Pixel 7), `ios` (iPhone 14,

@@ -34,12 +34,18 @@ test.afterEach(() => {
 
 // Through page.request as the Sandbox controller, which page.route never
 // sees, so setup is outside the bearer checks.
-async function unitForDriver(page: Page, label: string): Promise<string> {
+interface DriverUnit {
+  id: string;
+  taskId: string;
+}
+
+async function unitForDriver(page: Page, label: string): Promise<DriverUnit> {
   const configs = (await apiGet(page, "/api/axle-configurations")) as AxleConfiguration[];
   const id = await createUnit(page, `AU${label}-${RUN}`, "HORSE", configFor(configs, "HORSE_6X4"));
-  // FR-AUT-005 as amended: the nomination is what lets the driver capture it.
-  await nominateSandboxDriver(page, id);
-  return id;
+  // FR-AUT-005 as amended: the nomination is what lets the driver capture
+  // it, and its task is the way in (TYRE-319).
+  const task = await nominateSandboxDriver(page, id);
+  return { id, taskId: task.id };
 }
 
 async function signIn(page: Page) {
@@ -59,8 +65,8 @@ function outboxBand(page: Page) {
 }
 
 // A submit a stubbed 401 holds, stamped for whoever is signed in.
-async function holdOneSubmit(page: Page, vehicleId: string) {
-  await startInspection(page, vehicleId);
+async function holdOneSubmit(page: Page, unit: DriverUnit) {
+  await startInspection(page, { vehicleId: unit.id, taskId: unit.taskId });
   await captureAll(page);
   // startInspection loads the page afresh, so this page obtained no token.
   // The refusal below marks that token refused and holds the entry as a 401;
@@ -136,10 +142,10 @@ test("the callback completes and /api/me carries the bearer", async ({ page }) =
 });
 
 test("a sign-in started from a capture returns there with the draft restored", async ({ page }) => {
-  const vehicleId = await unitForDriver(page, "R");
+  const unit = await unitForDriver(page, "R");
   await page.goto("/");
   await signIn(page);
-  await startInspection(page, vehicleId);
+  await startInspection(page, { vehicleId: unit.id, taskId: unit.taskId });
   // One position's readings, so the draft's content survives, not only its row.
   await page.locator("[data-position-id]").first().click();
   await capturePosition(page);
@@ -150,7 +156,8 @@ test("a sign-in started from a capture returns there with the draft restored", a
   await page.reload();
   await signIn(page);
 
-  await expect(page).toHaveURL(new RegExp(`/capture/${vehicleId}$`));
+  // The sign-in returns to the path and the query (callback.ts).
+  await expect(page).toHaveURL(new RegExp(`/capture/${unit.id}\\?taskId=${unit.taskId}$`));
   await expect(progress).toBeVisible();
 });
 
@@ -165,10 +172,10 @@ test("a submit refused with 401 is held, asks for a sign-in, and sends after it"
   page,
 }) => {
   test.setTimeout(WALK_TIMEOUT_MS);
-  const vehicleId = await unitForDriver(page, "H");
+  const unit = await unitForDriver(page, "H");
   await page.goto("/");
   await signIn(page);
-  await holdOneSubmit(page, vehicleId);
+  await holdOneSubmit(page, unit);
   await expect(page.getByText("Sign in to send 1 inspection")).toBeVisible();
   // Before the stub stops refusing, so no other flush can send it first.
   expect(await backOffHeld(page)).toBe(1);
@@ -190,10 +197,10 @@ test("a sign-in by another driver while an entry is held is undone, and the entr
   page,
 }) => {
   test.setTimeout(WALK_TIMEOUT_MS);
-  const vehicleId = await unitForDriver(page, "U");
+  const unit = await unitForDriver(page, "U");
   await page.goto("/");
   await signIn(page);
-  await holdOneSubmit(page, vehicleId);
+  await holdOneSubmit(page, unit);
 
   await lapseSession(page);
   stub.refuseSubmits = false;
@@ -220,10 +227,10 @@ test("sign-out is refused while an entry is held, and goes ahead once the outbox
   page,
 }) => {
   test.setTimeout(WALK_TIMEOUT_MS);
-  const vehicleId = await unitForDriver(page, "S");
+  const unit = await unitForDriver(page, "S");
   await page.goto("/");
   await signIn(page);
-  await holdOneSubmit(page, vehicleId);
+  await holdOneSubmit(page, unit);
 
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("status").filter({ hasText: /still on this phone/ })).toBeVisible();
@@ -252,14 +259,14 @@ test("sign-out is refused while an entry is held, and goes ahead once the outbox
 test("the sign-in controls are at least 56px tall at a 390px viewport", async ({ page }) => {
   test.setTimeout(WALK_TIMEOUT_MS);
   await page.setViewportSize({ width: 390, height: 844 });
-  const vehicleId = await unitForDriver(page, "V");
+  const unit = await unitForDriver(page, "V");
   await page.goto("/");
   const signInButton = page.getByRole("button", { name: "Email me a sign-in code" });
   await expect(signInButton).toBeVisible();
   expect((await signInButton.boundingBox())?.height).toBeGreaterThanOrEqual(56);
 
   await signIn(page);
-  await holdOneSubmit(page, vehicleId);
+  await holdOneSubmit(page, unit);
   await expect(page.getByText("Sign in to send 1 inspection")).toBeVisible();
   const outboxSignIn = outboxBand(page).getByRole("button", { name: "Sign in" });
   await expect(outboxSignIn).toBeVisible();
@@ -273,10 +280,10 @@ test("the outbox band does not overflow a 360px viewport with the sign-in failur
 }) => {
   test.setTimeout(WALK_TIMEOUT_MS);
   await page.setViewportSize({ width: 360, height: 780 });
-  const vehicleId = await unitForDriver(page, "N");
+  const unit = await unitForDriver(page, "N");
   await page.goto("/");
   await signIn(page);
-  await holdOneSubmit(page, vehicleId);
+  await holdOneSubmit(page, unit);
 
   // No signal for the identity provider. The refused submit's renewal loaded
   // the metadata in the page before this reload, and this page has not, so

@@ -55,7 +55,8 @@ test("a controller sets a rig on Sandbox and the driver is offered it", async ({
   // FR-AUT-005 as amended: the nomination on the motive is what lets the
   // driver read the rig at all (app.v_capture_span reaches the coupled units
   // through it).
-  await nominateSandboxDriver(page, horseId);
+  // Nothing here submits, so the task stays open for both captures below.
+  const task = await nominateSandboxDriver(page, horseId);
 
   // Scoped by the heading each table carries rather than by position: the two
   // tables differ only in the Until column, which is exactly what "open" and
@@ -116,7 +117,7 @@ test("a controller sets a rig on Sandbox and the driver is offered it", async ({
   const driverContext = await browser.newContext({ baseURL: test.info().project.use.baseURL });
   const driverPage = await driverContext.newPage();
   await actAsUser(driverPage, SANDBOX_DRIVER);
-  await driverPage.goto(`/capture/${horseId}`);
+  await driverPage.goto(`/capture/${horseId}?taskId=${task.id}`);
   await expect(driverPage.getByRole("heading", { name: HORSE_FLEET })).toBeVisible();
   const yourRig = driverPage.getByRole("group", { name: "Your rig" });
   await expect(yourRig).toBeVisible();
@@ -148,7 +149,7 @@ test("a controller sets a rig on Sandbox and the driver is offered it", async ({
   const afterContext = await browser.newContext({ baseURL: test.info().project.use.baseURL });
   const afterPage = await afterContext.newPage();
   await actAsUser(afterPage, SANDBOX_DRIVER);
-  await afterPage.goto(`/capture/${horseId}`);
+  await afterPage.goto(`/capture/${horseId}?taskId=${task.id}`);
   await expect(afterPage.getByRole("heading", { name: HORSE_FLEET })).toBeVisible();
   await expect(afterPage.getByRole("group", { name: "Your rig" })).toHaveCount(0);
   await afterContext.close();

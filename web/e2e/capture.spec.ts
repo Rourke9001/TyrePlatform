@@ -1,7 +1,22 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { actAsDriver, assignedVehicle, HEADERS } from "./driver";
-import { captureAll, capturePosition, done, startInspection, submit } from "./captureSteps";
+import {
+  actAsDriver,
+  assignedVehicle,
+  HEADERS,
+  scheduleTask,
+  standingTask,
+  STANDING_DUE_ON,
+} from "./driver";
+import {
+  captureAll,
+  capturePosition,
+  captureUnit,
+  done,
+  startHere,
+  startInspection,
+  submit,
+} from "./captureSteps";
 
 // FR-INS-038's duplicate window is tenant state in one shared database: a
 // second submit of the same vehicle is refused regardless of worker, so this
@@ -26,12 +41,37 @@ interface CaptureContextBody {
   config: { removalThresholdMm: number };
 }
 
-test("a driver captures a whole vehicle, sees it confirmed, and agrees with the database", async ({
+// TYRE-319 (U143): a driver inspects a unit only when a task asks for it.
+test("a driver with no task is offered no capture", async ({ page, request }) => {
+  const horse = await assignedVehicle(request, "HORSE");
+  await page.goto(`/capture/${horse.id}`);
+
+  await expect(
+    page.getByText(
+      "Nothing is due on this vehicle for you. An inspection starts from a task on My inspections.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: /start inspection/i })).toHaveCount(0);
+  // Scoped to main: the driver shell's nav carries a link of the same name.
+  await expect(
+    page.getByRole("main").getByRole("link", { name: "My inspections" }),
+  ).toHaveAttribute("href", "/my");
+});
+
+test("a driver starts from My inspections, captures a whole vehicle, sees it confirmed, and agrees with the database", async ({
   page,
   request,
 }) => {
   const horse = await assignedVehicle(request, "HORSE");
-  await startInspection(page, horse.id);
+  // Due the tenant's today, so the submit closes it; the standing task stays.
+  const task = await scheduleTask(request, horse.id);
+  await page.goto("/my");
+  await page
+    .getByRole("link", { name: /^HORSE, due / })
+    .filter({ hasNotText: STANDING_DUE_ON.slice(0, 4) })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/capture/${horse.id}\\?taskId=${task.id}$`));
+  await startHere(page, "solo");
 
   // D-C: this test is the capture leg of the three-way agreement (one vehicle
   // at entry); the fleet-wide 19/11/9 leg is the dashboard's, not asserted
@@ -70,13 +110,21 @@ test("capture continues with the network cut and syncs on reconnect", async ({
   context,
   request,
 }) => {
+  // A coupled trailer's task is captured through its motive (000060,
+  // v_my_inspection_task), so LINK12 is opened from the HORSE route, kept
+  // ticked, and only its cells are read: test 1 used the HORSE's window.
+  const horse = await assignedVehicle(request, "HORSE");
   const link = await assignedVehicle(request, "LINK12");
-  await startInspection(page, link.id);
+  const task = await scheduleTask(request, link.id);
+  await startInspection(page, { vehicleId: horse.id, taskId: task.id, rig: { keep: "LINK12" } });
 
   // FR-OFF-001: no connectivity at any point AFTER reference data has loaded.
   // Cut it here, not before. Starting requires the server (NFR-AVL-002).
   await context.setOffline(true);
-  await captureAll(page);
+  expect(await captureUnit(page, "LINK12")).toBeGreaterThan(0);
+  const tally = (fleet: string) => page.getByRole("listitem").filter({ hasText: fleet });
+  await expect(tally("LINK12")).toContainText("all done");
+  await expect(tally("HORSE")).not.toContainText("all done");
   await submit(page);
 
   // FR-OFF-005 / FR-OFF-014: queued, safe, and said so.
@@ -87,11 +135,14 @@ test("capture continues with the network cut and syncs on reconnect", async ({
   await context.setOffline(false);
   await page.getByRole("button", { name: /sync now/i }).click();
   await expect(page.getByText(/waiting to send/i)).toBeHidden();
+  // Gone because it was accepted, not because it was refused (TY029).
+  await expect(page.getByText(/needs the office/i)).toBeHidden();
 });
 
 test("an inspection survives a browser restart mid-capture", async ({ page, request }) => {
   const horse = await assignedVehicle(request, "HORSE");
-  await startInspection(page, horse.id);
+  const task = await standingTask(request);
+  await startInspection(page, { vehicleId: horse.id, taskId: task.id });
   await page.locator("[data-position-id]").first().click();
   await capturePosition(page);
   await capturePosition(page);
@@ -110,6 +161,24 @@ test("an inspection survives a browser restart mid-capture", async ({ page, requ
   await expect(
     page.getByLabel(/Tread reading 1 of 3/).getByText("13", { exact: true }),
   ).toBeVisible();
+  // TYRE-323 (the owner's answer 2): a resumed inspection says when it began.
+  await expect(page.getByText(/^Started /)).toBeVisible();
+});
+
+// TYRE-319 (the owner's answer 1): the way back to a held inspection.
+test("a held inspection is one tap from My inspections", async ({ page, request }) => {
+  const horse = await assignedVehicle(request, "HORSE");
+  const task = await standingTask(request);
+  await startInspection(page, { vehicleId: horse.id, taskId: task.id });
+  await page.locator("[data-position-id]").first().click();
+  await capturePosition(page);
+
+  await page.goto("/my");
+  await page.getByRole("link", { name: /^Carry on with HORSE, started / }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/capture/${horse.id}\\?taskId=${task.id}$`));
+  await expect(page.getByRole("heading", { name: /^1 of/ })).toBeVisible();
+  await expect(page.getByText(/^Started /)).toBeVisible();
 });
 
 test("a rig walks as one sequence and attributes every reading to its own unit", async ({
@@ -125,7 +194,8 @@ test("a rig walks as one sequence and attributes every reading to its own unit",
   test.setTimeout(180_000);
 
   const horse = await assignedVehicle(request, "HORSE");
-  await startInspection(page, horse.id, "whole");
+  const task = await standingTask(request);
+  await startInspection(page, { vehicleId: horse.id, taskId: task.id, rig: "whole" });
 
   // FR-INS-062: the composition a controller set, pre-ticked.
   const res = await request.get(`/api/capture/vehicles/${horse.id}`, { headers: HEADERS });
@@ -198,8 +268,10 @@ test("a second inspection inside the window is refused permanently", async ({ pa
   // Depends on the first spec having submitted the horse (serial mode).
   // FR-INS-038 is about the VEHICLE and a wall-clock window, not this
   // browser; a replayed client_uuid is not a second inspection.
+  // The standing task: a refused submit closes nothing.
   const horse = await assignedVehicle(request, "HORSE");
-  await startInspection(page, horse.id);
+  const task = await standingTask(request);
+  await startInspection(page, { vehicleId: horse.id, taskId: task.id });
   await captureAll(page);
   await submit(page);
 

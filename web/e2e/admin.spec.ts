@@ -57,6 +57,12 @@ test("an org admin can build a tenant from nothing", async ({ page, browser }) =
     driverUserId: userId,
     addTrailers: [],
   });
+  // Scheduled after the trip, which a task due today would hold (U148); it
+  // goes to the trip driver, and a driver's capture opens through it
+  // (TYRE-319).
+  const task = (await apiPost(page, `/api/vehicles/${vehicleId}/inspection-tasks`, {})) as {
+    id: string;
+  };
 
   // Fresh context, not `page`: actAsOrgAdmin re-stamps on every navigation
   // (admin.ts actAs); baseURL passed since a hand-made context skips config
@@ -64,7 +70,7 @@ test("an org admin can build a tenant from nothing", async ({ page, browser }) =
   const driverContext = await browser.newContext({ baseURL: test.info().project.use.baseURL });
   const driverPage = await driverContext.newPage();
   await actAsUser(driverPage, userId);
-  await driverPage.goto(`/capture/${vehicleId}`);
+  await driverPage.goto(`/capture/${vehicleId}?taskId=${task.id}`);
   // CaptureStart's own heading (src/capture/CaptureStart.tsx) names the unit
   // the driver's trip is on.
   await expect(driverPage.getByRole("heading", { name: FLEET })).toBeVisible();

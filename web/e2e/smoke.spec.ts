@@ -35,12 +35,17 @@ test("a driver lands on their own work, never the fleet", async ({ page }) => {
   // trailers, with what is due on each.
   await expect(page).toHaveURL(/\/my$/);
   await expect(page.getByRole("heading", { name: "My inspections" })).toBeVisible();
+  // Asserts only what no run moves: bacTasks.setup.ts gives HORSE a standing
+  // task, and capture.spec.ts opens and closes tasks on HORSE and LINK12 on
+  // android while this runs elsewhere. LINK6 never has one, so it renders as
+  // an answer, named and not linked, never as an error.
   const trip = page.getByRole("region", { name: "Your trip" });
-  await expect(trip.getByRole("listitem")).toHaveText(["HORSE", "LINK6", "LINK12"]);
-  // The fixture seeds no inspection tasks, and an empty result renders as an
-  // answer, never as an error (the fourth refusal layer is 200 []).
-  await expect(page.getByText("Nothing due.")).toHaveCount(1);
-  await expect(page.getByText("Nothing due.")).toBeVisible();
+  for (const unit of ["HORSE", "LINK6", "LINK12"]) {
+    await expect(trip).toContainText(unit);
+  }
+  await expect(trip.getByRole("listitem").filter({ hasText: /^LINK6$/ })).toBeVisible();
+  await expect(trip.getByRole("link", { name: /^LINK6/ })).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
 test("the capability guard hides the fleet from a driver", async ({ page }) => {
