@@ -380,6 +380,7 @@ the PR, and the new mark in `/dev/design`.
 | 1 | A link with no task, and more than one open task on the unit | "Show the tasks to pick from" |
 | 2 | Next after an auto-advance | Next stays on an empty box, and "can we not have like a screen shake or flash a red around the empty box to show that like, hey this box is still empty you should input something" |
 | 3 | The application version | "defer to post POC, i dont think this is important at this point, we still refeining it and will refine it during the POC so i dont think this matters right now" |
+| 4 | The spec, with the lead's calls | Approved as written, 20 Nov 2026 (U247) |
 
 Earlier rulings this design applies: U245 (a driver with a task due can see
 it and start it), U244 (the TYRE-319 spec), U143 and U147 (the task rule),
