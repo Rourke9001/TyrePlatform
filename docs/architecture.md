@@ -178,6 +178,7 @@ live schema (ADR-0012):
 | TY026 | 000059 | a receipt refused: a move its state does not allow, or a tyre's receipt changed |
 | TY027 | 000059, 000062 | a consent record refused; no route can reach it, so no entry exists |
 | TY028 | 000060 | a trip write refused: a start or an end, including a due inspection not done on a unit the trip would cover (U148) |
+| TY029 | 000064 | a scoped submit that cites no inspection task, a task not in this fleet, or one on a unit it does not cover |
 
 `httpapi.unitSource` is the one place a fleet handler chooses its relation
 for a unit, by `auth.Actor.Scope` and never by role name (ADR-0006). Every
