@@ -2160,7 +2160,7 @@ describe("the task gate (TYRE-319)", () => {
     await user.click(screen.getByRole("button", { name: /submit inspection/i }));
     await screen.findByText("Inspection sent");
     const [, init] = api.mock.calls.find(([, i]) => i?.method === "POST") ?? [];
-    expect(JSON.parse(init?.body ?? "{}").task_id).toBe("k1");
+    expect((JSON.parse(init?.body ?? "{}") as { task_id?: string }).task_id).toBe("k1");
   });
 
   it("row 2a: a link task that is not usable stands aside for the one open task", async () => {
