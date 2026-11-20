@@ -278,7 +278,10 @@ export function PositionSheet({
             variant="secondary"
             size="glove"
             className="cap-sheet-spare"
-            onClick={() => onAbsent(rig.position, !absent)}
+            onClick={() => {
+              setNeeds(null);
+              onAbsent(rig.position, !absent);
+            }}
           >
             {absent ? "Spare is here" : "No spare on this unit"}
           </Button>
