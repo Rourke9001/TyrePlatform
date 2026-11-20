@@ -112,7 +112,8 @@ test("capture continues with the network cut and syncs on reconnect", async ({
 }) => {
   // A coupled trailer's task is captured through its motive (000060,
   // v_my_inspection_task), so LINK12 is opened from the HORSE route, kept
-  // ticked, and only its cells are read: test 1 used the HORSE's window.
+  // ticked, and only its cells are read: test 1 used the HORSE's FR-INS-038
+  // window.
   const horse = await assignedVehicle(request, "HORSE");
   const link = await assignedVehicle(request, "LINK12");
   const task = await scheduleTask(request, link.id);

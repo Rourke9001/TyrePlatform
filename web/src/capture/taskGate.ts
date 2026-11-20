@@ -46,7 +46,8 @@ export function gateFor(input: {
     // works with no signal (NFR-AVL-002).
     if (linkTaskId === null || linkTaskId === draft.taskId) return { kind: "resume" };
     if (tasks === "pending") return { kind: "loading" };
-    // Row 6: what the phone cannot check, the draft keeps its own task.
+    // Row 6: a link the phone cannot check leaves the draft on its own task
+    // (TYRE-319 spec, Lead's call 11).
     if (tasks === "failed") return { kind: "resume" };
     const task = openForUnit(tasks, linkTaskId, unit);
     // Row 5 (U147 B7): only a task this draft could carry is a choice.

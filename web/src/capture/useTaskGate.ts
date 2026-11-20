@@ -48,8 +48,8 @@ export function useTaskGate(args: {
 
   // Rows 4 to 6 are decided once per vehicle and link task, so a refetch
   // that lands mid-capture never swaps the walk-around for the choice
-  // screen. The route keeps one CaptureFlow across a change of its vehicle
-  // or task (routes.tsx), so a new key decides afresh.
+  // screen (TYRE-319). The route keeps one CaptureFlow across a change of
+  // its vehicle or task (routes.tsx), so a new key decides afresh.
   const key = `${vehicleId}|${linkTaskId ?? ""}`;
   const [latch, setLatch] = useState<{ key: string; gate: Gate } | null>(null);
   let gate = computed;

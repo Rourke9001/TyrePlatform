@@ -20,11 +20,8 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    // TYRE-319: a driver's capture opens only from a task, and BAC's fixture
-    // seeds none, so this plants BAC's standing task through the API before
-    // any project reads BAC, and U50's "no BAC write races a BAC read" holds.
-    // It is due in 2099, so no submit's close of the day's tasks (U150) and
-    // no trip start's gate (U148) meets it.
+    // TYRE-319: plants BAC's standing task (bacTasks.setup.ts) before any
+    // project reads BAC, so U50's "no BAC write races a BAC read" holds.
     {
       name: "bac-setup",
       use: { ...devices["Desktop Chrome"] },
