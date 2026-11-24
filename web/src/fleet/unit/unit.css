@@ -292,3 +292,14 @@ dl.unit-panel-facts {
   margin: 0;
   padding-left: 1.25rem;
 }
+
+/* The void's confirmation (TYRE-325): what it names, then the reason. */
+.void-dialog-line {
+  margin: 0 0 var(--space-3);
+}
+
+.void-dialog-units {
+  margin: 0 0 var(--space-3);
+  padding-left: 1.25rem;
+  font-family: var(--font-mono);
+}

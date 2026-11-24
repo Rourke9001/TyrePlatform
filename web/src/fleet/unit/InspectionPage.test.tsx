@@ -173,9 +173,13 @@ describe("the inspection page", () => {
     serve(() => Promise.resolve(respond(200, voided)));
     renderPage();
 
-    const banner = await screen.findByRole("status");
+    // The page's own status line is a second status region, empty here.
+    const text = await screen.findByText(
+      "Voided by Nomsa on 21 Nov 2026 12:05. Reason: wrong rig.",
+    );
+    const banner = text.closest("[role='status']");
+    expect(banner).not.toBeNull();
     expect(banner).toHaveTextContent("Voided");
-    expect(banner).toHaveTextContent("Voided by Nomsa on 21 Nov 2026 12:05. Reason: wrong rig.");
     expect(screen.queryByText("Latest inspection")).toBeNull();
   });
 
@@ -253,5 +257,73 @@ describe("the inspection page", () => {
     } finally {
       restore();
     }
+  });
+  // FR-INS-012: VoidInspection's, and only while the inspection stands.
+  it("offers the void to a holder of VoidInspection on an inspection not voided", async () => {
+    serve(() => Promise.resolve(respond(200, DETAIL)));
+    const holder = renderPage(["ViewFleet", "VoidInspection"]);
+    expect(await screen.findByRole("button", { name: "Void inspection" })).toBeInTheDocument();
+    holder.unmount();
+
+    renderPage(["ViewFleet"]);
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("button", { name: "Void inspection" })).toBeNull();
+  });
+
+  it("offers no void on an inspection already voided", async () => {
+    serve(() =>
+      Promise.resolve(
+        respond(200, {
+          ...DETAIL,
+          inspection: { ...DETAIL.inspection, latest: false, state: "VOIDED", voidReason: "x" },
+        }),
+      ),
+    );
+    renderPage(["ViewFleet", "VoidInspection"]);
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("button", { name: "Void inspection" })).toBeNull();
+  });
+
+  // NFR-USE-010: success is said, and the page reads the void back.
+  it("closes the dialog after a void, says so, and shows the inspection voided", async () => {
+    let voided = false;
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = requestedUrl(input);
+      if (url === "/api/inspections/i1/void") {
+        voided = true;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      if (url === PATH) {
+        const inspection = voided
+          ? {
+              ...DETAIL.inspection,
+              latest: false,
+              state: "VOIDED",
+              voidReason: "wrong rig",
+              voidedBy: "Nomsa",
+              voidedAt: "2026-11-21T10:05:00Z",
+            }
+          : DETAIL.inspection;
+        return Promise.resolve(respond(200, { ...DETAIL, inspection }));
+      }
+      throw new Error(`unstubbed ${url}`);
+    });
+    const user = userEvent.setup();
+    renderPage(["ViewFleet", "VoidInspection"]);
+
+    await user.click(await screen.findByRole("button", { name: "Void inspection" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "wrong rig");
+    await user.click(within(dialog).getByRole("button", { name: "Void inspection" }));
+
+    expect(
+      await screen.findByText(
+        "Inspection voided. Its readings no longer count toward condition or exceptions.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(
+      await screen.findByText("Voided by Nomsa on 21 Nov 2026 12:05. Reason: wrong rig."),
+    ).toBeInTheDocument();
   });
 });

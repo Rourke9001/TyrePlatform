@@ -1,12 +1,24 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import { ApiError, retryQuery } from "../../api/apiError";
+import { getDevTenantId } from "../../api/devTenant";
 import {
   fetchUnitCondition,
   fetchUnitInspection,
   fetchUnitInspections,
+  voidInspection,
 } from "../../api/inspections";
-import { unitConditionKey, unitInspectionKey, unitInspectionsKey } from "./queryKeys";
+import { useFormMutation } from "../useFormMutation";
+import {
+  dashboardRefreshKeys,
+  unitConditionKey,
+  unitConditionPrefix,
+  unitInspectionKey,
+  unitInspectionPrefix,
+  unitInspectionsKey,
+  unitInspectionsPrefix,
+  unitPrefix,
+} from "./queryKeys";
 
 // The unit's inspection reads (TYRE-325, ADR-0022). Each keeps the
 // QueryClient's default freshness, stale on mount as the unit read is, and
@@ -39,5 +51,24 @@ export function useUnitCondition(unitId: string) {
     queryKey: unitConditionKey(unitId),
     queryFn: () => fetchUnitCondition(unitId),
     refetchOnWindowFocus: false,
+  });
+}
+
+// FR-INS-012. A void changes the list, the page and the condition of every
+// unit the inspection read, so each is made stale by prefix, with the four
+// keys the dashboard's Refresh invalidates, read again on their next visit.
+// Nothing refetches on focus or polls (U41).
+export function useVoidInspection(inspectionId: string, onVoided: () => void) {
+  const tenantKey = getDevTenantId() ?? "default";
+  return useFormMutation<string, void>({
+    mutate: (reason) => voidInspection(inspectionId, reason),
+    invalidate: [
+      unitInspectionsPrefix(),
+      unitInspectionPrefix(),
+      unitPrefix(),
+      unitConditionPrefix(),
+      ...dashboardRefreshKeys(tenantKey),
+    ],
+    onSuccess: onVoided,
   });
 }

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router";
 
 import { ApiError } from "../../api/apiError";
@@ -24,7 +25,9 @@ import {
   warningValueText,
   type InspectionRow,
 } from "./inspection.view";
+import { useCan } from "../../auth/actorContext";
 import { useUnitInspection } from "./inspections.data";
+import { VoidInspectionDialog } from "./VoidInspectionDialog";
 import "./unit.css";
 
 // One inspection as it concerns one unit (TYRE-325 spec section 4): what was
@@ -33,6 +36,9 @@ import "./unit.css";
 // unit screen shows that (U18).
 export function InspectionPage({ unitId, inspectionId }: { unitId: string; inspectionId: string }) {
   const read = useUnitInspection(unitId, inspectionId);
+  // NFR-USE-010: the void's success is said, held here so it outlasts the
+  // dialog and the page's own refetch.
+  const [status, setStatus] = useState("");
 
   if (read.isPending) return <p className="unit-note">Loading…</p>;
 
@@ -63,12 +69,38 @@ export function InspectionPage({ unitId, inspectionId }: { unitId: string; inspe
     );
   }
 
-  return <InspectionBody unitId={unitId} detail={read.data} />;
+  return (
+    <InspectionBody
+      unitId={unitId}
+      detail={read.data}
+      status={status}
+      onVoided={() => {
+        setStatus(
+          "Inspection voided. Its readings no longer count toward condition or exceptions.",
+        );
+      }}
+    />
+  );
 }
 
 type KeyedWarning = InspectionWarning & { key: string };
 
-function InspectionBody({ unitId, detail }: { unitId: string; detail: InspectionDetail }) {
+function InspectionBody({
+  unitId,
+  detail,
+  status,
+  onVoided,
+}: {
+  unitId: string;
+  detail: InspectionDetail;
+  status: string;
+  onVoided: () => void;
+}) {
+  const canVoid = useCan("VoidInspection");
+  // Each opening is a fresh dialog, so a reason or a refusal from the last
+  // one is not carried into the next.
+  const [voiding, setVoiding] = useState(false);
+  const [openings, setOpenings] = useState(0);
   const asInstant = useTenantInstant();
   const units = useUnitLabels();
   const row = detail.inspection;
@@ -153,7 +185,7 @@ function InspectionBody({ unitId, detail }: { unitId: string; detail: Inspection
     },
   ];
 
-  const status =
+  const standing =
     mark === "latest" ? "Latest inspection" : mark === "voided" ? "Voided" : "Not the latest";
 
   return (
@@ -162,6 +194,36 @@ function InspectionBody({ unitId, detail }: { unitId: string; detail: Inspection
         back={{ label: `Back to ${row.fleetNumber}`, to: `/fleet/units/${unitId}` }}
         title={<span id="inspection-heading">{`Inspection of ${row.fleetNumber}`}</span>}
         description={`${formatCount(row.positionsRead)} positions read on this unit`}
+        actions={
+          canVoid && mark !== "voided" ? (
+            <Button
+              variant="danger"
+              onClick={() => {
+                setOpenings((n) => n + 1);
+                setVoiding(true);
+              }}
+            >
+              Void inspection
+            </Button>
+          ) : undefined
+        }
+      />
+      <p role="status" className="unit-note">
+        {status}
+      </p>
+      <VoidInspectionDialog
+        key={openings}
+        open={voiding}
+        onClose={() => {
+          setVoiding(false);
+        }}
+        inspection={row}
+        units={detail.units}
+        when={when}
+        onVoided={() => {
+          setVoiding(false);
+          onVoided();
+        }}
       />
 
       {mark === "voided" && (
@@ -177,7 +239,7 @@ function InspectionBody({ unitId, detail }: { unitId: string; detail: Inspection
             { label: "When", value: when },
             { label: "Driver", value: row.driver.displayName },
             { label: "Odometer", value: odometerCell(row, units.distance) },
-            { label: "Status", value: status },
+            { label: "Status", value: standing },
           ]}
         />
       </Card>
