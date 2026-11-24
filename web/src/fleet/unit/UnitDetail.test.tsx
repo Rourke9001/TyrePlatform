@@ -503,6 +503,24 @@ describe("the unit screen", () => {
       }
     });
 
+    // A failed older page is an error of that page alone: the rows already
+    // shown stay, and the failure is said beside the button.
+    it("keeps the loaded rows when an older page fails, and says so", async () => {
+      stubFetch([], {
+        ...listOf({ ...LIST, nextAfter: "i1" }),
+        older: () => Promise.resolve(respond(500, {})),
+      });
+      const user = userEvent.setup();
+      renderScreen(["ViewFleet"]);
+
+      const card = await region();
+      await user.click(await within(card).findByRole("button", { name: "Show older inspections" }));
+
+      expect(await within(card).findByText("Older inspections could not be loaded.")).toBeTruthy();
+      expect(within(card).getAllByRole("row")).toHaveLength(3);
+      expect(within(card).queryByText("The inspections could not be loaded.")).toBeNull();
+    });
+
     it("loads older inspections on request and appends them", async () => {
       stubFetch([], {
         ...listOf({ ...LIST, nextAfter: "i1" }),

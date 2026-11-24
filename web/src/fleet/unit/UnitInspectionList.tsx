@@ -73,7 +73,9 @@ export function UnitInspectionList({ unitId }: { unitId: string }) {
     <Card title="Inspections" padding="md">
       {list.isPending && <p className="unit-note">Loading…</p>}
 
-      {list.isError && (
+      {/* An older page's failure sets isError too, and is said beside its
+          button below, so the rows already loaded stay. */}
+      {list.isError && !list.isFetchNextPageError && (
         <Banner
           tone="critical"
           title="The inspections could not be loaded."
@@ -85,7 +87,7 @@ export function UnitInspectionList({ unitId }: { unitId: string }) {
         />
       )}
 
-      {list.isSuccess && (
+      {list.data !== undefined && (
         <>
           <DataTable
             // Not the card's title: a table that scrolls is a region named
