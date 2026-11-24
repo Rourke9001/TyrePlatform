@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { ApiError } from "../../api/apiError";
@@ -111,6 +111,15 @@ function InspectionBody({
   // one is not carried into the next.
   const [voiding, setVoiding] = useState(false);
   const [openings, setOpenings] = useState(0);
+  // WCAG 2.4.3: a landed void removes the button the dialog hands focus back
+  // to, so the heading takes it once the dialog's trap has let go.
+  const heading = useRef<HTMLHeadingElement>(null);
+  const voidLanded = useRef(false);
+  useEffect(() => {
+    if (voiding || !voidLanded.current) return;
+    voidLanded.current = false;
+    heading.current?.focus();
+  }, [voiding]);
   const asInstant = useTenantInstant();
   const units = useUnitLabels();
   const row = detail.inspection;
@@ -202,6 +211,7 @@ function InspectionBody({
     <section className="unit-detail tr-stack" aria-labelledby="inspection-heading">
       <PageHeader
         back={{ label: `Back to ${row.fleetNumber}`, to: `/fleet/units/${unitId}` }}
+        headingRef={heading}
         title={<span id="inspection-heading">{`Inspection of ${row.fleetNumber}`}</span>}
         description={`${plural(row.positionsRead, "position", "positions")} read on this unit`}
         actions={
@@ -246,6 +256,7 @@ function InspectionBody({
         units={detail.units}
         when={when}
         onVoided={() => {
+          voidLanded.current = true;
           setVoiding(false);
           onVoided();
         }}
