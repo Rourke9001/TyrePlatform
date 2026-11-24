@@ -171,8 +171,9 @@ Minors left open.
   file. It takes them from the report's list and from any finding that
   recommends an audit the list missed, since the lead decides on the
   report's text. A run holds one line per mechanism: a line for a mechanism
-  already recorded replaces the earlier one and keeps the finding IDs and
-  files of both. Two recommendations name the same mechanism when the report says
+  already recorded replaces the earlier one and keeps the finding IDs,
+  files, report paths and earlier fixes of both, each fix counted once.
+  Two recommendations name the same mechanism when the report says
   the later one repeats or stands on the earlier, or when the later
   finding sits in code the earlier candidate's fix changed. The wording of
   the mechanism does not decide it. When the lead cannot tell, both lines
@@ -192,7 +193,7 @@ Minors left open.
   lists and that close-out files them after the merge. It is not a step the
   owner owes.
 - **State file template.** One line:
-  `- Design audit candidates: <mechanism>; files: <paths>; findings: <IDs>; fixed <n> times (<where>); report <path>`.
+  `- Design audit candidates: <mechanism>; files: <paths>; findings: <IDs>; fixed <n> times (<where>); report <paths>`.
 
 ### 3. The PR template (`.github/pull_request_template.md`)
 

@@ -574,15 +574,16 @@ nothing, that gate stands and is not run again.
    audit candidates list and from any recommendation elsewhere in the
    report that the list missed. A run holds one line per mechanism: a
    recommendation on a mechanism already recorded replaces that line,
-   keeping the finding IDs, files and report paths of both. Two
-   recommendations name the same mechanism when the report says the later
-   one repeats or stands on the earlier, or when the later finding sits in
-   code the earlier candidate's fix changed; the wording does not decide
-   it. When you cannot tell, keep both lines, since a duplicate costs the
-   owner less than two mechanisms joined. A later round that fixes a line's
-   finding never removes the line (`docs/how-work-runs.md`, Design audit
-   candidates). Recording a candidate is not an action of step 5 and
-   changes nothing step 6 judges.
+   keeping the finding IDs, files and report paths of both, and in
+   `fixed <n> times (<where>)` every round or PR either line names, each
+   counted once. Two recommendations name the same mechanism when the
+   report says the later one repeats or stands on the earlier, or when the
+   later finding sits in code the earlier candidate's fix changed; the
+   wording does not decide it. When you cannot tell, keep both lines, since
+   a duplicate costs the owner less than two mechanisms joined. A later
+   round that fixes a line's finding never removes the line
+   (`docs/how-work-runs.md`, Design audit candidates). Recording a
+   candidate is not an action of step 5 and changes nothing step 6 judges.
 5. **Act on the classes**, recording each action in the state file as it
    happens. A verified rule 1 to 3 finding, whatever its class or severity, is a stop, once per finding: show the owner the evidence and the proposed fix before anything else is done with it. One the owner has ruled on is not a stop again.
    Then, for each finding not waiting on the owner: an `unrelated` bug that had the
@@ -916,7 +917,7 @@ Give each fixer this brief verbatim, its placeholders filled:
 - Fix <id>: before=<sha>; started | after=<sha>; lint exit <code | n/a>, test exit <code | n/a>; reports <path>[, <retry path>][, <gate report path>][, <gate retry path>]; re-review <path | none>[; net done]
 - Gate: <full sha>; lint exit <code>, test exit <code | n/a>; <UTC time>
 - Minors left open: <finding ID>, <file:line>, <what is wrong>
-- Design audit candidates: <mechanism>; files: <paths>; findings: <IDs>; fixed <n> times (<where>); report <path>
+- Design audit candidates: <mechanism>; files: <paths>; findings: <IDs>; fixed <n> times (<where>); report <paths>
 - Set aside: <finding ID>: <reason>
 - PR: #<n>; CI <result> @ <head sha>
 - Waits:
