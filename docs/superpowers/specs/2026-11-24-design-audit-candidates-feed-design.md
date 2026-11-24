@@ -1,7 +1,8 @@
 # Design audit candidates reach their ticket by themselves
 
-Date: 2026-11-24. Ticket: TYRE-494. Status: written for the owner's
-approval. Builds on
+Date: 2026-11-24. Ticket: TYRE-494. Status: approved by the owner on
+24 Nov 2026 as owner ruling U252, with the answer under Settled by the
+owner. Builds on
 `docs/superpowers/specs/2026-11-14-loop-exit-and-cloud-close-out-design.md`
 (the Minors left open feed, U212), ADR-0018 and ADR-0023. No SRS requirement
 is cited: this is run tooling, and the project brief (Confluence 10321923)
@@ -50,7 +51,7 @@ ticket, the way the Minor batch feeds `Minors left open by pipeline runs`.
   because its finding CR-1 landed on a mechanism TYRE-334 had fixed on
   another screen. Fix round 1 fixed CR-1 and no later review came back to
   it, and neither the PR body nor the comment carries it. Whether such a
-  recommendation is a candidate is the question under For the owner.
+  recommendation is a candidate is the question under Settled by the owner.
 - No script reads these files. `rg` for the playbook names under `scripts/`
   and `.github/workflows/` finds only `scripts/pipeline-wait.sh`, which
   names `pipeline.md` in a comment. `make lint` checks their prose through
@@ -124,20 +125,17 @@ reports are gitignored and local, so the cloud close-out cannot read them.
 already reads them as a signal. The owner asked for one ticket to read, and
 a state directory deleted to relaunch a key takes its reports with it.
 
-## For the owner
-
-One question only the owner can answer, and the design below is written to
-the answer the lead recommends.
+## Settled by the owner
 
 **Is a recommendation still a candidate once a later round has fixed the
-finding that raised it?** The recommended answer is yes: every
-recommendation a report makes is a candidate. The signal is that a
-mechanism drew a fix again, and a second fix does not take that back. An
-earlier PR's fix followed by this PR's is the "recurred across runs" case
-TYRE-493 names as a reason to audit. The other answer, only mechanisms with
-a finding still open at hand-over, gives a shorter list and needs a rule
-for removing a line. On a yes, the lead adds TYRE-325's third candidate to
-TYRE-493 by hand.
+finding that raised it?** Yes (U252): every recommendation a report makes
+is a candidate. The signal is that a mechanism drew a fix again, and a
+second fix does not take that back. An earlier PR's fix followed by this
+PR's is the "recurred across runs" case TYRE-493 names as a reason to
+audit. The answer the owner did not take, only mechanisms with a finding
+still open at hand-over, gives a shorter list and needs a rule for removing
+a line. The lead added TYRE-325's third candidate to TYRE-493 by hand on
+the same day.
 
 ## The design
 
@@ -178,7 +176,7 @@ Minors left open.
   the mechanism does not decide it. When the lead cannot tell, both lines
   stay: the owner reads the list once, and a duplicate costs less than two
   mechanisms joined. A line is never removed because a later round fixed
-  its finding (For the owner). Recording a candidate is not an action of
+  its finding (Settled by the owner). Recording a candidate is not an action of
   step 5 and changes nothing step 6 judges.
 - **The cap (step 9).** Its text does not change.
 - **Hand-over step 2.** The PR body gets a Design audit candidates section
@@ -252,7 +250,7 @@ says:
   (TYRE-493): audit now, after the POC, or drop.
 - At the cap the run still runs its own audit (The review loop, above).
 
-The rule cites the owner ruling that approves this spec, proposed as U252.
+The rule cites owner ruling U252, which approved this spec.
 
 ### 7. Tests
 
