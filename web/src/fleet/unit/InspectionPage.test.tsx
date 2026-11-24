@@ -440,6 +440,150 @@ describe("the inspection page", () => {
     expect(screen.getByRole("heading", { level: 1 })).not.toHaveFocus();
   });
 
+  // TY019 says the inspection stands voided, by a void of ours that timed out
+  // or by someone else's, so the page reads it back and stops offering one.
+  it("reads the inspection back when the void is refused as already voided", async () => {
+    let refused = false;
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = requestedUrl(input);
+      if (url === "/api/inspections/i1/void") {
+        refused = true;
+        return Promise.resolve(
+          respond(422, { code: "TY019", message: "this inspection is already voided" }),
+        );
+      }
+      if (url === PATH) {
+        const inspection = refused
+          ? {
+              ...DETAIL.inspection,
+              latest: false,
+              state: "VOIDED",
+              voidReason: "wrong tyre",
+              voidedBy: "Nomsa",
+              voidedAt: "2026-11-21T10:05:00Z",
+            }
+          : DETAIL.inspection;
+        return Promise.resolve(respond(200, { ...DETAIL, inspection }));
+      }
+      throw new Error(`unstubbed ${url}`);
+    });
+    const client = testQueryClient();
+    client.setQueryData(["unit-inspections", "u9"], { pages: [], pageParams: [null] });
+    const user = userEvent.setup();
+    renderWithActor(<InspectionPage unitId="u9" inspectionId="i1" />, {
+      capabilities: ["ViewFleet", "VoidInspection"],
+      withRouter: true,
+      client,
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Void inspection" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "wrong rig");
+    await user.click(within(dialog).getByRole("button", { name: "Void inspection" }));
+
+    expect(
+      await within(dialog).findByText("this inspection is already voided"),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Voided by Nomsa on 21 Nov 2026 12:05. Reason: wrong tyre."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Latest inspection")).toBeNull();
+    expect(client.getQueryState(["unit-inspections", "u9"])?.isInvalidated).toBe(true);
+  });
+
+  // WCAG 2.4.3: the read-back removes the button the dialog would hand focus
+  // back to, whether it lands before the dialog closes or after.
+  it("puts focus on the page heading when a refused void's read-back removes the button", async () => {
+    let refused = false;
+    let release: () => void = () => undefined;
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = requestedUrl(input);
+      if (url === "/api/inspections/i1/void") {
+        refused = true;
+        return Promise.resolve(
+          respond(422, { code: "TY019", message: "this inspection is already voided" }),
+        );
+      }
+      if (url === PATH) {
+        if (!refused) return Promise.resolve(respond(200, DETAIL));
+        const inspection = {
+          ...DETAIL.inspection,
+          latest: false,
+          state: "VOIDED",
+          voidReason: "x",
+        };
+        return new Promise<Response>((resolve) => {
+          release = () => {
+            resolve(respond(200, { ...DETAIL, inspection }));
+          };
+        });
+      }
+      throw new Error(`unstubbed ${url}`);
+    });
+    const user = userEvent.setup();
+    renderPage(["ViewFleet", "VoidInspection"]);
+
+    // The read-back lands while the dialog is open.
+    await user.click(await screen.findByRole("button", { name: "Void inspection" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "wrong rig");
+    await user.click(within(dialog).getByRole("button", { name: "Void inspection" }));
+    await within(dialog).findByText("this inspection is already voided");
+    act(() => {
+      release();
+    });
+    await screen.findByText("Voided. Reason: x.");
+    await user.click(within(dialog).getByRole("button", { name: "Keep it" }));
+    expect(screen.queryByRole("button", { name: "Void inspection" })).toBeNull();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveFocus();
+  });
+
+  it("puts focus on the page heading when the read-back lands after the dialog has closed", async () => {
+    let refused = false;
+    let release: () => void = () => undefined;
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = requestedUrl(input);
+      if (url === "/api/inspections/i1/void") {
+        refused = true;
+        return Promise.resolve(
+          respond(422, { code: "TY019", message: "this inspection is already voided" }),
+        );
+      }
+      if (url === PATH) {
+        if (!refused) return Promise.resolve(respond(200, DETAIL));
+        const inspection = {
+          ...DETAIL.inspection,
+          latest: false,
+          state: "VOIDED",
+          voidReason: "x",
+        };
+        return new Promise<Response>((resolve) => {
+          release = () => {
+            resolve(respond(200, { ...DETAIL, inspection }));
+          };
+        });
+      }
+      throw new Error(`unstubbed ${url}`);
+    });
+    const user = userEvent.setup();
+    renderPage(["ViewFleet", "VoidInspection"]);
+
+    const button = await screen.findByRole("button", { name: "Void inspection" });
+    await user.click(button);
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "wrong rig");
+    await user.click(within(dialog).getByRole("button", { name: "Void inspection" }));
+    await within(dialog).findByText("this inspection is already voided");
+    await user.click(within(dialog).getByRole("button", { name: "Keep it" }));
+    expect(button).toHaveFocus();
+
+    act(() => {
+      release();
+    });
+    await screen.findByText("Voided. Reason: x.");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveFocus();
+  });
+
   // Every unit's copy of this inspection, and no other inspection's.
   it("marks the voided inspection on every unit's page it is cached for, and no other", async () => {
     vi.mocked(fetch).mockImplementation((input) => {

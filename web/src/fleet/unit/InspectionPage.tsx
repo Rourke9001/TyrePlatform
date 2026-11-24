@@ -111,19 +111,22 @@ function InspectionBody({
   // one is not carried into the next.
   const [voiding, setVoiding] = useState(false);
   const [openings, setOpenings] = useState(0);
-  // WCAG 2.4.3: a landed void removes the button the dialog hands focus back
-  // to, so the heading takes it once the dialog's trap has let go.
-  const heading = useRef<HTMLHeadingElement>(null);
-  const voidLanded = useRef(false);
-  useEffect(() => {
-    if (voiding || !voidLanded.current) return;
-    voidLanded.current = false;
-    heading.current?.focus();
-  }, [voiding]);
   const asInstant = useTenantInstant();
   const units = useUnitLabels();
   const row = detail.inspection;
   const mark = inspectionMark(row);
+  // WCAG 2.4.3: a void, ours landing or one read back after a TY019 refusal,
+  // removes the button the dialog hands focus back to, before the dialog
+  // closes or after. Once it is closed, focus left on nothing goes to the
+  // heading.
+  const heading = useRef<HTMLHeadingElement>(null);
+  const offered = useRef(false);
+  useEffect(() => {
+    if (voiding || !offered.current || mark !== "voided") return;
+    offered.current = false;
+    const active = document.activeElement;
+    if (active === null || active === document.body) heading.current?.focus();
+  }, [voiding, mark]);
   const when = asInstant(row.submittedAt);
   const others = detail.units.filter((u) => u.fleetNumber !== row.fleetNumber);
 
@@ -219,6 +222,7 @@ function InspectionBody({
             <Button
               variant="danger"
               onClick={() => {
+                offered.current = true;
                 setOpenings((n) => n + 1);
                 setVoiding(true);
               }}
@@ -256,7 +260,6 @@ function InspectionBody({
         units={detail.units}
         when={when}
         onVoided={() => {
-          voidLanded.current = true;
           setVoiding(false);
           onVoided();
         }}

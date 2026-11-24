@@ -426,7 +426,11 @@ refuses one over 200 bytes (`api/internal/httpapi/inspections.go:44`,
 form stops at 200 characters and shows the server's refusal for a reason
 that is under that and still too long. Close is blocked while the write is
 pending. A refusal shows in the dialog through `RefusalAlert`, including
-TY019 when someone else voided it first.
+TY019 when someone else voided it first. TY019 can mean the inspection
+stands voided already, by someone else or by a void of ours whose answer was
+lost, so it makes stale the same reads a void does (below) and the page
+reads the void back. Whenever the void's button goes, before the dialog
+closes or after, focus left on nothing goes to the page heading.
 
 On success the dialog closes and the page shows the inspection as voided
 with a status line saying so (NFR-USE-010). The void makes stale every
