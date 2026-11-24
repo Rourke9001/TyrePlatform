@@ -94,7 +94,6 @@ migration, an endpoint, a route or a screen, or is several defects.
 
 | # | Launch | Carries | Lane | Before it starts |
 |---|---|---|---|---|
-| 7 | `make pipeline T=TYRE-325` | none; it adds the void button | API, web | none |
 | 8 | `make pipeline T=TYRE-240` | 176 with fold 278; the behaviour fixes 118, 119, 182, 291, 327 and 328, 330's f8, f15 and f16, the favicon, and B41's back-dating field | web, API | none. The favicon reuses the tyre mark under `web/public/icons/` (#234). In Progress on the board with no branch: its Tread ports merged as #153 and #154 |
 | 9 | `make pipeline T=TYRE-243` | slice 1, the lifecycle | database, API, web | none |
 | 10 | `make pipeline T=TYRE-432` | fold 425 | database | none. It merges before BAC's tenant is provisioned (Two ordering rules) |
@@ -181,8 +180,8 @@ queue holds 41 runs; the dates have not been re-planned.
 The table is the 21 Oct plan, kept as the record of what each sprint was to
 unlock; the run queue above decides the order. Its two lanes touch disjoint
 files. The database lane runs one PR after another, because each takes the
-next migration number and suite section: the next free pair is **000064 and
-section 81**, taken by whichever database branch is cut first.
+next migration number and suite section: the next free pair is **000067 and
+section 83**, taken by whichever database branch is cut first.
 
 | Sprint | Dates | Web, API and infrastructure lane | Database lane | Unlocks |
 |---|---|---|---|---|
