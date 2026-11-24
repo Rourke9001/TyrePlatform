@@ -188,9 +188,11 @@ its fitment, task, trip and trip-blocker reads, the unit-path writes
 (`fitTyre`, `rotateTyres`, `scheduleInspectionTask`), a nomination, which is
 judged by its task's unit, a trip start and end, judged by the motive, the
 rig writes and the rig register, which shows a rig when any of its units is
-in scope (U149), and the two composition-report writes (`observations.go`),
-which reach the unit through the report's inspection (FR-AUT-008, TYRE-162,
-TYRE-226, TYRE-326).
+in scope (U149), the two composition-report writes (`observations.go`),
+which reach the unit through the report's inspection, the two inspection
+reads (`inspection_reads.go`), which also null another depot's addressed
+unit, and the void (`voidInspection`), which reaches the units through the
+inspection it voids (FR-AUT-008, TYRE-162, TYRE-226, TYRE-326, TYRE-325).
 
 `patchUnit`'s UPDATE always runs, even naming no column, because it is
 doing two further jobs beyond the edit itself. It is the existence check,

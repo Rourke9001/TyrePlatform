@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -186,4 +187,55 @@ func TestVoidInspection(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 		require.Equal(t, "bad_request", decodeRefusal(t, rec.Body.Bytes()).Code)
 	})
+}
+
+// A depot manager voids an inspection that concerns a unit of their depots,
+// one unit of a two-depot rig being enough (FR-AUT-008, U248 item 3), and
+// any other answers as one that does not exist (ADR-0011).
+func TestVoidInspectionIsDepotScoped(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	f := plantTwoDepotRig(t, ctx, admin, "void-depot")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	stateOf := func(t *testing.T, insp uuid.UUID) string {
+		t.Helper()
+		var state string
+		require.NoError(t, admin.QueryRow(ctx, `SELECT state FROM app.inspection WHERE id = $1`, insp).Scan(&state))
+		return state
+	}
+
+	t.Run("a manager of no unit on the inspection is answered not_found and nothing is voided", func(t *testing.T) {
+		insp := plantRigInspection(t, ctx, admin, f, time.Now().Add(-time.Hour), false)
+		rec := post(t, h, voidPath(insp.String()), f.Tenant.String(), f.OutsiderManager.String(), `{"reason":"not mine"}`)
+		require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+		body := decodeRefusal(t, rec.Body.Bytes())
+		require.Equal(t, "not_found", body.Code)
+		require.Equal(t, "no such inspection in this fleet", body.Message)
+		require.Equal(t, "SYNCED", stateOf(t, insp))
+	})
+
+	t.Run("an inspection that does not exist answers the same", func(t *testing.T) {
+		rec := post(t, h, voidPath(uuid.NewString()), f.Tenant.String(), f.OutsiderManager.String(), `{"reason":"not mine"}`)
+		require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+		body := decodeRefusal(t, rec.Body.Bytes())
+		require.Equal(t, "not_found", body.Code)
+		require.Equal(t, "no such inspection in this fleet", body.Message)
+	})
+
+	for _, c := range []struct {
+		name  string
+		actor uuid.UUID
+	}{
+		{"the trailer's manager, one unit of a two-depot rig", f.TrailerManager},
+		{"the horse's manager", f.HorseManager},
+		{"a controller, anywhere in the tenant", f.Controller},
+	} {
+		t.Run(c.name+" voids it", func(t *testing.T) {
+			insp := plantRigInspection(t, ctx, admin, f, time.Now().Add(-time.Hour), false)
+			rec := post(t, h, voidPath(insp.String()), f.Tenant.String(), c.actor.String(), `{"reason":"wrong rig"}`)
+			require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+			require.Equal(t, "VOIDED", stateOf(t, insp))
+		})
+	}
 }
