@@ -1,12 +1,15 @@
 import { useState } from "react";
 
+import type { UnitInspection } from "../../api/inspections";
 import type { FitWarning, Unit, UnitPosition } from "../../api/units";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
 import { Card } from "../../ui/Card";
 import { KeyValue } from "../../ui/KeyValue";
 import { RefusalAlert } from "../RefusalAlert";
+import type { PositionState } from "./condition.view";
 import { FitForm } from "./FitForm";
+import { LatestReading } from "./LatestReading";
 import { orientationLabel } from "./vocabulary";
 import { RemoveForm } from "./RemoveForm";
 import { lastTreadCell } from "./unit.view";
@@ -25,7 +28,19 @@ export type ActedSummary =
 // rather than owning this state themselves, because a successful fit turns
 // this position occupied and the fit form would unmount, taking its
 // warnings and confirmation with it.
-export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPosition }) {
+export function PositionPanel({
+  unit,
+  position,
+  state,
+  latest = null,
+}: {
+  unit: Unit;
+  position: UnitPosition;
+  // The position at the unit's latest inspection (TYRE-325); undefined
+  // while the condition read is pending or failed.
+  state?: PositionState;
+  latest?: UnitInspection | null;
+}) {
   const canManage = useCan("ManageAssets");
   const asDate = useTenantDate();
 
@@ -69,8 +84,9 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
       {position.fitment === null ? (
         <p className="unit-panel-empty">No tyre is fitted here.</p>
       ) : (
-        // One governing figure on the wire, so "Last tread" stays a line
-        // here and no TreadReadings is drawn (rule 4, CR-011).
+        // "Last tread" stays the unit read's single figure, with its source
+        // and age (TYRE-324). The width-wise readings are LatestReading's,
+        // drawn from the latest inspection (CR-011, FR-RPT-015).
         <KeyValue
           className="unit-panel-facts"
           columns={3}
@@ -84,6 +100,8 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
           ]}
         />
       )}
+
+      <LatestReading unitId={unit.id} state={state} latest={latest} />
 
       {canManage && position.fitment === null && (
         <FitForm unit={unit} position={position} onActed={setActed} onRefused={handleRefused} />

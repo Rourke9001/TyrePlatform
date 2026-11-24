@@ -225,3 +225,64 @@ dl.unit-panel-facts {
   display: block;
   color: var(--warn-text);
 }
+
+/* The rules that name no position, and the condition's own failure, under
+   the plan (TYRE-325). Words, never colour alone (NFR-USE-009). */
+.unit-plan-rules {
+  margin: var(--space-3) 0 0;
+  padding-left: 1.25rem;
+  font-size: var(--type-small-size);
+}
+
+.unit-plan-condition {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-3) 0 0;
+  color: var(--ink-muted);
+}
+
+/* The position's latest reading, under its facts. */
+.unit-latest {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin-bottom: var(--space-4);
+}
+
+.unit-latest > .tr-tread {
+  width: min(100%, 24rem);
+}
+
+.unit-latest-heading {
+  margin: 0;
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+  color: var(--ink-secondary);
+}
+
+.unit-latest-line {
+  margin: 0;
+}
+
+.unit-latest-rules {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+/* A voided inspection's mark with who, when and why beside it. */
+.unit-inspection-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.unit-inspection-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}

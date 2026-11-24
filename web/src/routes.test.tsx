@@ -344,6 +344,19 @@ describe("AppRoutes", () => {
           return Promise.resolve(respond(200, { trip: null, pulledBy: null }));
         if (url === "/api/drivers") return Promise.resolve(respond(200, []));
         if (url === "/api/vehicles/u9/inspection-tasks") return Promise.resolve(respond(200, []));
+        // The inspections card and the condition on the plan (TYRE-325).
+        if (url === "/api/vehicles/u9/inspections")
+          return Promise.resolve(
+            respond(200, { inspections: [], nextAfter: null, latestInspectionId: null }),
+          );
+        if (url === "/api/exceptions?vehicle=u9")
+          return Promise.resolve(
+            respond(200, {
+              scope: dashboardBody().scope,
+              judgedAt: "SUBMITTED_AT",
+              exceptions: [],
+            }),
+          );
         throw new Error(`unstubbed ${url}`);
       }),
     );

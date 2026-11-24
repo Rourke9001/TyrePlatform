@@ -9,6 +9,7 @@ import {
   SANDBOX_DEPOT,
   SANDBOX_PATTERN,
   SANDBOX_SIZE,
+  tileName,
 } from "./sandbox";
 
 // TYRE-92/93/94's fitment surface (Jira), on Sandbox Fleet, never BAC
@@ -106,7 +107,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   // (FR-FIT-005).
   await expect(page.getByRole("status", { name: "Warnings" })).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: `Position ${trailerFirst.code}: ${stockA}`, exact: true }),
+    page.getByRole("button", { name: tileName(trailerFirst.code, stockA) }),
   ).toBeVisible();
 
   await page.goto("/fleet");
@@ -136,9 +137,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
     ]);
     // Proof the fit landed: RotateForm below builds its rows from the same
     // occupant read, so both fitments must be visible here first.
-    await expect(
-      page.getByRole("button", { name: `Position ${position.code}: ${code}`, exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: tileName(position.code, code) })).toBeVisible();
   }
 
   // D13: an orientation nobody asserted is recorded and rendered as UNKNOWN,
@@ -180,11 +179,9 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   ]);
   await expect(rotate.getByText("The rotation was applied.", { exact: true })).toBeVisible();
 
+  await expect(page.getByRole("button", { name: tileName(horseFirst.code, stockC) })).toBeVisible();
   await expect(
-    page.getByRole("button", { name: `Position ${horseFirst.code}: ${stockC}`, exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: `Position ${horseSecond.code}: ${stockB}`, exact: true }),
+    page.getByRole("button", { name: tileName(horseSecond.code, stockB) }),
   ).toBeVisible();
 
   // CR-012: the closed legs carry distance and its source in one cell; 900 km

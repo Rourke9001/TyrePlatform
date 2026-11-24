@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { PositionState } from "./condition.view";
 import { diagramUnit } from "./unit.view";
 import { openFitment, unit, unitPosition } from "../../test/fixtures";
 
@@ -140,5 +141,35 @@ describe("the vehicle screen's diagram", () => {
       expect(tile.condition).toBeUndefined();
       expect(tile.empty).toBeUndefined();
     }
+  });
+});
+
+// TYRE-325: with the latest inspection's states, a tile carries its
+// condition in words as well as colour (NFR-USE-009).
+describe("the diagram with condition per position", () => {
+  const tileOf = (states: Map<string, PositionState>, id: string) =>
+    diagramUnit(UNIT, states)
+      .axles.flatMap((a) => a.positions)
+      .find((p) => p.id === id);
+
+  it("sets a judged tile's condition, its badge and the word in its name", () => {
+    const states = new Map<string, PositionState>([
+      ["l-out", { condition: "limit", why: "read", reading: null, exceptions: [] }],
+    ]);
+    expect(tileOf(states, "l-out")).toMatchObject({
+      condition: "limit",
+      badgeText: "Critical",
+      ariaLabel: "Position 5: TY100, Critical",
+    });
+  });
+
+  it("leaves an empty position's tile as it was", () => {
+    const states = new Map<string, PositionState>([
+      ["l-in", { condition: null, why: "empty", reading: null, exceptions: [] }],
+    ]);
+    const tile = tileOf(states, "l-in");
+    expect(tile?.condition).toBeUndefined();
+    expect(tile?.badgeText).toBeUndefined();
+    expect(tile?.ariaLabel).toBe("Position 6: empty");
   });
 });

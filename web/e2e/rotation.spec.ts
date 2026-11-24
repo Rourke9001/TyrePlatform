@@ -9,6 +9,7 @@ import {
   posted,
   sandboxCatalogue,
   sandboxDepot,
+  tileName,
   CONTROLLER,
   type AxleConfiguration,
   type Position,
@@ -151,13 +152,10 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
   await expect(rotate.getByText("The rotation was applied.", { exact: true })).toBeVisible();
 
   await expect(
-    page.getByRole("button", {
-      name: `Position ${horseFirst.code}: ${staying.displayCode}`,
-      exact: true,
-    }),
+    page.getByRole("button", { name: tileName(horseFirst.code, staying.displayCode) }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: `Position ${horseSecond.code}: empty`, exact: true }),
+    page.getByRole("button", { name: tileName(horseSecond.code, "empty") }),
   ).toBeVisible();
 
   // Two legs closed as a rotation; the crossed casing has no open leg here,
@@ -183,10 +181,7 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
     "/fleet/rigs",
   );
   await expect(
-    page.getByRole("button", {
-      name: `Position ${trailerTarget.code}: ${travelling.displayCode}`,
-      exact: true,
-    }),
+    page.getByRole("button", { name: tileName(trailerTarget.code, travelling.displayCode) }),
   ).toBeVisible();
 
   const arrived = page.getByRole("row").filter({ hasText: travelling.displayCode });
