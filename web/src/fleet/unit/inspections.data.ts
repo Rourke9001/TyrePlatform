@@ -64,9 +64,26 @@ export function useUnitCondition(unitId: string) {
 export function useVoidInspection(inspectionId: string, onVoided: () => void) {
   const queryClient = useQueryClient();
   const tenantKey = getDevTenantId() ?? "default";
+  const stale = [
+    unitInspectionsPrefix(),
+    unitInspectionPrefix(),
+    unitPrefix(),
+    unitConditionPrefix(),
+    ...dashboardRefreshKeys(tenantKey),
+  ];
   return useFormMutation<string, void>({
     mutate: async (reason) => {
-      await voidInspection(inspectionId, reason);
+      try {
+        await voidInspection(inspectionId, reason);
+      } catch (error) {
+        // TY019 can mean it stands voided already, by a void of ours whose
+        // answer was lost or by someone else's, so the same reads are made
+        // stale and the page reads the void back; the refusal still shows.
+        if (error instanceof ApiError && error.code === "TY019") {
+          for (const queryKey of stale) void queryClient.invalidateQueries({ queryKey });
+        }
+        throw error;
+      }
       // Each cached page of this inspection reads voided at once, so a page
       // whose refetch is slow or fails offers no second void (TY019).
       queryClient.setQueriesData<InspectionDetail>(
@@ -80,13 +97,7 @@ export function useVoidInspection(inspectionId: string, onVoided: () => void) {
             : { ...detail, inspection: voidedLocally(detail.inspection, reason) },
       );
     },
-    invalidate: [
-      unitInspectionsPrefix(),
-      unitInspectionPrefix(),
-      unitPrefix(),
-      unitConditionPrefix(),
-      ...dashboardRefreshKeys(tenantKey),
-    ],
+    invalidate: stale,
     onSuccess: onVoided,
   });
 }

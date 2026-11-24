@@ -151,6 +151,43 @@ describe("the void dialog", () => {
     expect(onVoided).not.toHaveBeenCalled();
   });
 
+  // TY019 says the inspection may already stand voided, so every read a void
+  // changes is stale; any other refusal leaves the reads alone.
+  it("marks every read a void changes stale on a TY019 refusal, and none on another", async () => {
+    let answer = respond(422, { code: "TY019", message: "this inspection is already voided" });
+    vi.mocked(fetch).mockImplementation(() => Promise.resolve(answer));
+    const client = testQueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const user = userEvent.setup();
+    const { onVoided } = renderDialog(client);
+
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "wrong rig");
+    await user.click(screen.getByRole("button", { name: "Void inspection" }));
+    await screen.findByText("this inspection is already voided");
+
+    const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        ["unit-inspections"],
+        ["unit-inspection"],
+        ["unit"],
+        ["unit-condition"],
+        ["dashboard", TENANT],
+        ["spares", TENANT],
+        ["exceptions", TENANT],
+        ["at-risk", TENANT],
+      ]),
+    );
+    expect(keys).toHaveLength(8);
+    expect(onVoided).not.toHaveBeenCalled();
+
+    invalidate.mockClear();
+    answer = respond(404, { code: "not_found", message: "no such inspection" });
+    await user.click(screen.getByRole("button", { name: "Void inspection" }));
+    await screen.findByText("no such inspection");
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
   // Under 200 characters, over 200 bytes.
   it("sends a reason the form allows and shows the server's refusal of its length", async () => {
     vi.mocked(fetch).mockImplementation(() =>
