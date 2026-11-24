@@ -5,9 +5,11 @@
 package httpapi
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"tyreplatform/api/internal/auth"
@@ -23,7 +25,7 @@ type voidInspectionRequest struct {
 
 // voidInspection is the one correction an inspection has (rule 3, FR-INS-012).
 // TY012 and TY019 arrive through refusalForPgError with their messages
-// intact; the handler adds nothing the function does not already say.
+// intact; the handler adds only depot scope, which the function cannot see.
 func voidInspection(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -49,6 +51,9 @@ func voidInspection(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.VoidInspection); err != nil {
 				return err
 			}
+			if err := lockInspectionInScope(ctx, tx, a, inspectionID); err != nil {
+				return err
+			}
 			if _, err := tx.Exec(ctx, `SELECT app.void_inspection($1, $2)`, inspectionID, reason); err != nil {
 				return fmt.Errorf("voiding inspection %s: %w", inspectionID, err)
 			}
@@ -59,4 +64,31 @@ func voidInspection(s *store.Store) http.HandlerFunc {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// lockInspectionInScope is depot scope for the void (FR-AUT-008, U248 item
+// 3): an actor who is not tenant-wide voids only an inspection that concerns
+// at least one unit of their depots, by app.inspection_read_unit's test
+// through app.v_unit_inspection, and any other answers 404 as one that does
+// not exist (ADR-0011). Those units are held FOR SHARE in id order, the rig
+// lock order (units.go), so the scope authorised is the scope the void lands
+// in; app.void_inspection takes no unit lock, so this inverts none. A
+// ScopeTenant actor meets the function's own TY012 instead.
+func lockInspectionInScope(ctx context.Context, tx pgx.Tx, a auth.Actor, inspectionID uuid.UUID) error {
+	if a.Scope() == auth.ScopeTenant {
+		return nil
+	}
+	tag, err := tx.Exec(ctx, `
+		SELECT v.id FROM app.vehicle v
+		 WHERE v.id IN (SELECT ui.vehicle_id FROM app.v_unit_inspection ui WHERE ui.inspection_id = $1)
+		   AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
+		 ORDER BY v.id
+		 FOR SHARE OF v`, inspectionID)
+	if err != nil {
+		return fmt.Errorf("resolving the units of inspection %s: %w", inspectionID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return refusalError{refusal{status: http.StatusNotFound, code: codeNotFound, message: "no such inspection in this fleet"}}
+	}
+	return nil
 }
