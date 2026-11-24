@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type { HTMLAttributes, ReactNode, RefObject } from "react";
 import { Link } from "react-router";
 
 import { cx } from "./cx";
@@ -15,6 +15,10 @@ export interface PageHeaderProps extends Omit<HTMLAttributes<HTMLDivElement>, "t
   description?: ReactNode;
   back?: { label: string; to: string };
   actions?: ReactNode;
+  // For a screen that sends focus to its heading when an action removes the
+  // control that held it (WCAG 2.4.3). The h1 then takes focus from script,
+  // never from Tab.
+  headingRef?: RefObject<HTMLHeadingElement | null>;
 }
 
 export function PageHeader({
@@ -23,6 +27,7 @@ export function PageHeader({
   description,
   back,
   actions,
+  headingRef,
   className,
   ...rest
 }: PageHeaderProps) {
@@ -38,7 +43,13 @@ export function PageHeader({
           </Link>
         ) : null}
         {eyebrow ? <span className="tr-pagehead__eyebrow">{eyebrow}</span> : null}
-        <h1 className="tr-pagehead__title">{title}</h1>
+        <h1
+          ref={headingRef}
+          tabIndex={headingRef === undefined ? undefined : -1}
+          className="tr-pagehead__title"
+        >
+          {title}
+        </h1>
         {description ? <p className="tr-pagehead__desc">{description}</p> : null}
       </div>
       {actions ? <div className="tr-pagehead__actions">{actions}</div> : null}

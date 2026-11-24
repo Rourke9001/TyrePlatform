@@ -378,6 +378,68 @@ describe("the inspection page", () => {
     expect(screen.queryByText("Latest inspection")).toBeNull();
   });
 
+  // WCAG 2.4.3: the void removes the button the dialog would hand focus back
+  // to, so focus goes to the page's heading, not to the body.
+  it("puts focus on the page heading after a void, and back on the button after Keep it", async () => {
+    let voided = false;
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = requestedUrl(input);
+      if (url === "/api/inspections/i1/void") {
+        voided = true;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      if (url === PATH) {
+        const inspection = voided
+          ? { ...DETAIL.inspection, latest: false, state: "VOIDED", voidReason: "wrong rig" }
+          : DETAIL.inspection;
+        return Promise.resolve(respond(200, { ...DETAIL, inspection }));
+      }
+      throw new Error(`unstubbed ${url}`);
+    });
+    const user = userEvent.setup();
+    renderPage(["ViewFleet", "VoidInspection"]);
+
+    const button = await screen.findByRole("button", { name: "Void inspection" });
+    await user.click(button);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Keep it" }));
+    expect(button).toHaveFocus();
+
+    await user.click(button);
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "wrong rig");
+    await user.click(within(dialog).getByRole("button", { name: "Void inspection" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveFocus();
+  });
+
+  it("keeps focus in the dialog when the void is refused", async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = requestedUrl(input);
+      if (url === "/api/inspections/i1/void") {
+        return Promise.resolve(
+          respond(422, { code: "TY019", message: "this inspection is already voided" }),
+        );
+      }
+      if (url === PATH) return Promise.resolve(respond(200, DETAIL));
+      throw new Error(`unstubbed ${url}`);
+    });
+    const user = userEvent.setup();
+    renderPage(["ViewFleet", "VoidInspection"]);
+
+    await user.click(await screen.findByRole("button", { name: "Void inspection" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "wrong rig");
+    await user.click(within(dialog).getByRole("button", { name: "Void inspection" }));
+
+    expect(
+      await within(dialog).findByText("this inspection is already voided"),
+    ).toBeInTheDocument();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(screen.getByRole("heading", { level: 1 })).not.toHaveFocus();
+  });
+
   // Every unit's copy of this inspection, and no other inspection's.
   it("marks the voided inspection on every unit's page it is cached for, and no other", async () => {
     vi.mocked(fetch).mockImplementation((input) => {
