@@ -54,8 +54,9 @@ ticket, the way the Minor batch feeds `Minors left open by pipeline runs`.
   recommendation is a candidate is the question under Settled by the owner.
 - No script reads these files. `rg` for the playbook names under `scripts/`
   and `.github/workflows/` finds only `scripts/pipeline-wait.sh`, which
-  names `pipeline.md` in a comment. `make lint` checks their prose through
-  `scripts/check-comment-style.mjs`, which reads every `.md`.
+  names `pipeline.md` in a comment. `make lint` does not read their prose
+  either: `scripts/check-comment-style.mjs` exempts every `.md`
+  (`exemptPath`, lines 28-31).
 
 ## Goals
 
@@ -103,7 +104,8 @@ ticket, the way the Minor batch feeds `Minors left open by pipeline runs`.
   body.
 - The fixer brief and the verifier brief are given verbatim. A change to
   either is a change every later run carries.
-- Prose follows `docs/comments.md`, Prose. `make lint` enforces part of it.
+- Prose follows `docs/comments.md`, Prose. No gate checks it in a `.md`
+  file, so the builder checks it by hand.
 
 ## Approaches
 
@@ -169,8 +171,8 @@ Minors left open.
   file. It takes them from the report's list and from any finding that
   recommends an audit the list missed, since the lead decides on the
   report's text. A run holds one line per mechanism: a line for a mechanism
-  already recorded replaces the earlier one and keeps the finding IDs of
-  both. Two recommendations name the same mechanism when the report says
+  already recorded replaces the earlier one and keeps the finding IDs and
+  files of both. Two recommendations name the same mechanism when the report says
   the later one repeats or stands on the earlier, or when the later
   finding sits in code the earlier candidate's fix changed. The wording of
   the mechanism does not decide it. When the lead cannot tell, both lines
@@ -255,8 +257,10 @@ The rule cites owner ruling U252, which approved this spec.
 ### 7. Tests
 
 None is added. No script reads these files, and a test that greps playbook
-prose is an anti-goal. The gate is `make check`, whose comment standard
-reads every edited file. The definition of done is checked by reading.
+prose is an anti-goal. The gate is `make check`, which proves only that
+nothing else broke: its comment standard skips `.md` files. The builder
+runs one search over the six files for the marks `docs/comments.md`, Prose,
+bans, and the definition of done is checked by reading.
 
 ### 8. This run
 
@@ -310,7 +314,10 @@ proof is the next merged PR whose body has a line.
   audited with its report path, and dropping the line would lose a Replace
   verdict the owner chose not to act on at the cap.
 - **The cap-audit note is written at Hand-over step 2, not in step 9.** The
-  ticket says the cap is unchanged.
+  ticket says the cap is unchanged. The path is the one the cap's stop
+  showed the owner (`pipeline.md:616-618`). After a resume it is the newest
+  design audit report on disk written before that stop's owner answer
+  (`.claude/commands/design-audit.md:72`).
 - **No ADR.** The change repeats the Minors left open feed's pattern and
   makes no architectural choice (CLAUDE.md, Working with me).
 - **No new test.** No script reads the six files (`rg` over `scripts/` and
