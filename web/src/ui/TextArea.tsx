@@ -1,4 +1,4 @@
-import type { TextareaHTMLAttributes } from "react";
+import type { Ref, TextareaHTMLAttributes } from "react";
 
 import { cx } from "./cx";
 import "./TextInput.css";
@@ -6,6 +6,8 @@ import "./TextArea.css";
 
 export interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   size?: "md" | "glove";
+  // Reaches the textarea, so a form can focus the field its error names.
+  ref?: Ref<HTMLTextAreaElement>;
 }
 
 // className and the other props split as TextInput's do.

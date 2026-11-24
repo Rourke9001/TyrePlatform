@@ -208,7 +208,9 @@ function InspectionBody({
           ) : undefined
         }
       />
-      <p role="status" className="unit-note">
+      {/* Mounted empty so it speaks when the void lands, and hidden until
+          then so it takes no room in the stack. */}
+      <p role="status" className={status === "" ? "tr-vh" : "unit-note"}>
         {status}
       </p>
       <VoidInspectionDialog

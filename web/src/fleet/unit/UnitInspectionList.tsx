@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 
 import type { UnitInspection } from "../../api/inspections";
 import { inspectionMarkLabel } from "../../domain/vocabulary";
@@ -15,11 +15,11 @@ import { inspectionMark, odometerCell, voidedText } from "./inspection.view";
 import { useUnitInspections } from "./inspections.data";
 
 // A unit's inspections, newest first, voided ones marked with who, when and
-// why (TYRE-325 spec section 3, U248). A row opens the inspection's page.
+// why (TYRE-325 spec section 3, U248). Each row's date is the link to the
+// inspection's page and its only control, so a row is one tab stop.
 export function UnitInspectionList({ unitId }: { unitId: string }) {
   const asInstant = useTenantInstant();
   const units = useUnitLabels();
-  const navigate = useNavigate();
   const list = useUnitInspections(unitId);
   const pathOf = (row: UnitInspection) => `/fleet/units/${unitId}/inspections/${row.inspectionId}`;
 
@@ -88,11 +88,12 @@ export function UnitInspectionList({ unitId }: { unitId: string }) {
       {list.isSuccess && (
         <>
           <DataTable
-            caption="Inspections"
+            // Not the card's title: a table that scrolls is a region named
+            // by its caption, and two regions named alike read twice.
+            caption="Inspections, newest first"
             columns={columns}
             rows={list.data.pages.flatMap((page) => page.inspections)}
             rowKey={(row) => row.inspectionId}
-            onRowClick={(row) => void navigate(pathOf(row))}
             empty={<EmptyState className="unit-empty" title="No inspections yet." />}
           />
           {list.hasNextPage && (
@@ -102,7 +103,7 @@ export function UnitInspectionList({ unitId }: { unitId: string }) {
                 disabled={list.isFetchingNextPage}
                 onClick={() => void list.fetchNextPage()}
               >
-                Show older inspections
+                {list.isFetchingNextPage ? "Loading…" : "Show older inspections"}
               </Button>
               {list.isFetchNextPageError && (
                 <p role="alert" className="unit-note">

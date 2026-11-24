@@ -270,6 +270,18 @@ describe("the inspection page", () => {
     expect(screen.queryByRole("button", { name: "Void inspection" })).toBeNull();
   });
 
+  // The status line is mounted empty so it speaks when the void lands, and
+  // takes no room on the page until then.
+  it("keeps its empty status line out of the layout", async () => {
+    serve(() => Promise.resolve(respond(200, DETAIL)));
+    renderPage(["ViewFleet", "VoidInspection"]);
+    await screen.findByRole("heading", { level: 1 });
+
+    const line = screen.getAllByRole("status").find((el) => el.textContent === "");
+    expect(line).toBeDefined();
+    expect(line).toHaveClass("tr-vh");
+  });
+
   it("offers no void on an inspection already voided", async () => {
     serve(() =>
       Promise.resolve(
