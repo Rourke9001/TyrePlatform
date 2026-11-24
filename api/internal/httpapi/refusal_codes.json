@@ -268,7 +268,11 @@
     "source": "db",
     "httpStatus": 422,
     "meaning": "an inspection task or a nomination refused: a retired unit, a past due day, a task not open, a task completed or planted completed citing an inspection that never read its unit, a task not completed given or planted with a completing inspection, a task not cancelled given or planted with a cancellation reason, a closed task moved to another state, given another completing inspection or reason, or planted with a close in the future, a nominee no longer active, a unit a trip already covers, or a nomination that lost a race (TYRE-90, TYRE-326)",
-    "raisedBy": ["app.create_inspection_task", "app.inspection_task_closes_once", "app.nominate_for_task"]
+    "raisedBy": [
+      "app.create_inspection_task",
+      "app.inspection_task_closes_once",
+      "app.nominate_for_task"
+    ]
   },
   "TY019": {
     "source": "db",
@@ -279,8 +283,8 @@
   "TY020": {
     "source": "db",
     "httpStatus": null,
-    "meaning": "a reading or measurement offered to an inspection sealed in an earlier transaction",
-    "note": "no route inserts a reading outside app.submit_inspection's own transaction, so an entry would carry no test able to fail (ADR-0012, amended 2026-09-06)",
+    "meaning": "a reading, measurement, warning or absent spare offered to an inspection sealed in an earlier transaction",
+    "note": "no route inserts any of them outside app.submit_inspection's own transaction, so an entry would carry no test able to fail (ADR-0012, amended 2026-09-06)",
     "raisedBy": ["app.inspection_is_sealed"]
   },
   "TY021": {

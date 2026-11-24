@@ -143,7 +143,11 @@ func plantReportAddressedTo(t *testing.T, ctx context.Context, admin *pgx.Conn,
 		require.NoError(t, err)
 	}
 
-	require.NoError(t, admin.QueryRow(ctx,
+	// One transaction, so the seal admits the warning (000066, TY020).
+	tx, err := admin.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	require.NoError(t, tx.QueryRow(ctx,
 		`INSERT INTO app.inspection
 		   (tenant_id, vehicle_id, combination_id, user_id, client_uuid,
 		    started_at, submitted_at, state)
@@ -151,11 +155,12 @@ func plantReportAddressedTo(t *testing.T, ctx context.Context, admin *pgx.Conn,
 		 RETURNING id`,
 		tenantID, addressedID, rigID, driverID, uuid.New()).Scan(&inspectionID))
 
-	require.NoError(t, admin.QueryRow(ctx,
+	require.NoError(t, tx.QueryRow(ctx,
 		`INSERT INTO app.inspection_warning
 		   (tenant_id, inspection_id, warning_code, entered_value, source)
 		 VALUES ($1, $2, 'FR-INS-063', $3, $4::app.warning_source) RETURNING id`,
 		tenantID, inspectionID, entered, source).Scan(&warningID))
+	require.NoError(t, tx.Commit(ctx))
 	return warningID, rigID, inspectionID
 }
 

@@ -169,7 +169,7 @@ live schema (ADR-0012):
 | TY017 | 000037 | a rig write refused |
 | TY018 | 000038 | an inspection task refused |
 | TY019 | 000040 | an inspection write refused, including the void's own refusals |
-| TY020 | 000040 | a reading offered to a sealed inspection; no route can reach it, so no entry exists |
+| TY020 | 000040 (widened 000066) | a reading, measurement, warning or absent spare offered to a sealed inspection; no route can reach it, so no entry exists |
 | TY021 | 000041 | the future-skew refusal |
 | TY022 | 000044 | a composition observation refused |
 | TY023 | 000054 | a threshold policy row edited, or dated before the transaction that writes it; no route can reach it, so no entry exists |
