@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError, retryQuery } from "../../api/apiError";
 import { getDevTenantId } from "../../api/devTenant";
@@ -7,8 +7,10 @@ import {
   fetchUnitInspection,
   fetchUnitInspections,
   voidInspection,
+  type InspectionDetail,
 } from "../../api/inspections";
 import { useFormMutation } from "../useFormMutation";
+import { voidedLocally } from "./inspection.view";
 import {
   dashboardRefreshKeys,
   unitConditionKey,
@@ -59,9 +61,24 @@ export function useUnitCondition(unitId: string) {
 // keys the dashboard's Refresh invalidates, read again on their next visit.
 // Nothing refetches on focus or polls (U41).
 export function useVoidInspection(inspectionId: string, onVoided: () => void) {
+  const queryClient = useQueryClient();
   const tenantKey = getDevTenantId() ?? "default";
   return useFormMutation<string, void>({
-    mutate: (reason) => voidInspection(inspectionId, reason),
+    mutate: async (reason) => {
+      await voidInspection(inspectionId, reason);
+      // Each cached page of this inspection reads voided at once, so a page
+      // whose refetch is slow or fails offers no second void (TY019).
+      queryClient.setQueriesData<InspectionDetail>(
+        {
+          queryKey: unitInspectionPrefix(),
+          predicate: (query) => query.queryKey[2] === inspectionId,
+        },
+        (detail) =>
+          detail === undefined
+            ? detail
+            : { ...detail, inspection: voidedLocally(detail.inspection, reason) },
+      );
+    },
     invalidate: [
       unitInspectionsPrefix(),
       unitInspectionPrefix(),
