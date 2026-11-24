@@ -239,6 +239,31 @@ alone get one Minor batch session and, when it committed anything, one such
 re-review, and the session lists that re-review's Minors under Minors left open
 (U196, U212).
 
+### Design audit candidates
+
+When a review finds a new finding on a mechanism that an earlier round of
+the PR, or an earlier PR, already fixed, it recommends `/design-audit` on
+that mechanism. That recommendation is a design audit candidate. Every one
+a report makes stays a candidate after a later round fixes the finding that
+raised it, because the signal is that the mechanism drew a fix again (U252,
+owner, 24 Nov 2026).
+
+A candidate is not a finding. It takes no class and no severity, never
+starts a round, never blocks a merge, and is not fixed in the run. The
+finding that raised it is handled by its own class and severity.
+
+The report lists each candidate under Design audit candidates, and the PR
+body carries them under a heading of that name, one line per mechanism and
+never under Set aside. After the merge, close-out comments them, with the
+PR, on the one To Do ticket `Design audit candidates from pipeline runs`,
+which it raises under TYRE-10 at Low priority when none exists. On the
+manual path, the session that works the next fix round or the Minor batch
+adds them to the PR body; a review that no such session follows leaves them
+out unless the owner tells its session to add them (`/ticket` step 12). The
+owner judges the list in one pass before the pilot release (TYRE-493):
+audit now, after the POC, or drop. At the cap the run still runs its own
+audit, and nothing else in a run starts one (The review loop).
+
 ## The stops
 
 A `make pipeline` run waits for the owner at these points and no others:
