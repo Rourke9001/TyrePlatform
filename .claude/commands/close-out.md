@@ -151,6 +151,21 @@ working in this checkout.
    `executeWrite` call. Comment the lines on it, with the PR number. This is
    not one of the items this step limits to two, and its lines are not misses
    for the owner (U212).
+
+   **Design audit candidates.** Read the PR body's Design audit candidates
+   list. If it has lines, search with `searchJiraIssuesUsingJql` for
+   `project = TYRE AND status = "To Do" AND summary ~ "Design audit candidates"`
+   and take the hit whose summary is exactly
+   `Design audit candidates from pipeline runs`, the lowest key if more than
+   one. If there is none, raise one with that summary the way the Minors
+   left open paragraph raises its ticket, in cloud mode too. Its
+   description says it is a standing list, one comment per PR, that stays
+   To Do while runs add to it and that the owner judges in one pass before
+   the pilot release, and cites `docs/how-work-runs.md`, Design audit
+   candidates. Comment the lines on it in one comment, with the PR number.
+   They are not Set aside residuals, are not read for bugs, are not among
+   the items this step limits to two, and are not misses for the owner
+   (U252).
 7. **Promote to production** if the owner asks, and never in cloud mode.
    This follows `docs/runbooks/environment-release.md`, Promote to
    production, except that it never migrates production: production holds
