@@ -47,6 +47,15 @@ Tick only what this change actually touches; delete the rest.
      The merge accepts each, and close-out files them (U212). Delete the
      heading when there are none. -->
 
+## Design audit candidates
+
+<!-- One line per mechanism a review recommended `/design-audit` for: the
+     mechanism, its files, the finding IDs, how many times it was fixed,
+     the review report after `report` and, when a cap audit covered it,
+     that audit's report after `audited`. A candidate is never a finding
+     and never blocks the merge. Close-out files them on the standing
+     ticket (U252). Delete the heading when there are none. -->
+
 ## Set aside
 
 <!-- Findings this PR does not act on that are not bugs by the definition in

@@ -568,6 +568,20 @@ nothing, that gate stands and is not run again.
    context, from `<state dir>/code-review-<k>.json` (its `modelUsage` keys)
    and `<state dir>/code-review-<k>.md` (the length of its fenced array),
    and, for a numbered review, stage `review <k>`.
+   In the same edit, record a `Design audit candidates:` line for each
+   mechanism the report recommends `/design-audit` for, from its Design
+   audit candidates list and from any recommendation elsewhere in the
+   report that the list missed. A run holds one line per mechanism: a
+   recommendation on a mechanism already recorded replaces that line,
+   keeping the finding IDs, files and report paths of both. Two
+   recommendations name the same mechanism when the report says the later
+   one repeats or stands on the earlier, or when the later finding sits in
+   code the earlier candidate's fix changed; the wording does not decide
+   it. When you cannot tell, keep both lines, since a duplicate costs the
+   owner less than two mechanisms joined. A later round that fixes a line's
+   finding never removes the line (`docs/how-work-runs.md`, Design audit
+   candidates). Recording a candidate is not an action of step 5 and
+   changes nothing step 6 judges.
 5. **Act on the classes**, recording each action in the state file as it
    happens. A verified rule 1 to 3 finding, whatever its class or severity, is a stop, once per finding: show the owner the evidence and the proposed fix before anything else is done with it. One the owner has ruled on is not a stop again.
    Then, for each finding not waiting on the owner: an `unrelated` bug that had the
@@ -646,7 +660,11 @@ is `minor fix` goes on by the `Fix minor:` line: if it ends `net done` (the
 round came from the batch's cap), record stage `loop done` and go to Hand-over;
 if not (the round came from step 5 in the batch's re-review), go on to The
 Minor batch's net. Once the PR is open, add the round's Decisions lines,
-report paths and any new `Minors left open:` lines to `pr-body.md` and run
+report paths and any new `Minors left open:` lines to `pr-body.md`. Add each
+`Design audit candidates:` line its re-review recorded there too, replacing
+the body's line for a mechanism the new line joined, give `; audited <path>`
+to each body line a cap audit covered, as Hand-over step 2 says, and restore
+that heading if Hand-over step 2 deleted it. Then run
 `gh pr edit <n> --body-file <state dir>/pr-body.md`.
 
 **The Minor batch** (`docs/how-work-runs.md`, The Minor batch, U212), once per
@@ -724,10 +742,19 @@ Give each fixer this brief verbatim, its placeholders filled:
    with the report paths and "rounds: <n>"; Decisions with the fixers'
    Decisions lines, a `Minor batch: <before>..<after>` line when one ran, and
    each `unrelated` bug with its ticket; Minors left open with each
-   `Minors left open:` line, one per line with `file:line`; "Set aside" with
-   the deferred minors, each `Set aside:` line and the findings from the
-   schedule test that are not bugs. An `introduced` or `on-path` bug never
-   goes there (U191), except a Minor closed as not reproduced (U212).
+   `Minors left open:` line, one per line with `file:line`; Design audit
+   candidates with each `Design audit candidates:` line, one per line
+   without its label, the heading deleted when there are none; "Set aside"
+   with the deferred minors, each `Set aside:` line and the findings from
+   the schedule test that are not bugs. An `introduced` or `on-path` bug
+   never goes there (U191), except a Minor closed as not reproduced (U212),
+   and a design audit candidate never does.
+   A candidate whose mechanism a cap audit of this run covered, by the
+   same-mechanism test in Review loop step 4, ends with `; audited <path>`,
+   the report path that cap's stop showed the owner. After a resume, the
+   path is the newest `.superpowers/sdd/*-design-audit*/report.md` that
+   cites this run's `<state dir>`, comparing file times read with
+   `date -u -r <file>`.
    Then list the branch's commits with
    `git log --oneline <Review base>..HEAD` and check each against the
    body. A commit that no key's own work, small-fix plan or Decisions line
@@ -813,7 +840,9 @@ Give each fixer this brief verbatim, its placeholders filled:
    owner's Cowork agent to paste (Spec); and staging's migrate when the
    branch adds a migration (`docs/runbooks/environment-release.md`, Each
    release). The owner merges, and close-out runs by itself from the
-   merge. Say that close-out lists anything else it finds under Waiting
+   merge. Say how many design audit candidates the PR body lists and that
+   close-out comments them on the standing ticket after the merge; they are
+   not a step the owner owes. Say that close-out lists anything else it finds under Waiting
    on the owner (TYRE-485, U220). A finding from a review the owner runs
    anyway is fixed outside the run, as on the manual path
    (`/ticket` step 12). Until
@@ -885,6 +914,7 @@ Give each fixer this brief verbatim, its placeholders filled:
 - Fix <id>: before=<sha>; started | after=<sha>; lint exit <code | n/a>, test exit <code | n/a>; reports <path>[, <retry path>][, <gate report path>][, <gate retry path>]; re-review <path | none>[; net done]
 - Gate: <full sha>; lint exit <code>, test exit <code | n/a>; <UTC time>
 - Minors left open: <finding ID>, <file:line>, <what is wrong>
+- Design audit candidates: <mechanism>; files: <paths>; findings: <IDs>; fixed <n> times (<where>); report <path>
 - Set aside: <finding ID>: <reason>
 - PR: #<n>; CI <result> @ <head sha>
 - Waits:
