@@ -38,6 +38,9 @@ const TyreList = lazy(() =>
 const UnitDetail = lazy(() =>
   import("./fleet/unit/UnitDetail").then((m) => ({ default: m.UnitDetail })),
 );
+const InspectionPage = lazy(() =>
+  import("./fleet/unit/InspectionPage").then((m) => ({ default: m.InspectionPage })),
+);
 const FleetSettings = lazy(() =>
   import("./settings/FleetSettings").then((m) => ({ default: m.FleetSettings })),
 );
@@ -81,6 +84,16 @@ export function UnitRoute() {
   const { unitId } = useParams();
   if (!unitId) return <NotFound />;
   return <UnitDetail unitId={unitId} />;
+}
+
+// TYRE-325: an inspection's page, reached from the unit screen, keyed on both
+// ids so a status line or a dialog never carries over to another inspection.
+export function InspectionRoute() {
+  const { unitId, inspectionId } = useParams();
+  if (!unitId || !inspectionId) return <NotFound />;
+  return (
+    <InspectionPage key={`${unitId}/${inspectionId}`} unitId={unitId} inspectionId={inspectionId} />
+  );
 }
 
 // A destination someone navigated to says why it is refused; a menu item
@@ -174,6 +187,14 @@ export function AppRoutes() {
           element={
             <AdminRoute capability="ViewFleet">
               <UnitRoute />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/fleet/units/:unitId/inspections/:inspectionId"
+          element={
+            <AdminRoute capability="ViewFleet">
+              <InspectionRoute />
             </AdminRoute>
           }
         />

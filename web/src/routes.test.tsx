@@ -11,11 +11,13 @@ import type { Me } from "./auth/me";
 import {
   dashboardBody,
   fitmentRow,
+  inspectionDetail,
   me,
   requestedUrl,
   respond,
   testQueryClient,
   unit,
+  unitInspection,
   unitPosition,
 } from "./test/fixtures";
 
@@ -374,6 +376,25 @@ describe("AppRoutes", () => {
     // UnitDetail is lazy: with the guard gone this first synchronous render
     // shows the Suspense fallback, or UnitDetail's own pending read once an
     // earlier test has loaded the chunk, and both say "Loading".
+    expect(screen.queryByText(/loading/i)).toBeNull();
+  });
+
+  // TYRE-325: an inspection's page, a destination a link sends a reader to,
+  // refuses out loud as the unit screen does.
+  it("renders an inspection's page at /fleet/units/:unitId/inspections/:inspectionId for a ViewFleet holder", async () => {
+    mockFetchJson(
+      200,
+      inspectionDetail({
+        inspection: unitInspection({ inspectionId: "i1", fleetNumber: "LINK-6" }),
+      }),
+    );
+    renderAt("/fleet/units/u9/inspections/i1", actor(["ViewFleet"]));
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("LINK-6");
+  });
+
+  it("explains a refusal at an inspection's page rather than rendering nothing", () => {
+    renderAt("/fleet/units/u9/inspections/i1", actor(["CaptureInspection"]));
+    expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
     expect(screen.queryByText(/loading/i)).toBeNull();
   });
 

@@ -286,3 +286,9 @@ dl.unit-panel-facts {
   gap: var(--space-3);
   margin-top: var(--space-3);
 }
+
+/* The other units an inspection read, on its page (TYRE-325). */
+.unit-inspection-units {
+  margin: 0;
+  padding-left: 1.25rem;
+}
