@@ -842,8 +842,8 @@ Give each fixer this brief verbatim, its placeholders filled:
    release). The owner merges, and close-out runs by itself from the
    merge. Say how many design audit candidates the PR body lists and that
    close-out comments them on the standing ticket after the merge; they are
-   not a step the owner owes. Say that close-out lists anything else it finds under Waiting
-   on the owner (TYRE-485, U220). A finding from a review the owner runs
+   not a step the owner owes. Say that close-out lists anything else it
+   finds under Waiting on the owner (TYRE-485, U220). A finding from a review the owner runs
    anyway is fixed outside the run, as on the manual path
    (`/ticket` step 12). Until
    that PR merges or closes, a new `make pipeline` for another job stops,
