@@ -231,3 +231,67 @@ export function subjectPositionLabel(
   if (positionCode) return positionCode;
   return isSpare ? "spare" : absenceLabel("unknown");
 }
+
+// TYRE-325: the warnings app.submit_inspection can record, in words for a
+// manager. Capture's driver-facing names stay in CaptureReview.tsx, since
+// this module stays out of the capture entry. None calls a tyre legal
+// (CR-010).
+const INSPECTION_WARNING_LABELS: Record<string, string> = {
+  "FR-INS-031a": "Pressure far off target",
+  "FR-INS-033": "Odometer jump",
+  "FR-INS-034": "Deeper than the last reading",
+  "FR-INS-035": "Wearing faster than expected",
+  "FR-INS-036": "At or below the removal threshold",
+  "FR-INS-037": "Pressure off target",
+  "FR-INS-041": "Uneven wear across the tread",
+  "FR-INS-063": "Rig differs from the register",
+  "FR-OFF-016": "Tyre on record changed before the sync",
+  "DR-020": "Odometer not taken onto the record",
+};
+
+// A code with no words still shows, so nothing the driver saw is hidden.
+export function inspectionWarningLabel(code: string): string {
+  return INSPECTION_WARNING_LABELS[code] ?? `Other warning (${code})`;
+}
+
+const WARNING_RESPONSE_LABELS: Record<string, string> = {
+  CONFIRMED: "Confirmed",
+  ACKNOWLEDGED: "Acknowledged",
+};
+
+// A warning the server raised carries no response.
+export function warningResponseLabel(response: string | null): string {
+  if (response === null) return "None";
+  return WARNING_RESPONSE_LABELS[response] ?? response;
+}
+
+// FR-INS-022a: a pressure carries its hot, cold or unknown basis.
+const PRESSURE_BASIS_LABELS: Record<string, string> = {
+  COLD: "cold",
+  HOT: "hot",
+  UNKNOWN: "basis unknown",
+};
+
+export function pressureBasisLabel(code: string): string {
+  return PRESSURE_BASIS_LABELS[code] ?? code;
+}
+
+// A tile's condition in words (NFR-USE-009). "No exception" says what was
+// judged without saying a tyre is fit to run.
+const CONDITION_LABELS: Record<string, string> = {
+  limit: "Critical",
+  near: "Warning",
+  ok: "No exception",
+  unread: "Not read",
+  nospare: "No spare",
+};
+
+export function conditionLabel(code: string): string {
+  return CONDITION_LABELS[code] ?? code;
+}
+
+const INSPECTION_MARK_LABELS = { latest: "Latest", voided: "Voided" } as const;
+
+export function inspectionMarkLabel(mark: keyof typeof INSPECTION_MARK_LABELS): string {
+  return INSPECTION_MARK_LABELS[mark];
+}

@@ -4,15 +4,20 @@ import {
   absenceLabel,
   bandRangeLabel,
   basisLabel,
+  conditionLabel,
   distanceSourceLabel,
   INFLATION_BAND_KEYS,
   inflationBandLabel,
+  inspectionMarkLabel,
+  inspectionWarningLabel,
   judgedAtLabel,
+  pressureBasisLabel,
   SEVERITY_CODES,
   severityLabel,
   subjectPositionLabel,
   treadSourceLabel,
   unavailableLabel,
+  warningResponseLabel,
 } from "./vocabulary";
 
 describe("severityLabel", () => {
@@ -164,5 +169,67 @@ describe("subjectPositionLabel", () => {
     expect(subjectPositionLabel("TYRE", "7", null, false)).toBe("7");
     expect(subjectPositionLabel("TYRE", null, null, true)).toBe("spare");
     expect(subjectPositionLabel("TYRE", null, null, false)).toBe("unknown");
+  });
+});
+
+// TYRE-325: a manager reads each warning the driver saw, in words, and none
+// calls a tyre legal or roadworthy (CR-010).
+describe("inspectionWarningLabel", () => {
+  const written = [
+    "FR-INS-031a",
+    "FR-INS-033",
+    "FR-INS-034",
+    "FR-INS-035",
+    "FR-INS-036",
+    "FR-INS-037",
+    "FR-INS-041",
+    "FR-INS-063",
+    "FR-OFF-016",
+    "DR-020",
+  ];
+
+  it.each(written)("gives %s words of its own", (code) => {
+    const words = inspectionWarningLabel(code);
+    expect(words).not.toBe(code);
+    expect(words).not.toContain(code);
+    expect(words.toLowerCase()).not.toContain("legal");
+    expect(words.toLowerCase()).not.toContain("roadworth");
+  });
+
+  it("shows a code it has no words for as another warning, with the code", () => {
+    expect(inspectionWarningLabel("XYZ-1")).toBe("Other warning (XYZ-1)");
+  });
+});
+
+describe("warningResponseLabel", () => {
+  it("names the driver's response, and none for one the server raised", () => {
+    expect(warningResponseLabel("CONFIRMED")).toBe("Confirmed");
+    expect(warningResponseLabel("ACKNOWLEDGED")).toBe("Acknowledged");
+    expect(warningResponseLabel(null)).toBe("None");
+  });
+});
+
+describe("pressureBasisLabel", () => {
+  it("names a pressure's basis (FR-INS-022a)", () => {
+    expect(pressureBasisLabel("COLD")).toBe("cold");
+    expect(pressureBasisLabel("HOT")).toBe("hot");
+    expect(pressureBasisLabel("UNKNOWN")).toBe("basis unknown");
+  });
+});
+
+describe("conditionLabel", () => {
+  it("names each condition a tile can carry, saying what was judged", () => {
+    expect(conditionLabel("limit")).toBe("Critical");
+    expect(conditionLabel("near")).toBe("Warning");
+    expect(conditionLabel("ok")).toBe("No exception");
+    expect(conditionLabel("unread")).toBe("Not read");
+    expect(conditionLabel("nospare")).toBe("No spare");
+  });
+});
+
+describe("inspectionMarkLabel", () => {
+  it("names the latest and a voided inspection", () => {
+    expect(inspectionMarkLabel("latest")).toBe("Latest");
+    expect(inspectionMarkLabel("voided")).toBe("Voided");
   });
 });

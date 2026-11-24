@@ -8,6 +8,7 @@ import { ActorContext } from "../auth/actorContext";
 import type { Me } from "../auth/me";
 import type { FitmentHistoryRow, OpenFitment, Unit, UnitPosition } from "../api/units";
 import type { DashboardBody, ExceptionRow, SpareRow, TyreAtRisk } from "../api/dashboard";
+import type { InspectionDetail, InspectionReading, UnitInspection } from "../api/inspections";
 import type { Money } from "../api/money";
 import type { CaptureContext } from "../capture/captureContext";
 
@@ -141,6 +142,76 @@ export function unit(overrides: Partial<Unit> = {}): Unit {
     removalReasons: ["Worn out", "Damaged"],
     hasOdometer: true,
     positions: [],
+    ...overrides,
+  };
+}
+
+// A unit's inspections (TYRE-325): the one construction site per wire type,
+// for the reason me() is one.
+export function unitInspection(
+  overrides: Partial<UnitInspection> & { inspectionId: string },
+): UnitInspection {
+  return {
+    fleetNumber: "HORSE-1",
+    state: "SYNCED",
+    latest: true,
+    voidReason: null,
+    voidedBy: null,
+    voidedAt: null,
+    startedAt: "2026-11-20T08:00:00Z",
+    submittedAt: "2026-11-20T08:03:00Z",
+    receivedAt: "2026-11-20T08:03:05Z",
+    ageDays: 3,
+    driver: { id: "d1", displayName: "Melusi" },
+    addressedHere: true,
+    addressedUnit: { fleetNumber: "HORSE-1", vehicleId: "u1" },
+    odometerKm: 412300,
+    odometerOnRecord: true,
+    comment: null,
+    defectReport: null,
+    positionsRead: 10,
+    warningCount: 0,
+    ...overrides,
+  };
+}
+
+export function inspectionReading(
+  overrides: Partial<InspectionReading> & { positionId: string },
+): InspectionReading {
+  return {
+    readingId: `r-${overrides.positionId}`,
+    positionCode: "POS1",
+    sequence: 1,
+    axleNumber: 1,
+    axleClass: "STEER",
+    side: "LEFT",
+    slot: "SINGLE",
+    isSpare: false,
+    tyreId: "t1",
+    displayCode: "TY001",
+    governingTreadMm: 4,
+    treadsMm: [5, 4, 4],
+    treadAnatomy: ["OUTER", "CENTRE", "INNER"],
+    orientationKnown: true,
+    governingIndex: 1,
+    pressureKpa: 780,
+    pressureBasis: "COLD",
+    targetKpa: 800,
+    damageFlag: false,
+    damageType: null,
+    wearPattern: null,
+    note: null,
+    ...overrides,
+  };
+}
+
+export function inspectionDetail(overrides: Partial<InspectionDetail> = {}): InspectionDetail {
+  return {
+    inspection: unitInspection({ inspectionId: "i1" }),
+    units: [{ fleetNumber: "HORSE-1", vehicleId: "u1", inScope: true, addressed: true }],
+    readings: [],
+    absentSpares: [],
+    warnings: [],
     ...overrides,
   };
 }
