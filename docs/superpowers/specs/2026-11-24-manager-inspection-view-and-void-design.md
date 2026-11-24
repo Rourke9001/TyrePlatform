@@ -435,9 +435,11 @@ exception rows, for every unit, by prefix; and the four keys the dashboard's
 Refresh invalidates (`dashboard`, `spares`, `exceptions`, `at-risk`,
 `dashboard.data.ts:43-54`), so the dashboard and its lists are read again
 together on the next visit and cannot show the voided inspection's figures.
-Nothing polls and nothing refetches on focus (U41). The unit's condition
-then comes from the inspection before it, or shows unread when there is
-none.
+Nothing polls (U41). Of the unit's reads, only the exception rows skip the
+refetch on focus (section 3); the inspections, the inspection and the unit
+take the fleet default, which refetches a stale query on focus. The unit's
+condition then comes from the inspection before it, or shows unread when
+there is none.
 
 ## How we will know it worked
 
