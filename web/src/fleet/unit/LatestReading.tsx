@@ -49,7 +49,7 @@ export function LatestReading({
           ) : (
             // No condition prop: a position's condition can come from a
             // pressure or dual-mate rule, and tinting the tread mark with it
-            // would colour a good tread (NFR-USE-009, red team I2).
+            // would colour a good tread (NFR-USE-009).
             <TreadReadings {...readingCells(state.reading)} governingText="Lowest" />
           )}
           <p className="unit-latest-line">{pressureText(state.reading, units.pressure)}</p>

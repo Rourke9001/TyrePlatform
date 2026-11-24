@@ -742,7 +742,7 @@ describe("a position panel's latest reading", () => {
     });
 
     expect(await screen.findByText("Lowest")).toBeInTheDocument();
-    // Red team I2: a pressure row judges the position, not the tread, so the
+    // A pressure row judges the position, not the tread, so the
     // tread mark takes no condition tone (NFR-USE-009).
     expect(container.querySelector(".tr-tread__low--critical")).toBeNull();
     expect(screen.getByText("780 of 800 kPa, cold")).toBeInTheDocument();

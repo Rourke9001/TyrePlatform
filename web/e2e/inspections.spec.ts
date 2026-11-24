@@ -15,7 +15,7 @@ import {
 
 // TYRE-325: a manager reads a submitted inspection and voids it (FR-INS-012
 // as amended, U248). Sandbox Fleet, never BAC (TYRE-80), on a unit this run
-// creates. Serial, and Chromium desktop only, as tasks.spec.ts says why.
+// creates. Serial, and Chromium desktop only (rigs.spec.ts says why).
 test.describe.configure({ mode: "serial" });
 
 test.skip(

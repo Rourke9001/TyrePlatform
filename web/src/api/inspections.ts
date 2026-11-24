@@ -38,7 +38,7 @@ export interface UnitInspectionPage {
   inspections: UnitInspection[];
   nextAfter: string | null;
   // The unit's latest whatever page holds it; a client never takes it from
-  // a page (TYRE-325 Review Focus 1).
+  // a page (TYRE-325).
   latestInspectionId: string | null;
 }
 
@@ -132,7 +132,7 @@ async function readPair(unitId: string) {
 // app.v_exception judges every unit at its latest inspection (000045,
 // v_latest_reading), so a row naming another inspection means a capture or
 // a void landed between the two reads. Read once more, then fail: dropping
-// the row would show a judged position as ok (TYRE-325 red team M1).
+// the row would show a judged position as ok (TYRE-325).
 export async function fetchUnitCondition(unitId: string): Promise<UnitCondition> {
   const agree = (pair: Awaited<ReturnType<typeof readPair>>) =>
     pair.exceptions.every((row) => row.inspectionId === pair.latestId);

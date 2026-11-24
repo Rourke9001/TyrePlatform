@@ -26,7 +26,11 @@ function page(latestInspectionId: string | null, ...ids: string[]): UnitInspecti
 }
 
 function exceptions(...rows: ExceptionRow[]) {
-  return { scope: { level: "TENANT", depotCount: 1, depot: null }, judgedAt: "SUBMITTED_AT", exceptions: rows };
+  return {
+    scope: { level: "TENANT", depotCount: 1, depot: null },
+    judgedAt: "SUBMITTED_AT",
+    exceptions: rows,
+  };
 }
 
 // Answers each request by its path, counting how often each was asked, so a
@@ -68,7 +72,7 @@ describe("the inspection API module", () => {
     expect(requestedUrl(vi.mocked(fetch).mock.calls[0][0])).toBe("/api/vehicles/u9/inspections/i1");
   });
 
-  // Review Focus 1: the latest comes from latestInspectionId, never the page.
+  // The latest comes from latestInspectionId, never the page.
   it("reads the latest the list names, whatever its first row is, beside the unit's exceptions", async () => {
     const voided = page("i2", "i5");
     voided.inspections[0] = unitInspection({ inspectionId: "i5", state: "VOIDED" });
@@ -102,7 +106,7 @@ describe("the inspection API module", () => {
     ]);
   });
 
-  // Red team M1: a row on another inspection means a write landed between
+  // A row on another inspection means a write landed between
   // the two reads. Read both again once, and never drop a row.
   it("reads both again when an exception row names another inspection, and keeps every row", async () => {
     const stale = exceptionRow({ subjectId: "t1", inspectionId: "i1" });

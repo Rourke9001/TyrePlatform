@@ -53,8 +53,8 @@ type unitInspectionJSON struct {
 	Driver        inspectionDriverJSON `json:"driver"`
 	AddressedHere bool                 `json:"addressedHere"`
 	AddressedUnit addressedUnitJSON    `json:"addressedUnit"`
-	// The addressed unit's reading and whether its timeline took it (DR-020);
-	// null with its id, out of scope.
+	// The addressed unit's reading and whether its timeline took it (DR-020),
+	// null with the unit's id when that unit is out of the actor's scope.
 	OdometerKm       *int64  `json:"odometerKm"`
 	OdometerOnRecord *bool   `json:"odometerOnRecord"`
 	Comment          *string `json:"comment"`
@@ -67,7 +67,7 @@ type unitInspectionPageJSON struct {
 	Inspections []unitInspectionJSON `json:"inspections"`
 	NextAfter   *uuid.UUID           `json:"nextAfter"`
 	// app.v_latest_unit_inspection's answer, whatever page holds it, so a
-	// client never takes the latest from a page (TYRE-325 Review Focus 1).
+	// client never takes the latest from a page (TYRE-325).
 	LatestInspectionID *uuid.UUID `json:"latestInspectionId"`
 }
 
@@ -78,9 +78,9 @@ type inspectionUnitJSON struct {
 	Addressed   bool       `json:"addressed"`
 }
 
-// inspectionReadingJSON carries millimetres as numbers, as exceptions.go
-// does. GoverningIndex is zero-based and found in SQL: it locates the stored
-// minimum and computes none (rule 4, CR-011).
+// Millimetres travel as JSON numbers (exceptions.go). GoverningIndex is
+// zero-based and found in SQL: it locates the stored minimum and computes
+// none (rule 4, CR-011).
 type inspectionReadingJSON struct {
 	ReadingID        uuid.UUID  `json:"readingId"`
 	PositionID       uuid.UUID  `json:"positionId"`
@@ -134,7 +134,7 @@ type inspectionDetailJSON struct {
 // unitInspectionSelect is one row of app.v_unit_inspection with the addressed
 // unit's id and odometer kept only when that unit is in the actor's scope, so
 // a depot manager reads another depot's horse by fleet number alone (spec
-// section 2, U249). The scope test is a join in the query, as the units are.
+// section 2, U249). The scope test is a join in the query.
 func unitInspectionSelect(a auth.Actor) string {
 	return `
 		SELECT ui.inspection_id, ui.fleet_number, ui.state::text, ui.is_latest,

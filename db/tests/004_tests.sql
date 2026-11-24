@@ -16648,8 +16648,8 @@ BEGIN
       OR EXISTS (SELECT 1 FROM app.reading_measurement rm
                   WHERE rm.reading_id = r.reading_id AND rm.ordinal < r.governing_ordinal
                     AND rm.tread_mm = r.governing_tread_mm);
-  -- Review Focus 4: readings with two measurements at the minimum, so "the
-  -- first" is tested on rows where a later one would also fit.
+  -- Readings with two measurements at the minimum, so "the first" is
+  -- tested on rows where a later one would also fit.
   SELECT count(*) INTO m FROM app.v_inspection_reading r
    WHERE (SELECT count(*) FROM unnest(r.measurements) x WHERE x = r.governing_tread_mm) >= 2;
   IF n <> 0 OR m = 0 THEN

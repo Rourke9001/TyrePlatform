@@ -20,7 +20,7 @@ import (
 // unit at depot C and a manager joined to each depot (TYRE-325, U248 item 3).
 // plantUnitFixture homes neither unit, and app.v_depot_vehicle joins on
 // home_depot_id, so both are homed here or every depot assertion would pass
-// for the wrong reason (observations_test.go's plantTrailer).
+// for the wrong reason.
 type twoDepotRig struct {
 	Tenant, Horse, Trailer, Outsider                                  uuid.UUID
 	HorseFleet, TrailerFleet                                          string
@@ -410,7 +410,7 @@ func TestUnitInspectionReadsAreDepotScoped(t *testing.T) {
 		require.Equal(t, "COLD", left.PressureBasis)
 		require.Equal(t, []string{"OUTER", "CENTRE", "INNER"}, left.TreadAnatomy)
 
-		// Review Focus 5: a reading with no tread carries [] and nulls.
+		// A reading with no tread carries [] and nulls.
 		var raw struct {
 			Readings []map[string]json.RawMessage `json:"readings"`
 		}
@@ -437,7 +437,7 @@ func TestUnitInspectionReadsAreDepotScoped(t *testing.T) {
 		require.NotNil(t, byCode["FR-INS-033"])
 		require.Equal(t, "412300", *byCode["FR-INS-033"])
 		require.Contains(t, byCode, "FR-INS-063")
-		require.Nil(t, byCode["FR-INS-063"], "Review Focus 2: the rig report's unit ids never reach the wire")
+		require.Nil(t, byCode["FR-INS-063"], "the rig report's unit ids never reach the wire")
 
 		require.Len(t, d.Units, 2)
 		require.Equal(t, f.TrailerFleet, d.Units[1].FleetNumber)
@@ -517,7 +517,7 @@ func TestVoidedInspectionStaysListedAndReadable(t *testing.T) {
 	require.Equal(t, "VOIDED", d.Inspection.State)
 }
 
-// Review Focus 1: the latest inspection is named whatever page holds it.
+// The latest inspection is named whatever page holds it (TYRE-325).
 func TestUnitInspectionListPagesAndNamesTheLatestBeyondThePage(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)

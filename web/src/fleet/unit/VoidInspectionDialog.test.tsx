@@ -151,7 +151,7 @@ describe("the void dialog", () => {
     expect(onVoided).not.toHaveBeenCalled();
   });
 
-  // Review Focus 3: under 200 characters, over 200 bytes.
+  // Under 200 characters, over 200 bytes.
   it("sends a reason the form allows and shows the server's refusal of its length", async () => {
     vi.mocked(fetch).mockImplementation(() =>
       Promise.resolve(respond(422, { code: "invalid_submission", message: "reason is too long" })),
