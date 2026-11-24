@@ -71,11 +71,11 @@ test("a controller schedules the Sandbox driver and the driver's submit closes t
     /Inspection scheduled for Sandbox Driver, due /,
   );
 
-  // Scoped by the column heading only this table carries: the unit screen also
-  // renders the fitment history as a table.
+  // Scoped by its card: the unit screen also renders the fitment history and
+  // its inspections as tables, the second with a Driver column (TYRE-325).
   const taskTable = page
-    .getByRole("table")
-    .filter({ has: page.getByRole("columnheader", { name: "Driver", exact: true }) });
+    .getByRole("region", { name: "Open inspections", exact: true })
+    .getByRole("table");
   const taskRow = taskTable.getByRole("row").filter({ hasText: "Sandbox Driver" });
   await expect(taskRow).toContainText("Open");
 
