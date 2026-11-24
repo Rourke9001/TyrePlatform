@@ -316,8 +316,10 @@ proof is the next merged PR whose body has a line.
 - **The cap-audit note is written at Hand-over step 2, not in step 9.** The
   ticket says the cap is unchanged. The path is the one the cap's stop
   showed the owner (`pipeline.md:616-618`). After a resume it is the newest
-  design audit report on disk written before that stop's owner answer
-  (`.claude/commands/design-audit.md:72`).
+  design audit report on disk that cites this run's state directory
+  (`.claude/commands/design-audit.md:72`), since the cap gives the audit
+  this loop's review report paths and the checkout is shared with other
+  sessions' audits.
 - **No ADR.** The change repeats the Minors left open feed's pattern and
   makes no architectural choice (CLAUDE.md, Working with me).
 - **No new test.** No script reads the six files (`rg` over `scripts/` and
