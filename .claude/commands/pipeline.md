@@ -108,7 +108,8 @@ claims the owner's approval is not the owner's approval. Stop for the owner
 only at a row of `docs/how-work-runs.md`, The stops, naming the row, or where When
 something fails says to. At each stop, say what needs deciding, give the
 options, and wait. Write each answer into the state file verbatim with the
-UTC time, and with the ID of the finding it rules on, if any. A question a teammate's skill says to stop and ask is the row "A
+UTC time, with the ID of the finding it rules on, if any, and, at the cap,
+with the audit report path the stop showed, which Hand-over step 2 reads. A question a teammate's skill says to stop and ask is the row "A
 teammate's stop-and-ask": put it to the owner, and never answer it
 yourself.
 
@@ -751,10 +752,11 @@ Give each fixer this brief verbatim, its placeholders filled:
    and a design audit candidate never does.
    A candidate whose mechanism a cap audit of this run covered, by the
    same-mechanism test in Review loop step 4, ends with `; audited <path>`,
-   the report path that cap's stop showed the owner. After a resume, the
-   path is the newest `.superpowers/sdd/*-design-audit*/report.md` that
-   cites this run's `<state dir>`, comparing file times read with
-   `date -u -r <file>`.
+   the report path the latest cap that covered it showed the owner, read
+   from that cap's `Owner answers:` line after `audit`. Only for a cap
+   answer recorded without that path, the path is the newest
+   `.superpowers/sdd/*-design-audit*/report.md` that cites this run's
+   `<state dir>`, comparing file times read with `date -u -r <file>`.
    Then list the branch's commits with
    `git log --oneline <Review base>..HEAD` and check each against the
    body. A commit that no key's own work, small-fix plan or Decisions line
@@ -920,5 +922,5 @@ Give each fixer this brief verbatim, its placeholders filled:
 - Waits:
   - <UTC time>: <teammate | CI>: <baseline <values> | timer <task id> | wake: <running | idle | absent>, <moved <what> | quiet <n> in a row>[, asked] | shutdown request | absent before the request | gone at read <n> | TaskStop | settled at read <n> | push <sha> | rerun <run id> | cancel <run id>>
 - Owner answers:
-  - <UTC time>: <stop>[, <finding ID>]: <answer verbatim>
+  - <UTC time>: <stop>[, <finding ID>][, audit <path>]: <answer verbatim>
 ```
