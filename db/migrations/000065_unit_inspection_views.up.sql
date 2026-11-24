@@ -30,8 +30,8 @@ SELECT w.tenant_id, w.inspection_id,
 -- never latest by that view's own population.
 CREATE VIEW app.v_unit_inspection WITH (security_invoker = true) AS
 SELECT u.tenant_id, u.vehicle_id, uv.fleet_number, i.id AS inspection_id, i.state,
-       -- The row's own stamps: the void is the one update app.inspection
-       -- allows (000040), and inspection_stamps_updated stamps it (000017).
+       -- The row's own stamps: a voided row is frozen (000040), so they are
+       -- the ones the void's update wrote (000017).
        CASE WHEN i.state = 'VOIDED' THEN i.void_reason END AS void_reason,
        CASE WHEN i.state = 'VOIDED' THEN vb.display_name END AS voided_by_name,
        CASE WHEN i.state = 'VOIDED' THEN i.updated_at END AS voided_at,
