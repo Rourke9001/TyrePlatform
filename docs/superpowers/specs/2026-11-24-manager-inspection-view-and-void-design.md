@@ -4,7 +4,8 @@ Ticket TYRE-325, raised by the 24 Sep 2026 checkpoint audit (runtime finding
 f3) and widened by the pilot audit (U147, comment 13943, item B19: the
 definition of done gains FR-INS-012's void button). The run queue launches it
 alone (`docs/implementation-order.md`, row 7). The owner's answers of
-24 Nov 2026 are under "The owner's answers" (U248, comment 14354).
+24 Nov 2026 are under "The owner's answers" (U248, comment 14354), and the
+condition on the approval under "The owner's condition" (U249).
 
 **Requirements touched:**
 
@@ -16,6 +17,10 @@ alone (`docs/implementation-order.md`, row 7). The owner's answers of
   governing value is the stored minimum, never worked out on the screen.
 - FR-INS-003, FR-INS-040 and DR-021: what an inspection records (who, when,
   odometer) and every warning raised at capture with the driver's response.
+- FR-INS-020 and FR-INS-064: the odometer is the motive unit's, and distance
+  is never apportioned to a towed unit. A towed unit's inspection names the
+  unit it was read with and that unit's odometer, and no distance is worked
+  out from them here (Non-goals; the owner's condition, U249).
 - FR-INS-011, FR-INS-012, CR-004 and Appendix C.2: a submitted inspection is
   never edited; a controller or higher may void it with a mandatory reason,
   the record is kept, and it leaves analytics.
@@ -73,6 +78,9 @@ the person who has to correct a wrong one cannot.
    when (U248).
 6. A depot manager can void only an inspection that read a unit of their
    depots (U248).
+7. A towed unit's inspections keep, and show, the record a trailer distance
+   is worked out from: which unit each was read with and that unit's
+   odometer at the time (U249).
 
 ## Non-goals
 
@@ -80,6 +88,14 @@ the person who has to correct a wrong one cannot.
   staleness (FR-INS-045 to 047, FR-DSH-005, FR-DSH-006) are TYRE-284's.
 - Wear rate and the projected removal window per position, the rest of
   FR-RPT-031. The ticket's definition of done does not ask for them.
+- A trailer distance figure. FR-INS-064 says distance is never apportioned
+  to a towed unit, and FR-FIT-009 and BR-ANL-011 treat a distance inferred
+  from couplings as unbounded. Changing that is TYRE-455, the owner's ticket
+  of 22 Oct 2026 (run-queue row 40, with TYRE-441), which records the horse's
+  odometer at every trailer swap and carries the SRS change. Until it lands,
+  the difference between the odometers of two inspections is the trailer's
+  distance only when one horse towed it the whole time between them. This
+  ticket keeps and shows the record and computes no difference (U249).
 - A whole-rig inspection page. An inspection is shown one unit at a time,
   with the other units it read named.
 - Any judgement of an older inspection. Only the latest one is judged, as
@@ -110,6 +126,8 @@ the person who has to correct a wrong one cannot.
   (the comment and the defect report) on an inspection they may already see.
   Its id, its readings, its odometer and the warnings that concern it stay
   out of reach.
+- A distance shown for a towed unit, or a difference of two odometers
+  labelled as one (Non-goals).
 
 ## Constraints
 
@@ -184,17 +202,32 @@ filtering on `state`.
 inspection that concerns the unit (Constraints). Columns: the tenant, the
 unit, the inspection, its state, the void reason, who voided it (display
 name) and when, `started_at`, `submitted_at`, `received_at`, the driver's id
-and display name, whether the capture was addressed to this unit, the
-odometer, the driver's comment and defect report, the number of positions
+and display name, whether the capture was addressed to this unit, the addressed unit's
+id and fleet number, the odometer and whether the odometer timeline took it,
+the driver's comment and defect report, the number of positions
 read on this unit, the number of warnings that concern this unit, and
 whether this is the unit's latest inspection. "Latest" comes from joining
 `app.v_latest_unit_inspection`, never from a second `DISTINCT ON`. A voided
 inspection is never latest, by that view's own filter (`000045:183`), and
 nor is one that concerns the unit without reading it.
 
-The odometer belongs to the unit the capture was addressed to: submit files
-it on that unit's timeline (`000060:1284-1289`). So the odometer is on that
-unit's row and null on every other unit's row of the same inspection.
+The odometer belongs to the unit the capture was addressed to: the
+inspection row holds what the driver entered (`000060:996-1003`), and submit
+files it on that unit's timeline alone (`000060:1284-1289`). Every row of the
+inspection carries that reading together with the addressed unit's id and
+fleet number, so a towed unit's row says which unit it was read with and at
+what odometer (U249). It is never presented as the towed unit's own reading,
+and the view works out no distance from it. A trailer-only inspection has
+none (FR-INS-020).
+
+The timeline can refuse the reading (DR-020, or a second one on the same
+day), and submit then keeps the inspection and records a warning
+(`000060:1290-1298`). The view says whether a timeline row cites the
+inspection, so a screen never shows a refused reading as an accepted one.
+
+The view is not where a depot manager's scope is applied: the API returns
+the addressed unit's odometer and id only when that unit is in the actor's
+scope (section 2).
 
 A warning concerns a unit when it hangs off one of the unit's readings, or
 when it hangs off no reading (an inspection-level warning, such as the
@@ -247,6 +280,12 @@ newest first, in the order `app.v_latest_unit_inspection` uses
 rows and a way to ask for the page after it. An empty unit answers an empty
 list.
 
+On both reads a row names the addressed unit by fleet number. Its id, the
+odometer and the timeline flag are returned when the addressed unit is the
+unit in the path or is in `unitSource(a)`, and are null otherwise, so a
+depot manager reads another depot's horse's odometer on neither read. The
+scope test is a join in the handler's query, as the units concerned are.
+
 **`GET /api/vehicles/{vehicleID}/inspections/{inspectionID}`.** The header
 (the list row's fields), the readings of this unit on this inspection in
 position order (by code length then code, NFR-USE-012), this unit's spares
@@ -278,8 +317,12 @@ unchanged. `docs/architecture.md` names the new caller.
 
 **Inspections card.** On `/fleet/units/:unitId`, a card titled
 "Inspections" lists the rows of the first read: date and time, driver,
-odometer, positions read, warnings, and a mark for "Latest" or "Voided". The
-odometer cell is empty on a row whose capture was addressed to another unit.
+odometer, positions read, warnings, and a mark for "Latest" or "Voided". On
+a row whose capture was addressed to another unit, the odometer cell names
+that unit and gives its reading, as in "H12: 412 300 km", or names the unit
+alone when the reading is out of the actor's scope or was not entered. A
+reading the timeline refused is marked as not on the odometer record. No
+column or line gives a distance.
 A row links to the inspection's page. With no inspections it says so. Older
 pages load on request.
 
@@ -324,8 +367,9 @@ reading.
 `/fleet/units/:unitId/inspections/:inspectionId`, behind the same
 `ViewFleet` gate as the unit screen, lazy. It shows:
 
-- A header: the unit, date and time, driver, the odometer when the capture
-  was addressed to this unit, and "Latest inspection" or "Voided".
+- A header: the unit, date and time, driver, the odometer under the same
+  rule as the list (this unit's own, or the addressed unit's, named), and
+  "Latest inspection" or "Voided".
 - When voided, a banner with the reason, who voided it and when.
 - The driver's comment and defect report, when there is one. They are the
   driver's words about the whole walk-around, so they show on every unit's
@@ -393,15 +437,19 @@ none.
   non-voided inspection and still returns them for a voided one; its target
   equals the `target_kpa` `app.v_exception` reports for the same reading;
   warnings are counted per unit as section 1 defines; the list view's pairs
-  are exactly the pairs `app.inspection_read_unit` accepts; the odometer is
-  on the addressed unit's row alone; another tenant sees no row. Check 8b covers both views without change. The Appendix J counts (19,
+  are exactly the pairs `app.inspection_read_unit` accepts; every row of an
+  inspection carries the addressed unit and the odometer the inspection row
+  holds, a towed unit's row included; the timeline flag is false for a
+  reading the timeline refused; another tenant sees no row. Check 8b covers both views without change. The Appendix J counts (19,
   11, 9) do not move.
 - **API** (`make api-test`): a driver gets 403 on both reads; the fixture
   relays; a unit or inspection out of scope, or an inspection that did not
   read the unit, gets 404; a voided inspection is listed and readable; the
   list pages; a depot manager's read of a two-depot rig's inspection carries
-  no id for the other depot's unit, and their own towed unit's rows carry no
-  odometer and no inspection-level warning. For the void: a depot manager
+  no id for the other depot's unit, and their own towed unit's rows name the
+  other depot's horse by fleet number and carry no odometer, no id for it and
+  no inspection-level warning; a controller's read of the same towed unit
+  carries the horse's id and odometer. For the void: a depot manager
   with no unit on the inspection gets 404 and nothing is voided, one with a single unit on a two-depot rig
   gets 204, a controller gets 204 anywhere in the tenant, and the existing
   `TestVoidInspection` cases hold.
@@ -442,6 +490,22 @@ none.
 Stated with the questions, no objection: FR-RPT-031's wear rate and removal
 window are left out.
 
+## The owner's condition (24 Nov 2026, U249)
+
+The owner approved this spec and its SRS row with one condition, in their
+words: "approved as long as the differencve in odomemter between inspections
+on trailers from thier horses are also tracked so we can also caluclate the
+distance of the trailers traveled between inspections".
+
+How it is met. The record is already kept: an inspection row holds the
+horse's odometer and the rig it was done on, and each reading names its own
+unit (`db/migrations/000060_per_trip_assignment.up.sql:996-1003`,
+`db/migrations/000001_init.up.sql:322`). This ticket changes none of that
+and now shows it: a trailer's inspection names the horse it was read with
+and that horse's odometer (Goal 7). Working the distance out is TYRE-455,
+with its SRS change (Non-goals). The lead read "tracked" as kept and
+visible, not as a figure on this screen, and told the owner so.
+
 ## Lead's calls
 
 | # | Question | Call | Source |
@@ -463,8 +527,10 @@ window are left out.
 | 15 | An ADR | None; this follows ADR-0006, 0011, 0013, 0020 and 0022 | `docs/adr/` |
 | 16 | The browser test's tenant | Sandbox Fleet, submitting first | `web/e2e/tasks.spec.ts:27-80`; `web/e2e/sandbox.ts:157-183` |
 | 17 | Which test says an inspection concerns a unit | `app.inspection_read_unit`'s, everywhere. From the builder check | `db/migrations/000060_per_trip_assignment.up.sql:284-292` |
-| 18 | Whose the odometer and the inspection-level warnings are | The addressed unit's; other units' rows carry neither. From the builder check | `000060:1284-1299` |
+| 18 | Whose the odometer and the inspection-level warnings are | The addressed unit's. Inspection-level warnings show on its rows alone. The odometer shows on other units' rows too, named as the addressed unit's, when that unit is in the actor's scope (U249). From the builder check | `000060:1284-1299` |
 | 19 | The comment, the defect report and spares reported absent | Shown: the first two on every unit's page of the inspection, an absent spare as a row and as `nospare` on the plan. From the builder check | `db/migrations/000001_init.up.sql:318-341`; `db/migrations/000041_capture_observations.up.sql:29-50` |
 | 20 | A reading with no tyre on record | Carries the class or tenant target the resolver gives; nothing judges it | `000045:87-90` |
 | 21 | Freshness of the unit screen's exception rows, and what a void makes stale | A unit-keyed query at the fleet default; the void invalidates the unit's keys and the dashboard's four. From the builder check | `web/src/dashboard/dashboard.data.ts:29-54`, `83-92` |
 | 22 | The reason's length | The server's 200 bytes stay; the form stops at 200 characters and shows the refusal | `api/internal/httpapi/request.go:80-84`; `inspections.go:44` |
+| 23 | How the owner's condition on trailer distance is met | The record is kept and shown; no distance is computed here, because the SRS forbids apportioning one and TYRE-455 carries that change | `web/src/capture/CaptureStart.tsx:38-39` (FR-INS-064); TYRE-455; `docs/implementation-order.md:147` |
+| 24 | Which odometer a screen shows, and a refused one | What the driver entered on the inspection row, with a flag for whether the timeline took it | `000060:996-1003`, `1284-1298` |
