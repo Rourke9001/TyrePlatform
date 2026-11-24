@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { ApiError } from "../../api/apiError";
 import type { InspectionDetail, InspectionWarning } from "../../api/inspections";
 import { inspectionWarningLabel, warningResponseLabel } from "../../domain/vocabulary";
-import { formatCount, formatMm } from "../../format/numbers";
+import { formatMm, plural } from "../../format/numbers";
 import { useTenantInstant } from "../../time/tenantTime";
 import { Banner } from "../../ui/Banner";
 import { Button } from "../../ui/Button";
@@ -193,7 +193,7 @@ function InspectionBody({
       <PageHeader
         back={{ label: `Back to ${row.fleetNumber}`, to: `/fleet/units/${unitId}` }}
         title={<span id="inspection-heading">{`Inspection of ${row.fleetNumber}`}</span>}
-        description={`${formatCount(row.positionsRead)} positions read on this unit`}
+        description={`${plural(row.positionsRead, "position", "positions")} read on this unit`}
         actions={
           canVoid && mark !== "voided" ? (
             <Button
