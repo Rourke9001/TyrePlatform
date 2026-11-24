@@ -83,7 +83,17 @@ describe("the void dialog", () => {
     await user.click(screen.getByRole("button", { name: "Void inspection" }));
 
     expect(screen.getByText("Give a reason for the void.")).toBeInTheDocument();
+    // The error is read with the field it names (web-design-guidelines,
+    // Forms: focus the first error on submit).
+    expect(screen.getByRole("textbox", { name: "Reason" })).toHaveFocus();
     expect(voids()).toBe(0);
+  });
+
+  it("names the reason field and keeps the browser's autofill off it", () => {
+    renderDialog();
+    const reason = screen.getByRole("textbox", { name: "Reason" });
+    expect(reason).toHaveAttribute("name", "reason");
+    expect(reason).toHaveAttribute("autocomplete", "off");
   });
 
   // U248, Lead's call 22: the server's 200 bytes stay the authority.

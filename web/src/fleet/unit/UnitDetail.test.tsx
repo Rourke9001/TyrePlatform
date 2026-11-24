@@ -432,6 +432,8 @@ describe("the unit screen", () => {
       const card = await region();
       const rows = await within(card).findAllByRole("row");
       expect(rows).toHaveLength(3);
+      // One region carries the card's name: the table's own is its caption.
+      expect(screen.getAllByRole("region", { name: "Inspections" })).toHaveLength(1);
       const [newest, voided] = rows.slice(1);
       expect(newest).toHaveTextContent("Melusi");
       expect(newest).toHaveTextContent("Latest");
@@ -448,6 +450,9 @@ describe("the unit screen", () => {
         name: "20 Nov 2026 10:03",
       });
       expect(link.getAttribute("href")).toBe("/fleet/units/u9/inspections/i2");
+      // The link is the row's one way in: a clickable row would be a second
+      // tab stop beside it, and a second control of the same name on a phone.
+      expect(newest.getAttribute("tabindex")).toBeNull();
     });
 
     it("says it is loading while the list is pending", async () => {
@@ -489,7 +494,7 @@ describe("the unit screen", () => {
 
         const card = await region();
         const list = await within(card).findByRole("list", {
-          name: "Inspections",
+          name: "Inspections, newest first",
         });
         expect(within(list).getAllByRole("listitem")).toHaveLength(2);
         expect(within(card).queryByRole("table")).toBeNull();

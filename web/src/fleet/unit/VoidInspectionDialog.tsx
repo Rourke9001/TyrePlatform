@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import type { InspectionUnit, UnitInspection } from "../../api/inspections";
 import { Button } from "../../ui/Button";
@@ -40,6 +40,7 @@ export function VoidInspectionDialog({
 }) {
   const [reason, setReason] = useState("");
   const [missing, setMissing] = useState(false);
+  const field = useRef<HTMLTextAreaElement>(null);
   const write = useVoidInspection(inspection.inspectionId, onVoided);
 
   // Escape, Close and the backdrop leave it open while the write is pending.
@@ -48,7 +49,9 @@ export function VoidInspectionDialog({
   };
   const confirm = () => {
     if (reason.trim() === "") {
+      // Focused, so the error is read with the field it names.
       setMissing(true);
+      field.current?.focus();
       return;
     }
     setMissing(false);
@@ -86,6 +89,9 @@ export function VoidInspectionDialog({
       </p>
       <Field label="Reason" error={missing ? "Give a reason for the void." : undefined}>
         <TextArea
+          ref={field}
+          name="reason"
+          autoComplete="off"
           value={reason}
           maxLength={200}
           onChange={(e) => {
