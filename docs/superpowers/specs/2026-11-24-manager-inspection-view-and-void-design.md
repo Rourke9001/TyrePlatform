@@ -235,9 +235,9 @@ odometer's) and the capture was addressed to the unit. That keeps a refused
 odometer, and a composition report's list of units, on the addressed unit's
 page only.
 
-Who voided and when are the row's own stamps. The void is the only update
-`app.inspection` allows (`000040:578-630`), and `inspection_stamps_updated`
-stamps `updated_at` and `updated_by` on it
+Who voided and when are the row's own stamps. A voided row is frozen
+(`000040:578-630`), so its `updated_at` and `updated_by` are the ones
+`inspection_stamps_updated` wrote on the void's update
 (`db/migrations/000017_audit_columns_dr013.up.sql:228-237`). They are read only when the state
 is `VOIDED`.
 
