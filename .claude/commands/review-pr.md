@@ -115,7 +115,12 @@ does not use step 2: it runs the review and the auditors in place by
    and what step 4 dropped, with why. When a finding lands on a mechanism
    that an earlier round of this PR, or an earlier PR, already fixed, say so
    in the finding and recommend `/design-audit <mechanism>` before the next
-   fix round. Last, list each cited file that is not in
+   fix round. Then, under a `Design audit candidates` heading, give one line
+   per recommendation, or the word `none`:
+   `- <the mechanism in plain words>; files: <path>[, <path>]; findings: <ID>[, <ID>]; fixed <n> times (<the rounds or PRs that fixed it>)`,
+   where `<n>` counts the earlier fixes you can show: this PR's fix rounds,
+   from the previous report and the range's commits, and the earlier PRs you
+   name. Last, list each cited file that is not in
    `git diff --name-only <range>`, and end with the line
    `Scope: <n> files cited, <m> outside the range`, where `<n>` here is the
    number of distinct files the report cites and `<m>` the number in the
@@ -129,7 +134,11 @@ merge after fixes, or do not merge) and the report path. A blocking finding open
 `introduced` or `on-path` Minors alone mean merge after fixes on a PR whose
 Decisions name no Minor batch, and merge on one whose Decisions do; then list
 them for the PR body's Minors left open (`docs/how-work-runs.md`, The Minor
-batch). A verifier replies as its caller's brief says.
+batch). List the report's Design audit candidates for the PR body's heading of
+that name; they never change the verdict. The session that works the next
+fix round or the Minor batch adds them (`/ticket` step 12). When no such
+session follows, say that they reach the PR body only if the owner tells
+this session to add them. A verifier replies as its caller's brief says.
 
 For a PR, each fix round runs in a fresh session, and its re-review runs here
 as `/review-pr <n> <level> from <sha>` (`docs/how-work-runs.md`, The review loop, U192, U212),
