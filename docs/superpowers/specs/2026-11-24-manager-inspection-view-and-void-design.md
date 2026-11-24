@@ -350,7 +350,10 @@ measurement with any threshold.
 
 The unit screen's exception rows are a query of its own, keyed by the unit,
 with the fleet screens' default freshness, fetched beside the latest
-inspection so the two are the same age. It does not go through
+inspection so the two are the same age. It does not refetch on window focus:
+the exceptions read builds the whole tenant's latest readings before it
+filters to the unit, which is the cost U41 keeps off a focus event
+(`dashboard.data.ts:29-30`). It does not go through
 `useExceptions`, whose rows never go stale until Refresh
 (`web/src/dashboard/dashboard.data.ts:83-92`).
 
