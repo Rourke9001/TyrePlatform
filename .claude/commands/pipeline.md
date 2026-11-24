@@ -665,8 +665,9 @@ Minor batch's net. Once the PR is open, add the round's Decisions lines,
 report paths and any new `Minors left open:` lines to `pr-body.md`. Add each
 `Design audit candidates:` line its re-review recorded there too, replacing
 the body's line for a mechanism the new line joined, give `; audited <path>`
-to each body line a cap audit covered, as Hand-over step 2 says, and restore
-that heading if Hand-over step 2 deleted it. Then run
+to each body line a cap audit covered, as Hand-over step 2 says, and, when
+the round adds a line and Hand-over step 2 deleted that heading, restore it.
+Then run
 `gh pr edit <n> --body-file <state dir>/pr-body.md`.
 
 **The Minor batch** (`docs/how-work-runs.md`, The Minor batch, U212), once per
