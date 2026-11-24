@@ -50,11 +50,12 @@ Tick only what this change actually touches; delete the rest.
 ## Design audit candidates
 
 <!-- One line per mechanism a review recommended `/design-audit` for: the
-     mechanism, its files, the finding IDs, how many times it was fixed,
-     the review report after `report` and, when a cap audit covered it,
-     that audit's report after `audited`. A candidate is never a finding
-     and never blocks the merge. Close-out files them on the standing
-     ticket (U252). Delete the heading when there are none. -->
+     mechanism, its files, the finding IDs and how many times it was
+     fixed. A pipeline run's line adds its review reports after `report`
+     and, when a cap audit covered it, that audit's report after
+     `audited`. A candidate is never a finding and never blocks the merge.
+     Close-out files them on the standing ticket (U252). Delete the
+     heading when there are none. -->
 
 ## Set aside
 
