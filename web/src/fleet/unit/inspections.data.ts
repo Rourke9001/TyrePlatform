@@ -59,7 +59,8 @@ export function useUnitCondition(unitId: string) {
 // FR-INS-012. A void changes the list, the page and the condition of every
 // unit the inspection read, so each is made stale by prefix, with the four
 // keys the dashboard's Refresh invalidates, read again on their next visit.
-// Nothing refetches on focus or polls (U41).
+// Nothing polls (U41). Of the unit reads, only the condition skips the
+// refetch on focus; the list, the page and the unit take the fleet default.
 export function useVoidInspection(inspectionId: string, onVoided: () => void) {
   const queryClient = useQueryClient();
   const tenantKey = getDevTenantId() ?? "default";
