@@ -158,6 +158,14 @@ describe("the inspection page", () => {
     expect(screen.getByText("Latest inspection")).toBeInTheDocument();
   });
 
+  it("counts the positions read in words that agree with the count", async () => {
+    const one = { ...DETAIL, inspection: { ...DETAIL.inspection, positionsRead: 1 } };
+    serve(() => Promise.resolve(respond(200, one)));
+    renderPage();
+
+    expect(await screen.findByText("1 position read on this unit")).toBeInTheDocument();
+  });
+
   it("shows a voided inspection's banner with who, when and why", async () => {
     const voided = {
       ...DETAIL,
