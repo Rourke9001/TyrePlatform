@@ -348,6 +348,73 @@ describe("the inspection page", () => {
     ).toBeInTheDocument();
   });
 
+  // The void is shown when it lands, not when the page reads it back: a
+  // second confirm would only meet TY019.
+  it("shows the inspection voided as soon as the void lands, before the page reads it back", async () => {
+    let voided = false;
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = requestedUrl(input);
+      if (url === "/api/inspections/i1/void") {
+        voided = true;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      if (url === PATH) {
+        return voided
+          ? new Promise<Response>(() => undefined)
+          : Promise.resolve(respond(200, DETAIL));
+      }
+      throw new Error(`unstubbed ${url}`);
+    });
+    const user = userEvent.setup();
+    renderPage(["ViewFleet", "VoidInspection"]);
+
+    await user.click(await screen.findByRole("button", { name: "Void inspection" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "  wrong rig  ");
+    await user.click(within(dialog).getByRole("button", { name: "Void inspection" }));
+
+    expect(await screen.findByText("Voided. Reason: wrong rig.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Void inspection" })).toBeNull();
+    expect(screen.queryByText("Latest inspection")).toBeNull();
+  });
+
+  // Every unit's copy of this inspection, and no other inspection's.
+  it("marks the voided inspection on every unit's page it is cached for, and no other", async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = requestedUrl(input);
+      if (url === "/api/inspections/i1/void") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      if (url === PATH) return Promise.resolve(respond(200, DETAIL));
+      throw new Error(`unstubbed ${url}`);
+    });
+    const client = testQueryClient();
+    const other = { ...DETAIL, inspection: { ...DETAIL.inspection, inspectionId: "i2" } };
+    client.setQueryData(["unit-inspection", "h12", "i1"], DETAIL);
+    client.setQueryData(["unit-inspection", "u9", "i2"], other);
+    const user = userEvent.setup();
+    renderWithActor(<InspectionPage unitId="u9" inspectionId="i1" />, {
+      capabilities: ["ViewFleet", "VoidInspection"],
+      withRouter: true,
+      client,
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Void inspection" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "wrong rig");
+    await user.click(within(dialog).getByRole("button", { name: "Void inspection" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    const sibling = client.getQueryData<InspectionDetail>(["unit-inspection", "h12", "i1"]);
+    expect(sibling?.inspection.state).toBe("VOIDED");
+    expect(sibling?.inspection.voidReason).toBe("wrong rig");
+    expect(sibling?.inspection.latest).toBe(false);
+    const untouched = client.getQueryData<InspectionDetail>(["unit-inspection", "u9", "i2"]);
+    expect(untouched?.inspection.state).toBe("SYNCED");
+  });
+
   // A failed refresh keeps what was loaded, as the inspection list keeps its
   // rows (web/CLAUDE.md, The network).
   it("keeps the inspection and the void's word through a refresh that fails, and retries", async () => {

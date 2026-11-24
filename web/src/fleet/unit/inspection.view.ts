@@ -30,6 +30,13 @@ export function inspectionMark(row: UnitInspection): "latest" | "voided" | null 
   return row.latest ? "latest" : null;
 }
 
+// What a landed void says of a row before the server's copy does: voided,
+// not latest, with the reason as the API trims it (requiredText). Who and
+// when arrive with that copy.
+export function voidedLocally(row: UnitInspection, reason: string): UnitInspection {
+  return { ...row, state: "VOIDED", latest: false, voidReason: reason.trim() };
+}
+
 // `when` is the caller's tenant-time text for voidedAt (rule 6).
 export function voidedText(row: UnitInspection, when: string | null): string {
   const who = row.voidedBy === null ? "" : ` by ${row.voidedBy}`;
