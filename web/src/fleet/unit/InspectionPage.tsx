@@ -42,16 +42,20 @@ export function InspectionPage({ unitId, inspectionId }: { unitId: string; inspe
 
   if (read.isPending) return <p className="unit-note">Loading…</p>;
 
-  if (read.isError) {
-    if (read.error instanceof ApiError && read.error.status === 404) {
-      return (
-        <EmptyState
-          headingLevel={2}
-          title="This inspection is not on this unit."
-          action={<Link to={`/fleet/units/${unitId}`}>Back to the unit</Link>}
-        />
-      );
-    }
+  // A 404 answers the same next time, so it stands over a copy in hand.
+  if (read.error instanceof ApiError && read.error.status === 404) {
+    return (
+      <EmptyState
+        headingLevel={2}
+        title="This inspection is not on this unit."
+        action={<Link to={`/fleet/units/${unitId}`}>Back to the unit</Link>}
+      />
+    );
+  }
+
+  // Any other failed refresh keeps the copy in hand, with a notice, as the
+  // inspection list keeps its rows (web/CLAUDE.md, The network).
+  if (read.data === undefined) {
     return (
       <Banner
         tone="critical"
@@ -74,6 +78,8 @@ export function InspectionPage({ unitId, inspectionId }: { unitId: string; inspe
       unitId={unitId}
       detail={read.data}
       status={status}
+      refreshFailed={read.isError}
+      onRetry={() => void read.refetch()}
       onVoided={() => {
         setStatus(
           "Inspection voided. Its readings no longer count toward condition or exceptions.",
@@ -89,11 +95,15 @@ function InspectionBody({
   unitId,
   detail,
   status,
+  refreshFailed,
+  onRetry,
   onVoided,
 }: {
   unitId: string;
   detail: InspectionDetail;
   status: string;
+  refreshFailed: boolean;
+  onRetry: () => void;
   onVoided: () => void;
 }) {
   const canVoid = useCan("VoidInspection");
@@ -213,6 +223,19 @@ function InspectionBody({
       <p role="status" className={status === "" ? "tr-vh" : "unit-note"}>
         {status}
       </p>
+      {refreshFailed && (
+        <Banner
+          tone="warning"
+          title="This inspection couldn't be refreshed"
+          action={
+            <Button variant="secondary" onClick={onRetry}>
+              Retry
+            </Button>
+          }
+        >
+          What&apos;s shown may be out of date. Check your connection, then retry.
+        </Banner>
+      )}
       <VoidInspectionDialog
         key={openings}
         open={voiding}

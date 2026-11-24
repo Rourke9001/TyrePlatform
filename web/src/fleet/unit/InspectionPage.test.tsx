@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +11,7 @@ import {
   renderWithActor,
   requestedUrl,
   respond,
+  testQueryClient,
   unitInspection,
 } from "../../test/fixtures";
 
@@ -345,5 +346,68 @@ describe("the inspection page", () => {
     expect(
       await screen.findByText("Voided by Nomsa on 21 Nov 2026 12:05. Reason: wrong rig."),
     ).toBeInTheDocument();
+  });
+
+  // A failed refresh keeps what was loaded, as the inspection list keeps its
+  // rows (web/CLAUDE.md, The network).
+  it("keeps the inspection and the void's word through a refresh that fails, and retries", async () => {
+    let failing = false;
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = requestedUrl(input);
+      if (url === "/api/inspections/i1/void") {
+        failing = true;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      if (url === PATH) return Promise.resolve(failing ? respond(500, {}) : respond(200, DETAIL));
+      throw new Error(`unstubbed ${url}`);
+    });
+    const user = userEvent.setup();
+    renderPage(["ViewFleet", "VoidInspection"]);
+
+    await user.click(await screen.findByRole("button", { name: "Void inspection" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "wrong rig");
+    await user.click(within(dialog).getByRole("button", { name: "Void inspection" }));
+
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("This inspection couldn't be refreshed");
+    expect(screen.queryByText("Inspection didn't load")).toBeNull();
+    expect(
+      screen.getByText(
+        "Inspection voided. Its readings no longer count toward condition or exceptions.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Readings" })).toBeInTheDocument();
+
+    failing = false;
+    await user.click(within(notice).getByRole("button", { name: "Retry" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+    expect(screen.getByRole("region", { name: "Readings" })).toBeInTheDocument();
+  });
+
+  // A 404 answers the same next time, so it stands over the copy in hand.
+  it("says an inspection no longer on this unit is not, over the copy it had loaded", async () => {
+    let gone = false;
+    serve(() =>
+      Promise.resolve(
+        gone
+          ? respond(404, { code: "not_found", message: "no such inspection" })
+          : respond(200, DETAIL),
+      ),
+    );
+    const client = testQueryClient();
+    renderWithActor(<InspectionPage unitId="u9" inspectionId="i1" />, {
+      capabilities: ["ViewFleet"],
+      withRouter: true,
+      client,
+    });
+    await screen.findByRole("heading", { level: 1 });
+
+    gone = true;
+    await act(() => client.refetchQueries());
+    expect(await screen.findByText("This inspection is not on this unit.")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Readings" })).toBeNull();
   });
 });
