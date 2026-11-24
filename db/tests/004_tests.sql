@@ -16519,6 +16519,338 @@ BEGIN
   RAISE NOTICE 'PASS  81z section 81 leaves no residue';
 END $$;
 
+\echo '== 82. TYRE-325: a unit''s inspections, the warnings that concern it and an inspection''s readings, voided ones included (FR-INS-012 as amended, FR-RPT-015, CR-011, FR-INS-020, FR-INS-064, U248, U249; as BAC, staged cases rolled back)'
+\echo '== 82a. the three views are invoker views carrying tenant_id, so check 8b''s sweep covers them and is not vacuous for them (rule 1, db/CLAUDE.md, Adding a view)'
+DO $$
+DECLARE got text;
+BEGIN
+  SELECT string_agg(format('%s:%s:%s', v.n, COALESCE(c.reloptions::text, 'missing'),
+                           EXISTS (SELECT 1 FROM pg_attribute a
+                                    WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped)),
+                    ',' ORDER BY v.n) INTO got
+    FROM (VALUES ('v_inspection_reading'), ('v_unit_inspection'), ('v_unit_inspection_warning')) v(n)
+    LEFT JOIN pg_class c ON c.relname = v.n AND c.relnamespace = 'app'::regnamespace AND c.relkind = 'v';
+  IF got IS DISTINCT FROM 'v_inspection_reading:{security_invoker=true}:t,'
+                          'v_unit_inspection:{security_invoker=true}:t,'
+                          'v_unit_inspection_warning:{security_invoker=true}:t' THEN
+    RAISE EXCEPTION 'FAIL 82a: the views read %, not three invoker views each carrying tenant_id', got;
+  END IF;
+  RAISE NOTICE 'PASS  82a app.v_unit_inspection, app.v_unit_inspection_warning and app.v_inspection_reading are invoker views carrying tenant_id';
+END $$;
+
+\echo '== 82b. each of BAC''s three units lists both fixture inspections, addressed to HORSE at HORSE''s odometer, with the latest that app.v_latest_unit_inspection names (U249; as BAC)'
+DO $$
+DECLARE
+  i0 constant uuid := md5('insp0')::uuid; i1 constant uuid := md5('insp1')::uuid;
+  got text; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT string_agg(format('%s/%s/%s/%s/%s/%s/%s', u.fleet_number,
+                           CASE u.inspection_id WHEN i0 THEN 'insp0' WHEN i1 THEN 'insp1' ELSE u.inspection_id::text END,
+                           u.positions_read, CASE WHEN u.is_latest THEN 'latest' ELSE 'older' END,
+                           u.odometer, u.addressed_fleet_number, CASE WHEN u.addressed_here THEN 'here' ELSE 'towed' END),
+                    ',' ORDER BY u.fleet_number, u.submitted_at DESC) INTO got
+    FROM app.v_unit_inspection u;
+  IF got IS DISTINCT FROM 'HORSE/insp1/10/latest/412500/HORSE/here,HORSE/insp0/10/older/402500/HORSE/here,'
+                          'LINK12/insp1/9/latest/412500/HORSE/towed,LINK12/insp0/8/older/402500/HORSE/towed,'
+                          'LINK6/insp1/8/latest/412500/HORSE/towed,LINK6/insp0/8/older/402500/HORSE/towed' THEN
+    RAISE EXCEPTION 'FAIL 82b: the fixture''s unit inspections read %', got;
+  END IF;
+  SELECT count(*) INTO n FROM app.v_unit_inspection u
+   WHERE u.addressed_vehicle_id IS DISTINCT FROM md5('veh1')::uuid
+      OR u.driver_name IS DISTINCT FROM 'Melusi'
+      OR u.state IS DISTINCT FROM 'SYNCED'
+      OR u.void_reason IS NOT NULL OR u.voided_by_name IS NOT NULL OR u.voided_at IS NOT NULL
+      OR (u.inspection_id = i1) IS DISTINCT FROM (u.comment IS NOT NULL AND u.defect_report IS NOT NULL)
+      OR (u.inspection_id = i0) IS DISTINCT FROM (u.comment IS NULL AND u.defect_report IS NULL);
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 82b: % fixture rows misread the addressed unit, the driver, the state, the void stamps or the driver''s words', n;
+  END IF;
+  -- An array per unit, so two rows marked latest differ from the one the
+  -- view names as surely as none does.
+  SELECT count(*) INTO n FROM app.vehicle v
+   WHERE v.id IN (md5('veh1')::uuid, md5('veh2')::uuid, md5('veh3')::uuid)
+     AND (SELECT array_agg(u.inspection_id) FROM app.v_unit_inspection u WHERE u.vehicle_id = v.id AND u.is_latest)
+         IS DISTINCT FROM (SELECT array_agg(l.inspection_id) FROM app.v_latest_unit_inspection l WHERE l.vehicle_id = v.id);
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 82b: % of the three units mark a latest that is not app.v_latest_unit_inspection''s, or not exactly one', n;
+  END IF;
+  RAISE NOTICE 'PASS  82b each unit lists both fixture inspections, addressed to HORSE at its odometer, with the latest the view names';
+END $$;
+
+\echo '== 82c. a void keeps the inspection listed, voided with its reason, the voider and the instant, moves latest to the inspection before it, and leaves its readings readable (FR-INS-012 as amended, U248; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  i0 constant uuid := md5('insp0')::uuid; i1 constant uuid := md5('insp1')::uuid;
+  before text; after text; got text; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  PERFORM set_config('app.actor_id', md5('controller1')::text, true);
+  SELECT string_agg(r.reading_id || ':' || r.measurements::text || ':' || r.governing_tread_mm || ':'
+                    || coalesce(r.target_kpa::text, '-'), ',' ORDER BY r.reading_id) INTO before
+    FROM app.v_inspection_reading r WHERE r.inspection_id = i1;
+  PERFORM app.void_inspection(i1, '82c the wrong rig');
+  SELECT string_agg(format('%s/%s/%s/%s/%s/%s', u.fleet_number, u.state, u.void_reason, u.voided_by_name,
+                           u.voided_at = now(), u.is_latest), ',' ORDER BY u.fleet_number) INTO got
+    FROM app.v_unit_inspection u WHERE u.inspection_id = i1;
+  IF got IS DISTINCT FROM 'HORSE/VOIDED/82c the wrong rig/Nomsa/t/f,'
+                          'LINK12/VOIDED/82c the wrong rig/Nomsa/t/f,'
+                          'LINK6/VOIDED/82c the wrong rig/Nomsa/t/f' THEN
+    RAISE EXCEPTION 'FAIL 82c: the voided inspection''s rows read %', got;
+  END IF;
+  SELECT string_agg(format('%s/%s', u.fleet_number, u.is_latest), ',' ORDER BY u.fleet_number) INTO got
+    FROM app.v_unit_inspection u WHERE u.inspection_id = i0;
+  SELECT count(*) INTO n FROM app.v_latest_unit_inspection l
+   WHERE l.inspection_id = i0 AND l.vehicle_id IN (md5('veh1')::uuid, md5('veh2')::uuid, md5('veh3')::uuid);
+  IF got IS DISTINCT FROM 'HORSE/t,LINK12/t,LINK6/t' OR n <> 3 THEN
+    RAISE EXCEPTION 'FAIL 82c: after the void the older inspection reads % and app.v_latest_unit_inspection names it on % units, not latest on all three', got, n;
+  END IF;
+  SELECT string_agg(r.reading_id || ':' || r.measurements::text || ':' || r.governing_tread_mm || ':'
+                    || coalesce(r.target_kpa::text, '-'), ',' ORDER BY r.reading_id) INTO after
+    FROM app.v_inspection_reading r WHERE r.inspection_id = i1;
+  IF before IS NULL OR after IS DISTINCT FROM before THEN
+    RAISE EXCEPTION 'FAIL 82c: the voided inspection''s readings read %, not %', after, before;
+  END IF;
+  -- The control: the analytics population drops the voided inspection.
+  SELECT count(*) INTO n FROM app.v_reading_detail d WHERE d.inspection_id = i1;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 82c: app.v_reading_detail still returns % readings of the voided inspection', n;
+  END IF;
+  RAISE NOTICE 'PASS  82c a voided inspection stays listed with its reason, voider and instant, latest moves to the one before it, and its readings still read';
+END $$;
+ROLLBACK;
+
+\echo '== 82d. the readings view holds v_reading_detail''s readings, measurements and governing value, marks the first measurement at the stored minimum, and carries the target v_exception judged against (CR-011, FR-RPT-015, FR-CFG-013; as BAC)'
+DO $$
+DECLARE n int; m int; k int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT count(*) INTO n FROM (
+    (SELECT reading_id FROM app.v_inspection_reading EXCEPT SELECT reading_id FROM app.v_reading_detail)
+    UNION ALL
+    (SELECT reading_id FROM app.v_reading_detail EXCEPT SELECT reading_id FROM app.v_inspection_reading)) x;
+  SELECT count(*) INTO m FROM app.v_inspection_reading;
+  IF n <> 0 OR m <> 53 THEN
+    RAISE EXCEPTION 'FAIL 82d: the readings view holds % readings and differs from app.v_reading_detail on %, not 53 and 0', m, n;
+  END IF;
+  SELECT count(*) INTO n FROM app.v_inspection_reading r JOIN app.v_reading_detail d ON d.reading_id = r.reading_id
+   WHERE r.measurements IS DISTINCT FROM d.measurements
+      OR r.governing_tread_mm IS DISTINCT FROM d.governing_tread_mm
+      OR r.orientation_known IS DISTINCT FROM d.orientation_known;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 82d: % readings differ from app.v_reading_detail in measurements, governing value or orientation', n;
+  END IF;
+  SELECT count(*) INTO n FROM app.v_inspection_reading r
+   WHERE r.anatomy IS DISTINCT FROM (SELECT array_agg(rm.position ORDER BY rm.ordinal)
+                                       FROM app.reading_measurement rm WHERE rm.reading_id = r.reading_id)
+      OR r.measurements[r.governing_ordinal] IS DISTINCT FROM r.governing_tread_mm
+      OR EXISTS (SELECT 1 FROM app.reading_measurement rm
+                  WHERE rm.reading_id = r.reading_id AND rm.ordinal < r.governing_ordinal
+                    AND rm.tread_mm = r.governing_tread_mm);
+  -- Review Focus 4: readings with two measurements at the minimum, so "the
+  -- first" is tested on rows where a later one would also fit.
+  SELECT count(*) INTO m FROM app.v_inspection_reading r
+   WHERE (SELECT count(*) FROM unnest(r.measurements) x WHERE x = r.governing_tread_mm) >= 2;
+  IF n <> 0 OR m = 0 THEN
+    RAISE EXCEPTION 'FAIL 82d: % readings misplace the anatomy or the governing ordinal, over % readings with a tie at the minimum (none would make the check vacuous)', n, m;
+  END IF;
+  SELECT count(*),
+         count(*) FILTER (WHERE r.target_kpa IS DISTINCT FROM (e.detail ->> 'target_kpa')::int),
+         count(*) FILTER (WHERE r.target_kpa IS NULL AND e.detail ->> 'target_kpa' IS NULL)
+    INTO n, m, k
+    FROM app.v_exception e
+    JOIN app.v_inspection_reading r
+      ON r.inspection_id = e.inspection_id AND r.vehicle_id = e.vehicle_id AND r.position_code = e.position_code
+   WHERE e.detail ? 'target_kpa';
+  IF n <> 11 OR m <> 0 OR k <> 1 THEN
+    RAISE EXCEPTION 'FAIL 82d: of % exception rows carrying a target, % differ from the readings view and % compare a spare''s absent target, not 11, 0 and 1', n, m, k;
+  END IF;
+  RAISE NOTICE 'PASS  82d the readings view agrees with app.v_reading_detail, marks the first measurement at the stored minimum, and carries app.v_exception''s target, a spare''s none included';
+END $$;
+
+\echo '== 82e. a warning concerns its reading''s unit, or the addressed unit when it hangs off no reading, and a rig report''s unit ids never leave the table (TYRE-325 Anti-goals; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  i0 constant uuid := md5('insp0')::uuid; i1 constant uuid := md5('insp1')::uuid;
+  lr uuid; got text; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', md5('controller1')::text, true);
+  SELECT r.id INTO lr FROM app.reading r JOIN app.position p ON p.id = r.position_id
+   WHERE r.inspection_id = i1 AND r.vehicle_id = md5('veh2')::uuid AND p.code = '1';
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, reading_id, warning_code, source, entered_value, response)
+  VALUES (bac, i1, lr, 'FR-INS-037', 'CLIENT', '640', 'ACKNOWLEDGED'),
+         (bac, i1, NULL, 'FR-INS-033', 'CLIENT', '412500', 'CONFIRMED'),
+         (bac, i1, NULL, 'FR-INS-063', 'SERVER', jsonb_build_array(md5('veh2')::uuid, md5('veh3')::uuid)::text, NULL);
+  SELECT string_agg(format('%s/%s/%s', u.fleet_number,
+                           CASE u.inspection_id WHEN i0 THEN 'insp0' WHEN i1 THEN 'insp1' END, u.warning_count),
+                    ',' ORDER BY u.fleet_number, u.submitted_at DESC) INTO got
+    FROM app.v_unit_inspection u;
+  IF got IS DISTINCT FROM 'HORSE/insp1/2,HORSE/insp0/0,LINK12/insp1/0,LINK12/insp0/0,LINK6/insp1/1,LINK6/insp0/0' THEN
+    RAISE EXCEPTION 'FAIL 82e: the warning counts read %', got;
+  END IF;
+  SELECT string_agg(format('%s/%s/%s/%s', v.fleet_number, w.warning_code, COALESCE(w.position_code, '-'),
+                           COALESCE(w.entered_value, '-')), ',' ORDER BY v.fleet_number, w.warning_code) INTO got
+    FROM app.v_unit_inspection_warning w JOIN app.vehicle v ON v.id = w.vehicle_id
+   WHERE w.inspection_id = i1;
+  IF got IS DISTINCT FROM 'HORSE/FR-INS-033/-/412500,HORSE/FR-INS-063/-/-,LINK6/FR-INS-037/1/640' THEN
+    RAISE EXCEPTION 'FAIL 82e: the warnings view reads %', got;
+  END IF;
+  -- The control: the ids the view withholds are in the table.
+  SELECT count(*) INTO n FROM app.inspection_warning
+   WHERE inspection_id = i1 AND warning_code = 'FR-INS-063' AND entered_value IS NOT NULL;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 82e: % FR-INS-063 rows hold the observed unit ids, not 1', n;
+  END IF;
+  RAISE NOTICE 'PASS  82e a warning counts on its reading''s unit or on the addressed unit, and FR-INS-063''s unit ids stay in the table';
+END $$;
+ROLLBACK;
+
+\echo '== 82f. a unit lists an inspection exactly where app.inspection_read_unit holds, both ways; a towed unit''s row names the addressed unit and its odometer; the governing ordinal and a tyre-less reading''s class target (U249, Lead''s calls 17 and 20; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; t1 constant uuid := md5('t76t1')::uuid;
+  t2 constant uuid := md5('t76t2')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+  pos uuid; cls app.axle_class; code text; a uuid; b uuid; rd uuid; got text; n int; m int; k int;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM set_config('app.actor_id', md5('t76c')::text, true);
+  SELECT p.id, p.axle_class, p.code INTO pos, cls, code
+    FROM app.position p JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = md5('veh1')::uuid AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  -- The 800 below is BAC's STEER target from 2024-01-01 (seed policy); a
+  -- seed change fails here by name rather than as a wrong figure.
+  IF code IS DISTINCT FROM '1' OR cls IS DISTINCT FROM 'STEER' THEN
+    RAISE EXCEPTION 'FAIL 82f: HORSE''s first running position is % on %, not 1 on STEER', code, cls;
+  END IF;
+  -- Planted in this transaction, so the seal admits the readings (TY020).
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
+  VALUES (bac, h1, d1, gen_random_uuid(), now() - interval '70 minutes', now() - interval '1 hour', 120000)
+  RETURNING id INTO a;
+  INSERT INTO app.reading (tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
+  VALUES (bac, a, t1, pos, NULL, 700) RETURNING id INTO rd;
+  INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, tread_mm, position, orientation_known)
+  VALUES (bac, rd, 1, 5.0, 'OUTER', true), (bac, rd, 2, 4.0, 'CENTRE', true), (bac, rd, 3, 4.0, 'INNER', true);
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at)
+  VALUES (bac, t2, d1, gen_random_uuid(), now() - interval '70 minutes', now() - interval '1 hour')
+  RETURNING id INTO b;
+  INSERT INTO app.reading (tenant_id, inspection_id, vehicle_id, position_id, pressure_kpa)
+  VALUES (bac, b, t2, pos, 700);
+  SELECT count(*) FILTER (WHERE app.inspection_read_unit(bac, i.id, v.id)
+                                IS DISTINCT FROM EXISTS (SELECT 1 FROM app.v_unit_inspection u
+                                                          WHERE u.inspection_id = i.id AND u.vehicle_id = v.id)),
+         count(*) FILTER (WHERE app.inspection_read_unit(bac, i.id, v.id))
+    INTO m, n
+    FROM app.inspection i CROSS JOIN app.vehicle v;
+  SELECT count(*) INTO k FROM app.v_unit_inspection;
+  IF m <> 0 OR n <> 9 OR k <> 9 THEN
+    RAISE EXCEPTION 'FAIL 82f: % pairs disagree with app.inspection_read_unit, which holds for % pairs, over % view rows, not 0, 9 and 9', m, n, k;
+  END IF;
+  SELECT format('%s/%s/%s', u.addressed_here, u.positions_read, u.is_latest) INTO got
+    FROM app.v_unit_inspection u WHERE u.inspection_id = a AND u.vehicle_id = h1;
+  IF got IS DISTINCT FROM 't/0/f' THEN
+    RAISE EXCEPTION 'FAIL 82f: the addressed unit A did not read reads %, not t/0/f', got;
+  END IF;
+  SELECT format('%s/%s/%s/%s/%s/%s', u.addressed_here, u.addressed_vehicle_id = h1, u.addressed_fleet_number,
+                u.odometer, u.positions_read, u.is_latest) INTO got
+    FROM app.v_unit_inspection u WHERE u.inspection_id = a AND u.vehicle_id = t1;
+  IF got IS DISTINCT FROM 'f/t/T76-H1/120000/1/t' THEN
+    RAISE EXCEPTION 'FAIL 82f: the towed unit A read reads %, not f/t/T76-H1/120000/1/t', got;
+  END IF;
+  SELECT format('%s/%s', COALESCE(u.odometer::text, 'null'), COALESCE(u.odometer_on_record::text, 'null')) INTO got
+    FROM app.v_unit_inspection u WHERE u.inspection_id = b AND u.vehicle_id = t2;
+  IF got IS DISTINCT FROM 'null/null' THEN
+    RAISE EXCEPTION 'FAIL 82f: an inspection with no odometer reads %, not null/null', got;
+  END IF;
+  SELECT format('%s/%s/%s/%s', r.governing_tread_mm, r.governing_ordinal, r.orientation_known, r.target_kpa) INTO got
+    FROM app.v_inspection_reading r WHERE r.reading_id = rd;
+  IF got IS DISTINCT FROM '4.0/2/t/800' THEN
+    RAISE EXCEPTION 'FAIL 82f: the tyre-less reading reads %, not 4.0/2/t/800', got;
+  END IF;
+  RAISE NOTICE 'PASS  82f the view''s pairs are app.inspection_read_unit''s both ways, a towed unit names the addressed unit and its odometer, and a tyre-less reading carries the class target';
+END $$;
+ROLLBACK;
+
+\echo '== 82g. an odometer the timeline refused is not on record and leaves its DR-020 warning on the unit; an accepted one is on record (DR-020, FR-INS-020; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h2 constant uuid := md5('t76h2')::uuid; h3 constant uuid := md5('t76h3')::uuid;
+  res record; i2 uuid; i3 uuid; got text; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM set_config('app.actor_id', md5('t76c')::text, true);
+  INSERT INTO app.vehicle_odometer_reading (tenant_id, vehicle_id, reading_date, odometer_km, source)
+  VALUES (bac, h2, (now() AT TIME ZONE 'UTC')::date - 5, 900000, 'MANUAL');
+  SELECT * INTO res FROM app.submit_inspection(
+    pg_temp.t76_capture(ARRAY[h2], now() - interval '2 minutes', now()) || '{"odometer_km": 100}'::jsonb);
+  i2 := res.inspection_id;
+  SELECT * INTO res FROM app.submit_inspection(
+    pg_temp.t76_capture(ARRAY[h3], now() - interval '2 minutes', now()) || '{"odometer_km": 5000}'::jsonb);
+  i3 := res.inspection_id;
+  SELECT format('%s/%s', u.odometer, u.odometer_on_record) INTO got
+    FROM app.v_unit_inspection u WHERE u.inspection_id = i2 AND u.vehicle_id = h2;
+  SELECT count(*) INTO n FROM app.v_unit_inspection_warning w
+   WHERE w.inspection_id = i2 AND w.vehicle_id = h2 AND w.warning_code = 'DR-020';
+  IF got IS DISTINCT FROM '100/f' OR n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 82g: the refused odometer reads % with % DR-020 warnings on its unit, not 100/f and 1', got, n;
+  END IF;
+  SELECT format('%s/%s', u.odometer, u.odometer_on_record) INTO got
+    FROM app.v_unit_inspection u WHERE u.inspection_id = i3 AND u.vehicle_id = h3;
+  IF got IS DISTINCT FROM '5000/t' THEN
+    RAISE EXCEPTION 'FAIL 82g: the accepted odometer reads %, not 5000/t', got;
+  END IF;
+  RAISE NOTICE 'PASS  82g a refused odometer reads not on record with its DR-020 warning on the unit, and an accepted one reads on record';
+END $$;
+ROLLBACK;
+
+\echo '== 82h. another fleet reads none of the three views'' rows for BAC''s inspections, beside BAC''s own read as the control (rule 1)'
+DO $$
+DECLARE
+  ids constant uuid[] := ARRAY[md5('insp0')::uuid, md5('insp1')::uuid];
+  n int; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT count(*) INTO n FROM app.v_unit_inspection WHERE inspection_id = ANY (ids);
+  IF n <> 6 THEN
+    RAISE EXCEPTION 'FAIL 82h: as BAC the control reads % unit inspection rows, not 6', n;
+  END IF;
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  got := (SELECT count(*) FROM app.v_unit_inspection WHERE inspection_id = ANY (ids)) || '/'
+         || (SELECT count(*) FROM app.v_unit_inspection_warning WHERE inspection_id = ANY (ids)) || '/'
+         || (SELECT count(*) FROM app.v_inspection_reading WHERE inspection_id = ANY (ids));
+  IF got IS DISTINCT FROM '0/0/0' THEN
+    RAISE EXCEPTION 'FAIL 82h: as Second Fleet the three views read % rows of BAC''s inspections, not 0/0/0', got;
+  END IF;
+  RAISE NOTICE 'PASS  82h another fleet reads none of BAC''s rows through the three views';
+END $$;
+
+\echo '== 82z. nothing section 82 planted outlives its rollback'
+DO $$
+DECLARE got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  got := (SELECT count(*) FROM app.vehicle WHERE fleet_number LIKE 'T76-%') || '/'
+         || (SELECT count(*) FROM app.app_user WHERE display_name LIKE 'T76 %') || '/'
+         || (SELECT state FROM app.inspection WHERE id = md5('insp1')::uuid) || '/'
+         || (SELECT count(*) FROM app.inspection_warning
+              WHERE inspection_id IN (md5('insp0')::uuid, md5('insp1')::uuid));
+  IF got IS DISTINCT FROM '0/0/SYNCED/0' THEN
+    RAISE EXCEPTION 'FAIL 82z: T76 units/T76 users/insp1''s state/fixture warnings read %, not 0/0/SYNCED/0', got;
+  END IF;
+  RAISE NOTICE 'PASS  82z section 82 leaves no residue';
+END $$;
+
 -- The shared prelude's helpers (db/tests/helpers.sql), dropped once the
 -- last section that calls them has run.
 DROP FUNCTION pg_temp.t76_due(uuid, timestamptz);
