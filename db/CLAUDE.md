@@ -188,10 +188,12 @@ compensating event, never rewriting one.
 `inspection` is written once too (000040): `UPDATE` is granted on
 `(state, void_reason)` only, and `inspection_written_once` allows exactly one
 transition — to `VOIDED`, with a reason, once; a voided row is frozen.
-`reading` and `reading_measurement` also refuse an `INSERT` whose inspection
-was committed by an earlier transaction (`TY020`), so a submitted reading
-cannot gain a measurement. Correcting a capture is `app.void_inspection` and
-a new capture.
+`reading`, `reading_measurement`, `inspection_warning` and
+`inspection_absent_spare` also refuse an `INSERT` whose inspection was
+committed by an earlier transaction (`TY020`; the last two since 000066,
+U251), so a submitted reading cannot gain a measurement, nor a submitted
+capture a warning or an absent spare. Correcting a capture is
+`app.void_inspection` and a new capture.
 
 `threshold_policy` is written once too (000054): `UPDATE` is revoked from
 `app_rw`, and `threshold_policy_written_once` refuses an `UPDATE` from any

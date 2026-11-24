@@ -2892,7 +2892,11 @@ DECLARE
   ok   boolean;
 BEGIN
   PERFORM set_config('app.tenant_id', t_id::text, true);
-  SELECT id INTO i_id FROM app.inspection WHERE tenant_id = t_id LIMIT 1;
+  -- Planted in this transaction, so the seal admits its warnings (TY020, 000066).
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at)
+  SELECT t_id, i.vehicle_id, i.user_id, gen_random_uuid(), now() - interval '5 minutes', now()
+    FROM app.inspection i WHERE i.tenant_id = t_id LIMIT 1
+  RETURNING id INTO i_id;
 
   -- a client-raised warning carries the driver's answer
   INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, response, source)
@@ -7915,6 +7919,64 @@ BEGIN
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL 50: an inspection dated ahead of its own transaction was not sealed'; END IF;
   RAISE NOTICE 'PASS  a submitted inspection is sealed: later readings and measurements are refused TY020, the submitting transaction still writes';
+END $$;
+ROLLBACK;
+
+\echo '== 50a. TYRE-325: a warning or an absent spare is written in its inspection''s own transaction only, as a reading is (TY020, DR-021, FR-INS-066, U251; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  i1 constant uuid := md5('insp1')::uuid; v1 constant uuid := md5('veh1')::uuid;
+  spare uuid; drv uuid; i_null uuid; i_ahead uuid; i_here uuid; c record; tbl text; got text; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT p.id INTO spare FROM app.position p JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = v1 AND p.is_spare ORDER BY p.sequence LIMIT 1;
+  SELECT i.user_id INTO drv FROM app.inspection i WHERE i.id = i1;
+  SELECT count(*) INTO n FROM app.inspection_absent_spare a
+   WHERE a.inspection_id = i1 AND a.vehicle_id = v1 AND a.position_id = spare;
+  -- Each probe row is one the tables would take but for the seal, so a
+  -- refusal below is the seal's and nothing else's.
+  IF spare IS NULL OR drv IS NULL OR n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 50a: HORSE''s spare %, insp1''s driver % or % absent-spare rows already on insp1 leave the probes proving nothing', spare, drv, n;
+  END IF;
+  -- Dated NULL and a day ahead are section 50's two claims nobody made.
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, created_at)
+  VALUES (bac, v1, drv, gen_random_uuid(), now() - interval '5 minutes', now(), NULL) RETURNING id INTO i_null;
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, created_at)
+  VALUES (bac, v1, drv, gen_random_uuid(), now() - interval '5 minutes', now(), now() + interval '1 day')
+  RETURNING id INTO i_ahead;
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at)
+  VALUES (bac, v1, drv, gen_random_uuid(), now() - interval '5 minutes', now()) RETURNING id INTO i_here;
+  FOR c IN SELECT * FROM (VALUES
+      (i1, 'TY020', 'the seeded insp1, committed before this transaction'),
+      (i_null, 'TY020', 'an inspection dated NULL'),
+      (i_ahead, 'TY020', 'an inspection dated a day ahead of its transaction'),
+      -- No inspection to judge: the column and the foreign key refuse it.
+      (NULL::uuid, '23502', 'no inspection'),
+      (gen_random_uuid(), '23503', 'an inspection that does not exist'),
+      -- The control: submit writes both in the inspection's own transaction.
+      (i_here, 'landed', 'an inspection created in this transaction')) AS x(insp, want, what)
+  LOOP
+    FOREACH tbl IN ARRAY ARRAY['warning', 'absent spare'] LOOP
+      got := 'landed';
+      BEGIN
+        IF tbl = 'warning' THEN
+          INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, response, source)
+          VALUES (bac, c.insp, 'FR-INS-036', '3.2', 'ACKNOWLEDGED', 'CLIENT');
+        ELSE
+          INSERT INTO app.inspection_absent_spare (tenant_id, inspection_id, vehicle_id, position_id)
+          VALUES (bac, c.insp, v1, spare);
+        END IF;
+      EXCEPTION WHEN SQLSTATE 'TY020' OR not_null_violation OR foreign_key_violation THEN got := SQLSTATE;
+      END;
+      IF got IS DISTINCT FROM c.want THEN
+        RAISE EXCEPTION 'FAIL 50a: a % offered to % reads %, not %', tbl, c.what, got, c.want;
+      END IF;
+    END LOOP;
+  END LOOP;
+  RAISE NOTICE 'PASS  50a a warning or an absent spare offered to an inspection of an earlier transaction, or dated NULL or ahead, is refused TY020, and its own transaction still writes both';
 END $$;
 ROLLBACK;
 
@@ -16675,33 +16737,44 @@ DO $$
 DECLARE
   bac constant uuid := '11111111-1111-1111-1111-111111111111';
   i0 constant uuid := md5('insp0')::uuid; i1 constant uuid := md5('insp1')::uuid;
-  lr uuid; got text; n int;
+  ix uuid; lr uuid; got text; n int;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', md5('controller1')::text, true);
-  SELECT r.id INTO lr FROM app.reading r JOIN app.position p ON p.id = r.position_id
-   WHERE r.inspection_id = i1 AND r.vehicle_id = md5('veh2')::uuid AND p.code = '1';
+  -- A rig walk-around addressed to HORSE that read LINK6's position 1,
+  -- planted in this transaction, so the seal admits its warnings (TY020, 000066).
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at)
+  SELECT bac, md5('veh1')::uuid, i.user_id, gen_random_uuid(), now() - interval '70 minutes', now() - interval '1 hour'
+    FROM app.inspection i WHERE i.id = i1
+  RETURNING id INTO ix;
+  INSERT INTO app.reading (tenant_id, inspection_id, vehicle_id, position_id, pressure_kpa)
+  SELECT bac, ix, r.vehicle_id, r.position_id, 640
+    FROM app.reading r JOIN app.position p ON p.id = r.position_id
+   WHERE r.inspection_id = i1 AND r.vehicle_id = md5('veh2')::uuid AND p.code = '1'
+  RETURNING id INTO lr;
   INSERT INTO app.inspection_warning (tenant_id, inspection_id, reading_id, warning_code, source, entered_value, response)
-  VALUES (bac, i1, lr, 'FR-INS-037', 'CLIENT', '640', 'ACKNOWLEDGED'),
-         (bac, i1, NULL, 'FR-INS-033', 'CLIENT', '412500', 'CONFIRMED'),
-         (bac, i1, NULL, 'FR-INS-063', 'SERVER', jsonb_build_array(md5('veh2')::uuid, md5('veh3')::uuid)::text, NULL);
+  VALUES (bac, ix, lr, 'FR-INS-037', 'CLIENT', '640', 'ACKNOWLEDGED'),
+         (bac, ix, NULL, 'FR-INS-033', 'CLIENT', '412500', 'CONFIRMED'),
+         (bac, ix, NULL, 'FR-INS-063', 'SERVER', jsonb_build_array(md5('veh2')::uuid, md5('veh3')::uuid)::text, NULL);
   SELECT string_agg(format('%s/%s/%s', u.fleet_number,
-                           CASE u.inspection_id WHEN i0 THEN 'insp0' WHEN i1 THEN 'insp1' END, u.warning_count),
+                           CASE u.inspection_id WHEN i0 THEN 'insp0' WHEN i1 THEN 'insp1' WHEN ix THEN 'planted' END,
+                           u.warning_count),
                     ',' ORDER BY u.fleet_number, u.submitted_at DESC) INTO got
     FROM app.v_unit_inspection u;
-  IF got IS DISTINCT FROM 'HORSE/insp1/2,HORSE/insp0/0,LINK12/insp1/0,LINK12/insp0/0,LINK6/insp1/1,LINK6/insp0/0' THEN
+  IF got IS DISTINCT FROM 'HORSE/planted/2,HORSE/insp1/0,HORSE/insp0/0,LINK12/insp1/0,LINK12/insp0/0,'
+                          'LINK6/planted/1,LINK6/insp1/0,LINK6/insp0/0' THEN
     RAISE EXCEPTION 'FAIL 82e: the warning counts read %', got;
   END IF;
   SELECT string_agg(format('%s/%s/%s/%s', v.fleet_number, w.warning_code, COALESCE(w.position_code, '-'),
                            COALESCE(w.entered_value, '-')), ',' ORDER BY v.fleet_number, w.warning_code) INTO got
     FROM app.v_unit_inspection_warning w JOIN app.vehicle v ON v.id = w.vehicle_id
-   WHERE w.inspection_id = i1;
+   WHERE w.inspection_id = ix;
   IF got IS DISTINCT FROM 'HORSE/FR-INS-033/-/412500,HORSE/FR-INS-063/-/-,LINK6/FR-INS-037/1/640' THEN
     RAISE EXCEPTION 'FAIL 82e: the warnings view reads %', got;
   END IF;
   -- The control: the ids the view withholds are in the table.
   SELECT count(*) INTO n FROM app.inspection_warning
-   WHERE inspection_id = i1 AND warning_code = 'FR-INS-063' AND entered_value IS NOT NULL;
+   WHERE inspection_id = ix AND warning_code = 'FR-INS-063' AND entered_value IS NOT NULL;
   IF n <> 1 THEN
     RAISE EXCEPTION 'FAIL 82e: % FR-INS-063 rows hold the observed unit ids, not 1', n;
   END IF;

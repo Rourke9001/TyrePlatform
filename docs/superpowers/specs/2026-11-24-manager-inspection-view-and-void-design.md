@@ -267,6 +267,12 @@ readings.
 
 A down migration drops the views.
 
+Migration 000066 seals `app.inspection_warning` and
+`app.inspection_absent_spare` as 000040 seals a reading: a row offered to an
+inspection committed in an earlier transaction is refused `TY020`, so the
+page shows a warning or an absent spare only as the capture recorded it
+(U251).
+
 ### 2. API: two reads, and the void's scope
 
 Both reads require `auth.ViewFleet`, take the unit from the path, find it
