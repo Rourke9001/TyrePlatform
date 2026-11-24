@@ -378,15 +378,50 @@ jobs:
           done
           echo "::error::API did not start within 60s"; exit 1
 
-      - name: Browser smoke tests
+      - name: Install the web packages
+        id: web
         run: |
           cd web
           npm ci
+          echo "playwright=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "image=${ImageOS:?}" >> "$GITHUB_OUTPUT"
+
+      # The browsers' system packages come from whichever Ubuntu mirror the
+      # runner is given, and a slow one outlasts the job's timeout. A run that
+      # restores apt's archives downloads only what changed since (TYRE-492).
+      - name: Restore the browsers' system packages
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-archives
+          key: playwright-apt-${{ steps.web.outputs.image }}-${{ steps.web.outputs.playwright }}
+          restore-keys: playwright-apt-${{ steps.web.outputs.image }}-
+
+      - name: Install the browsers and their system packages
+        run: |
+          mkdir -p "$HOME/apt-archives/partial"
+          echo "Dir::Cache::Archives \"$HOME/apt-archives/\";" | sudo tee /etc/apt/apt.conf.d/99-ci-archives
+          cd web
           npx playwright install --with-deps chromium webkit
+          # apt's lock and partial directory are root-only, and the save
+          # step's tar runs as the runner user.
+          sudo rm -rf "$HOME/apt-archives/partial" "$HOME/apt-archives/lock"
+          sudo chown -R "$(id -u):$(id -g)" "$HOME/apt-archives"
+
+      - name: Save the browsers' system packages
+        if: steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-archives
+          key: ${{ steps.apt-cache.outputs.cache-primary-key }}
+
+      - name: Browser smoke tests
+        run: |
+          cd web
           npm run e2e
 
       # The production bundle under the deploy's own headers and config.json,
-      # with every identity provider and API call stubbed (TYRE-51). The step
+      # with every identity provider and API call stubbed (TYRE-51). A step
       # above installed the browsers.
       - name: Production bundle under its CSP
         run: |
