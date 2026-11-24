@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
+import type { PositionState } from "./condition.view";
 import { PositionPanel } from "./PositionPanel";
 import { openFitmentsKey } from "./queryKeys";
 import { ActorContext } from "../../auth/actorContext";
@@ -10,6 +11,8 @@ import { getDevTenantId } from "../../api/devTenant";
 import type { Tyre } from "../../api/tyres";
 import type { Unit, UnitPosition } from "../../api/units";
 import {
+  exceptionRow,
+  inspectionReading,
   me,
   openFitment,
   renderWithActor,
@@ -18,6 +21,7 @@ import {
   sentBody,
   testQueryClient,
   unit,
+  unitInspection,
   unitPosition,
 } from "../../test/fixtures";
 
@@ -692,5 +696,134 @@ describe("a position panel's tread age", () => {
       unitPosition({ id: "p1", code: "POS1", fitment: openFitment({ lastTreadAgeDays: 3 }) }),
     );
     expect(await screen.findByText("12.0 mm (inspection reading, 3 days ago)")).toBeInTheDocument();
+  });
+});
+// TYRE-325: the panel shows the latest inspection's reading of the position,
+// or says why there is none.
+describe("a position panel's latest reading", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    stubFetch();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const LATEST = unitInspection({ inspectionId: "i1", ageDays: 3 });
+  const FITTED = unitPosition({
+    id: "p2",
+    code: "POS2",
+    fitment: openFitment({ tyreId: "t1" }),
+  });
+
+  function renderLatest(position: UnitPosition, state: PositionState) {
+    const u = unit({ id: "u9", positions: [position] });
+    return renderWithActor(
+      <PositionPanel unit={u} position={position} state={state} latest={LATEST} />,
+      { capabilities: ["ViewFleet"], withRouter: true },
+    );
+  }
+
+  it("draws the readings with the lowest marked, the pressure against its target, the age, the rules and a link", async () => {
+    const pressureRow = exceptionRow({
+      subjectId: "t1",
+      vehicleId: "u9",
+      ruleCode: "FR-EXC-022",
+      ruleName: "Dangerously under-inflated",
+      severity: "CRITICAL",
+      positionCode: "POS2",
+      inspectionId: "i1",
+    });
+    const { container } = renderLatest(FITTED, {
+      condition: "limit",
+      why: "read",
+      reading: inspectionReading({ positionId: "p2", positionCode: "POS2" }),
+      exceptions: [pressureRow],
+    });
+
+    expect(await screen.findByText("Lowest")).toBeInTheDocument();
+    // Red team I2: a pressure row judges the position, not the tread, so the
+    // tread mark takes no condition tone (NFR-USE-009).
+    expect(container.querySelector(".tr-tread__low--critical")).toBeNull();
+    expect(screen.getByText("780 of 800 kPa, cold")).toBeInTheDocument();
+    expect(screen.getByText("Read 3 days ago")).toBeInTheDocument();
+    expect(screen.getByText("Dangerously under-inflated: Critical")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open the inspection" }).getAttribute("href")).toBe(
+      "/fleet/units/u9/inspections/i1",
+    );
+  });
+
+  it("says a tyre fitted since the latest inspection has not been read, and draws no reading", async () => {
+    renderLatest(FITTED, {
+      condition: "unread",
+      why: "other-tyre",
+      reading: null,
+      exceptions: [],
+    });
+
+    expect(
+      await screen.findByText("This tyre has not been read since it was fitted."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Lowest")).toBeNull();
+  });
+
+  it("says why there is no reading: never read, not read last time, or a spare reported absent", async () => {
+    const never = renderLatest(FITTED, {
+      condition: "unread",
+      why: "never",
+      reading: null,
+      exceptions: [],
+    });
+    expect(await screen.findByText("No inspection has read this unit yet.")).toBeInTheDocument();
+    never.unmount();
+
+    const notRead = renderLatest(FITTED, {
+      condition: "unread",
+      why: "not-read",
+      reading: null,
+      exceptions: [],
+    });
+    expect(await screen.findByText("Not read at the latest inspection.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open the inspection" })).toBeInTheDocument();
+    notRead.unmount();
+
+    renderLatest(unitPosition({ id: "s1", code: "S", isSpare: true }), {
+      condition: "nospare",
+      why: "absent",
+      reading: null,
+      exceptions: [],
+    });
+    expect(
+      await screen.findByText("Reported absent at the latest inspection."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open the inspection" })).toBeInTheDocument();
+  });
+
+  it("says a spare's pressure has no target", async () => {
+    renderLatest(
+      unitPosition({
+        id: "s1",
+        code: "S",
+        isSpare: true,
+        side: null,
+        slot: null,
+        fitment: openFitment({ tyreId: "t1" }),
+      }),
+      {
+        condition: "ok",
+        why: "read",
+        reading: inspectionReading({
+          positionId: "s1",
+          positionCode: "S",
+          isSpare: true,
+          side: null,
+          targetKpa: null,
+        }),
+        exceptions: [],
+      },
+    );
+
+    expect(await screen.findByText("780 kPa, cold, no target for a spare")).toBeInTheDocument();
+    expect(screen.getByText("No open exceptions on this position.")).toBeInTheDocument();
   });
 });

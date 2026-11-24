@@ -13,6 +13,7 @@ import { fetchDepots } from "../api/units";
 import {
   atRiskKey,
   dashboardKey,
+  dashboardRefreshKeys,
   depotsKey,
   exceptionsKey,
   sparesKey,
@@ -43,14 +44,13 @@ export function useDashboard(params: DashboardParams) {
 export function useRefreshDashboard(): () => void {
   const queryClient = useQueryClient();
   const key = tenantKey();
+  // H.3 criterion 6: the lists the tiles link to are marked stale too, so
+  // the next visit refetches and never shows an older register than the
+  // hero it was opened from.
   return () => {
-    void queryClient.invalidateQueries({ queryKey: ["dashboard", key] });
-    void queryClient.invalidateQueries({ queryKey: ["spares", key] });
-    // H.3 criterion 6: the lists the tiles link to are marked stale too, so
-    // the next visit refetches and never shows an older register than the
-    // hero it was opened from.
-    void queryClient.invalidateQueries({ queryKey: ["exceptions", key] });
-    void queryClient.invalidateQueries({ queryKey: ["at-risk", key] });
+    for (const queryKey of dashboardRefreshKeys(key)) {
+      void queryClient.invalidateQueries({ queryKey });
+    }
   };
 }
 

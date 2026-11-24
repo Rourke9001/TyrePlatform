@@ -143,3 +143,47 @@ export function atRiskKey(tenantKey: string, depot?: string): QueryKey {
 export function sparesKey(tenantKey: string, depot?: string): QueryKey {
   return ["spares", tenantKey, depot ?? null];
 }
+
+// A unit's inspections and one inspection (TYRE-325). A void changes the
+// list, the page and the condition of every unit the inspection concerns,
+// so it invalidates each by its prefix.
+export function unitInspectionsKey(unitId: string): QueryKey {
+  return ["unit-inspections", unitId];
+}
+
+export function unitInspectionsPrefix(): QueryKey {
+  return ["unit-inspections"];
+}
+
+export function unitInspectionKey(unitId: string, inspectionId: string): QueryKey {
+  return ["unit-inspection", unitId, inspectionId];
+}
+
+export function unitInspectionPrefix(): QueryKey {
+  return ["unit-inspection"];
+}
+
+// The latest inspection and the unit's exception rows, read together so
+// the two are the same age (spec section 3).
+export function unitConditionKey(unitId: string): QueryKey {
+  return ["unit-condition", unitId];
+}
+
+export function unitConditionPrefix(): QueryKey {
+  return ["unit-condition"];
+}
+
+export function unitPrefix(): QueryKey {
+  return ["unit"];
+}
+
+// The four prefixes the dashboard's Refresh invalidates (FR-DSH-013), so a
+// write that changes its figures marks the same four stale.
+export function dashboardRefreshKeys(tenantKey: string): QueryKey[] {
+  return [
+    ["dashboard", tenantKey],
+    ["spares", tenantKey],
+    ["exceptions", tenantKey],
+    ["at-risk", tenantKey],
+  ];
+}

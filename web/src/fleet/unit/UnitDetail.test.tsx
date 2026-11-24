@@ -1,5 +1,5 @@
-import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClientProvider, focusManager, type QueryClient } from "@tanstack/react-query";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
@@ -9,14 +9,22 @@ import { rigsKey } from "./queryKeys";
 import { ActorContext } from "../../auth/actorContext";
 import { getDevTenantId } from "../../api/devTenant";
 import type { Rig } from "../../api/combinations";
+import type { ExceptionRow } from "../../api/dashboard";
+import type { InspectionDetail, UnitInspectionPage } from "../../api/inspections";
+import { forceMatchMedia } from "../../test/media";
 import {
+  dashboardBody,
+  exceptionRow,
   fitmentRow,
+  inspectionDetail,
+  inspectionReading,
   me,
   openFitment,
   requestedUrl,
   respond,
   testQueryClient,
   unit,
+  unitInspection,
   unitPosition,
 } from "../../test/fixtures";
 
@@ -59,9 +67,62 @@ function rig(overrides: Partial<Rig> = {}): Rig {
   };
 }
 
-function stubFetch(rigs: Rig[] = []) {
+// The unit's inspection reads (TYRE-325). The default is settled and
+// empty, so a tile's name settles to its unread form rather than racing
+// the first render (red team I1).
+interface InspectionReads {
+  page?: () => Promise<Response>;
+  older?: () => Promise<Response>;
+  detail?: (inspectionId: string) => Promise<Response>;
+  exceptions?: () => Promise<Response>;
+}
+
+const NO_INSPECTIONS: UnitInspectionPage = {
+  inspections: [],
+  nextAfter: null,
+  latestInspectionId: null,
+};
+
+function exceptionsBody(rows: ExceptionRow[]) {
+  return { scope: dashboardBody().scope, judgedAt: "SUBMITTED_AT", exceptions: rows };
+}
+
+// A latest inspection i1 that read TY100's tyre at POS2, with the rows
+// given, all judged on i1.
+function readAtPos2(rows: ExceptionRow[]): InspectionReads {
+  const detail: InspectionDetail = inspectionDetail({
+    inspection: unitInspection({ inspectionId: "i1" }),
+    readings: [inspectionReading({ positionId: "p2", positionCode: "POS2", tyreId: "t1" })],
+  });
+  return {
+    page: () =>
+      Promise.resolve(
+        respond(200, {
+          inspections: [unitInspection({ inspectionId: "i1" })],
+          nextAfter: null,
+          latestInspectionId: "i1",
+        }),
+      ),
+    detail: (id) =>
+      Promise.resolve(id === "i1" ? respond(200, detail) : respond(404, { code: "not_found" })),
+    exceptions: () => Promise.resolve(respond(200, exceptionsBody(rows))),
+  };
+}
+
+function stubFetch(rigs: Rig[] = [], reads: InspectionReads = {}) {
   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
     const url = requestedUrl(input);
+    if (url === "/api/vehicles/u9/inspections")
+      return reads.page?.() ?? Promise.resolve(respond(200, NO_INSPECTIONS));
+    if (url.startsWith("/api/vehicles/u9/inspections?after="))
+      return reads.older?.() ?? Promise.resolve(respond(200, NO_INSPECTIONS));
+    if (url.startsWith("/api/vehicles/u9/inspections/"))
+      return (
+        reads.detail?.(url.slice("/api/vehicles/u9/inspections/".length)) ??
+        Promise.resolve(respond(404, { code: "not_found" }))
+      );
+    if (url === "/api/exceptions?vehicle=u9")
+      return reads.exceptions?.() ?? Promise.resolve(respond(200, exceptionsBody([])));
     if (url === "/api/vehicles/u9") return Promise.resolve(respond(200, UNIT));
     if (url === "/api/combinations") return Promise.resolve(respond(200, rigs));
     if (url === "/api/vehicles/u9/fitments")
@@ -119,13 +180,15 @@ describe("the unit screen", () => {
   it("names the unit and draws its plan", async () => {
     renderScreen();
     expect(await screen.findByRole("heading", { name: "HORSE-1" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Position POS2: TY100" })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "Position POS2: TY100, Not read" }),
+    ).toBeTruthy();
   });
 
   it("opens the picked position's panel", async () => {
     const user = userEvent.setup();
     renderScreen();
-    await user.click(await screen.findByRole("button", { name: "Position POS2: TY100" }));
+    await user.click(await screen.findByRole("button", { name: "Position POS2: TY100, Not read" }));
 
     expect(await screen.findByRole("combobox", { name: "Reason" })).toBeTruthy();
   });
@@ -227,5 +290,253 @@ describe("the unit screen", () => {
     await rigsSettled(ended.client);
 
     expect(screen.queryByText(/^In a rig with/)).toBeNull();
+  });
+  // TYRE-325 spec section 3: condition from the latest inspection, judged by
+  // app.v_exception through GET /api/exceptions?vehicle=.
+  it("marks a position Critical when the latest inspection read its tyre and a CRITICAL row names it", async () => {
+    stubFetch(
+      [],
+      readAtPos2([
+        exceptionRow({
+          subjectId: "t1",
+          vehicleId: "u9",
+          positionCode: "POS2",
+          severity: "CRITICAL",
+          inspectionId: "i1",
+        }),
+      ]),
+    );
+    renderScreen(["ViewFleet"]);
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Position POS2: TY100, Critical",
+      }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Position POS1: empty" })).toBeTruthy();
+  });
+
+  it("lists a rule that names no position beside the plan, in words", async () => {
+    stubFetch(
+      [],
+      readAtPos2([
+        exceptionRow({
+          subjectId: "u9",
+          subjectType: "VEHICLE",
+          vehicleId: "u9",
+          ruleCode: "FR-EXC-039",
+          ruleName: "Pressure spread across the unit",
+          severity: "WARNING",
+          positionCode: null,
+          inspectionId: "i1",
+        }),
+      ]),
+    );
+    renderScreen(["ViewFleet"]);
+
+    expect(await screen.findByText("Pressure spread across the unit: Warning")).toBeTruthy();
+  });
+
+  it("draws no condition while the condition read is pending", async () => {
+    stubFetch([], { exceptions: () => new Promise<Response>(() => undefined) });
+    renderScreen(["ViewFleet"]);
+
+    expect(await screen.findByRole("button", { name: "Position POS2: TY100" })).toBeTruthy();
+  });
+
+  it("says the condition could not be loaded, and retries", async () => {
+    let failing = true;
+    stubFetch([], {
+      exceptions: () =>
+        Promise.resolve(failing ? respond(500, {}) : respond(200, exceptionsBody([]))),
+    });
+    const user = userEvent.setup();
+    renderScreen(["ViewFleet"]);
+
+    expect(await screen.findByText("Condition could not be loaded.")).toBeTruthy();
+    failing = false;
+    await user.click(screen.getByRole("button", { name: "Retry the condition" }));
+    expect(
+      await screen.findByRole("button", {
+        name: "Position POS2: TY100, Not read",
+      }),
+    ).toBeTruthy();
+  });
+
+  // U41 (spec section 3 at 17509df1): the exceptions read builds the whole
+  // tenant's latest readings, so a focus event does not refetch it.
+  it("does not read the condition again on window focus", async () => {
+    const calls = (path: string) =>
+      vi.mocked(fetch).mock.calls.filter(([input]) => requestedUrl(input) === path).length;
+    renderScreen(["ViewFleet"]);
+    await screen.findByRole("button", { name: "Position POS2: TY100, Not read" });
+    expect(calls("/api/exceptions?vehicle=u9")).toBe(1);
+    expect(calls("/api/vehicles/u9")).toBe(1);
+
+    act(() => {
+      focusManager.setFocused(false);
+    });
+    act(() => {
+      focusManager.setFocused(true);
+    });
+
+    await waitFor(() => {
+      expect(calls("/api/vehicles/u9")).toBe(2);
+    });
+    expect(calls("/api/exceptions?vehicle=u9")).toBe(1);
+    act(() => {
+      focusManager.setFocused(undefined);
+    });
+  });
+
+  describe("the Inspections card", () => {
+    const LIST: UnitInspectionPage = {
+      inspections: [
+        unitInspection({
+          inspectionId: "i2",
+          latest: true,
+          submittedAt: "2026-11-20T08:03:00Z",
+          odometerKm: 412300,
+          positionsRead: 10,
+          warningCount: 2,
+          driver: { id: "d1", displayName: "Melusi" },
+        }),
+        unitInspection({
+          inspectionId: "i1",
+          latest: false,
+          state: "VOIDED",
+          voidedBy: "Nomsa",
+          voidReason: "wrong rig",
+          voidedAt: "2026-11-21T10:05:00Z",
+          submittedAt: "2026-11-19T08:03:00Z",
+          odometerKm: 412000,
+          positionsRead: 8,
+          warningCount: 0,
+        }),
+      ],
+      nextAfter: null,
+      latestInspectionId: "i2",
+    };
+
+    const listOf = (page: UnitInspectionPage): InspectionReads => ({
+      page: () => Promise.resolve(respond(200, page)),
+      detail: () => Promise.resolve(respond(200, inspectionDetail())),
+    });
+
+    const region = () => screen.findByRole("region", { name: "Inspections" });
+
+    it("lists the unit's inspections newest first with their marks, odometer and counts", async () => {
+      stubFetch([], listOf(LIST));
+      renderScreen(["ViewFleet"]);
+
+      const card = await region();
+      const rows = await within(card).findAllByRole("row");
+      expect(rows).toHaveLength(3);
+      const [newest, voided] = rows.slice(1);
+      expect(newest).toHaveTextContent("Melusi");
+      expect(newest).toHaveTextContent("Latest");
+      expect(newest).toHaveTextContent("412,300 km");
+      expect(
+        within(newest)
+          .getAllByRole("cell")
+          .map((c) => c.textContent),
+      ).toEqual(expect.arrayContaining(["10", "2"]));
+      expect(voided).toHaveTextContent("Voided by Nomsa on 21 Nov 2026 12:05. Reason: wrong rig.");
+      expect(voided).not.toHaveTextContent("Latest");
+
+      const link = within(newest).getByRole("link", {
+        name: "20 Nov 2026 10:03",
+      });
+      expect(link.getAttribute("href")).toBe("/fleet/units/u9/inspections/i2");
+    });
+
+    it("says it is loading while the list is pending", async () => {
+      stubFetch([], { page: () => new Promise<Response>(() => undefined) });
+      renderScreen(["ViewFleet"]);
+
+      expect(await within(await region()).findByText("Loading…")).toBeTruthy();
+    });
+
+    it("says when the unit has no inspections", async () => {
+      renderScreen(["ViewFleet"]);
+
+      expect(await within(await region()).findByText("No inspections yet.")).toBeTruthy();
+    });
+
+    it("says the list failed and refetches on Retry", async () => {
+      let failing = true;
+      stubFetch([], {
+        page: () => Promise.resolve(failing ? respond(500, {}) : respond(200, LIST)),
+        detail: () => Promise.resolve(respond(200, inspectionDetail())),
+      });
+      const user = userEvent.setup();
+      renderScreen(["ViewFleet"]);
+
+      const card = await region();
+      expect(await within(card).findByRole("alert")).toHaveTextContent(
+        "The inspections could not be loaded.",
+      );
+      failing = false;
+      await user.click(within(card).getByRole("button", { name: "Retry" }));
+      expect(await within(card).findByText("412,300 km")).toBeTruthy();
+    });
+
+    it("draws a card per inspection on a phone", async () => {
+      const restore = forceMatchMedia(true);
+      try {
+        stubFetch([], listOf(LIST));
+        renderScreen(["ViewFleet"]);
+
+        const card = await region();
+        const list = await within(card).findByRole("list", {
+          name: "Inspections",
+        });
+        expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+        expect(within(card).queryByRole("table")).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("loads older inspections on request and appends them", async () => {
+      stubFetch([], {
+        ...listOf({ ...LIST, nextAfter: "i1" }),
+        older: () =>
+          Promise.resolve(
+            respond(200, {
+              inspections: [
+                unitInspection({
+                  inspectionId: "i0",
+                  latest: false,
+                  submittedAt: "2026-11-01T08:03:00Z",
+                  driver: { id: "d2", displayName: "Sipho" },
+                }),
+              ],
+              nextAfter: null,
+              latestInspectionId: "i2",
+            }),
+          ),
+      });
+      const user = userEvent.setup();
+      renderScreen(["ViewFleet"]);
+
+      const card = await region();
+      await user.click(
+        await within(card).findByRole("button", {
+          name: "Show older inspections",
+        }),
+      );
+
+      expect(await within(card).findByText("Sipho")).toBeTruthy();
+      expect(
+        vi
+          .mocked(fetch)
+          .mock.calls.some(
+            ([input]) => requestedUrl(input) === "/api/vehicles/u9/inspections?after=i1",
+          ),
+      ).toBe(true);
+      expect(within(card).getAllByRole("row")).toHaveLength(4);
+      expect(within(card).queryByRole("button", { name: "Show older inspections" })).toBeNull();
+    });
   });
 });

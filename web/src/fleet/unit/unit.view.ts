@@ -1,11 +1,12 @@
 import type { FitmentHistoryRow, OpenFitment, Unit, UnitPosition } from "../../api/units";
 import type { UnitTrip } from "../../api/trips";
 import { diagramSide } from "../../domain/side";
-import { distanceSourceLabel, treadSourceLabel } from "../../domain/vocabulary";
+import { conditionLabel, distanceSourceLabel, treadSourceLabel } from "../../domain/vocabulary";
 import { formatCount, formatMm } from "../../format/numbers";
 import { formatTreadAge } from "../../format/treadAge";
 import type { DiagramPosition, DiagramUnit } from "../../ui/AxleDiagram";
 import type { UnitLabels } from "../../units/units";
+import type { PositionState } from "./condition.view";
 
 // The vehicle screen's view model (ADR-0022): pure functions from the unit
 // wire to what the screen shows, tested without React.
@@ -62,11 +63,13 @@ function acrossVehicle(position: UnitPosition): number {
   return position.side === "RIGHT" ? depth : -depth;
 }
 
-function tile(position: UnitPosition): DiagramPosition {
+// Never `empty`: an empty position is the one a tyre is fitted to, so it
+// stays a button. A condition comes from the latest inspection's state
+// (TYRE-325), in words on the badge and in the name as well as in colour
+// (NFR-USE-009); without one the tile states none.
+function tile(position: UnitPosition, state?: PositionState): DiagramPosition {
   const occupant = occupantOf(position);
-  // No condition, since the unit wire carries none, and never `empty`: an
-  // empty position is the one a tyre is fitted to, so it stays a button.
-  return {
+  const base = {
     id: position.id,
     label: position.code,
     valueText: occupant,
@@ -74,13 +77,22 @@ function tile(position: UnitPosition): DiagramPosition {
     dataPositionId: position.id,
     side: diagramSide(position.side),
   };
+  if (state === undefined || state.condition === null) return base;
+  const word = conditionLabel(state.condition);
+  return {
+    ...base,
+    condition: state.condition,
+    badgeText: word,
+    ariaLabel: `${base.ariaLabel}, ${word}`,
+  };
 }
 
 // Axles ascending, whatever the read happened to contain: a unit with axles
 // 1 and 3 still draws two axles, not a gap where axle 2 is not. Each axle and
 // the spares are named groups, which is how fitments.spec.ts tells a mounted
 // position from a spare.
-export function diagramUnit(unit: Unit): DiagramUnit {
+export function diagramUnit(unit: Unit, states?: Map<string, PositionState>): DiagramUnit {
+  const tileOf = (p: UnitPosition) => tile(p, states?.get(p.id));
   const mounted = unit.positions.filter((p) => !p.isSpare);
   const axleNumbers = [...new Set(mounted.map((p) => p.axleNumber ?? 0))].sort((a, b) => a - b);
   return {
@@ -92,9 +104,9 @@ export function diagramUnit(unit: Unit): DiagramUnit {
       positions: mounted
         .filter((p) => (p.axleNumber ?? 0) === axleNumber)
         .sort((a, b) => acrossVehicle(a) - acrossVehicle(b) || a.sequence - b.sequence)
-        .map(tile),
+        .map(tileOf),
     })),
-    spares: unit.positions.filter((p) => p.isSpare).map(tile),
+    spares: unit.positions.filter((p) => p.isSpare).map(tileOf),
     sparesAriaLabel: "Spares",
   };
 }

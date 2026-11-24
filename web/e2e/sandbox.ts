@@ -122,6 +122,14 @@ export interface Position {
   isSpare: boolean;
 }
 
+// A plan tile's name, which ends with the position's condition word once
+// the unit's latest inspection is judged ("Position 5: TY100, Not read",
+// TYRE-325), so a spec matches the code and occupant and lets any follow.
+export function tileName(code: string, occupant: string): RegExp {
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^Position ${escape(code)}: ${escape(occupant)}(, .+)?$`);
+}
+
 // A fleet's axle configurations are tenant data (FR-VEH-002), so the ids are
 // read rather than assumed. Only the codes the Sandbox seed plants are.
 export function configFor(configs: AxleConfiguration[], code: string): string {
