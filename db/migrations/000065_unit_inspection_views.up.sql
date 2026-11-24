@@ -71,7 +71,7 @@ SELECT u.tenant_id, u.vehicle_id, uv.fleet_number, i.id AS inspection_id, i.stat
     ON l.tenant_id = u.tenant_id AND l.vehicle_id = u.vehicle_id AND l.inspection_id = i.id;
 
 -- Every reading, voided inspections' included: app.v_reading_detail drops
--- them and five views read it, so it is not widened (000045 declined too).
+-- them and the analytics views read it, so it is not widened.
 CREATE VIEW app.v_inspection_reading WITH (security_invoker = true) AS
 SELECT r.tenant_id, r.inspection_id, r.vehicle_id, r.id AS reading_id,
        p.id AS position_id, p.code AS position_code, p.sequence, p.axle_number, p.axle_class,

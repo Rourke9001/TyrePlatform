@@ -77,7 +77,7 @@ describe("inspectionMark and voidedText", () => {
 });
 
 describe("readingCells", () => {
-  // Review Focus 4: two readings at the minimum; the index is the wire's.
+  // Two readings at the minimum; the index is the wire's.
   it("names the cells when the stored anatomy is the order the side draws", () => {
     const left = inspectionReading({
       positionId: "p1",
@@ -122,7 +122,7 @@ describe("readingCells", () => {
     ).toBe("numbered");
   });
 
-  // Review Focus 5: no tread entered draws no cells.
+  // No tread entered draws no cells.
   it("gives no cells and no governing index for a reading with no tread", () => {
     const none = inspectionReading({
       positionId: "p1",

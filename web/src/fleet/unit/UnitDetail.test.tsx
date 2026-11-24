@@ -69,7 +69,7 @@ function rig(overrides: Partial<Rig> = {}): Rig {
 
 // The unit's inspection reads (TYRE-325). The default is settled and
 // empty, so a tile's name settles to its unread form rather than racing
-// the first render (red team I1).
+// the first render.
 interface InspectionReads {
   page?: () => Promise<Response>;
   older?: () => Promise<Response>;
@@ -363,7 +363,7 @@ describe("the unit screen", () => {
     ).toBeTruthy();
   });
 
-  // U41 (spec section 3 at 17509df1): the exceptions read builds the whole
+  // U41 (spec section 3): the exceptions read builds the whole
   // tenant's latest readings, so a focus event does not refetch it.
   it("does not read the condition again on window focus", async () => {
     const calls = (path: string) =>
