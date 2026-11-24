@@ -235,11 +235,15 @@ odometer's) and the capture was addressed to the unit. That keeps a refused
 odometer, and a composition report's list of units, on the addressed unit's
 page only.
 
-Who voided and when are the row's own stamps. A voided row is frozen
-(`000040:578-630`), so its `updated_at` and `updated_by` are the ones
+Who voided and when are the row's own stamps. A row the void reached is
+frozen (`000040:578-630`), so its `updated_at` and `updated_by` are the ones
 `inspection_stamps_updated` wrote on the void's update
-(`db/migrations/000017_audit_columns_dr013.up.sql:228-237`). They are read only when the state
-is `VOIDED`.
+(`db/migrations/000017_audit_columns_dr013.up.sql:228-237`). That holds for
+a row the void reached, not for every voided row: the app role may insert
+`state`, `void_reason` and both stamps, and nothing checks an insert's state
+or stamps, so a raw insert can plant a row already `VOIDED` with stamps of
+its own. No route does, since submit writes `SYNCED` (`000060:1006`). They
+are read only when the state is `VOIDED`.
 
 **An inspection's readings.** One row per reading. Columns: the tenant, the
 inspection, the unit, the reading, the position (id, code, sequence, axle
