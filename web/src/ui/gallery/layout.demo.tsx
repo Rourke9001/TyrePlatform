@@ -143,7 +143,7 @@ export function LayoutSamples() {
             nav={nav}
             brand={<strong>Sandbox Fleet</strong>}
             scope="All depots"
-            actor="Sandbox Manager · CONTROLLER"
+            actor="Sandbox Manager · Controller"
             signOut={<button type="button">Sign out</button>}
             devBar={<p>Dev bar</p>}
           >
@@ -156,7 +156,7 @@ export function LayoutSamples() {
           <DriverShell
             brand={<strong>SF</strong>}
             barTitle="Sandbox Fleet"
-            actor="Sandbox Driver · DRIVER"
+            actor="Sandbox Driver · Driver"
             signOut={<button type="button">Sign out</button>}
             status={
               <p style={{ margin: 0, padding: "var(--space-2) var(--space-4)" }}>

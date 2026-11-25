@@ -10,8 +10,18 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { PageHeader } from "../ui/PageHeader";
 import { TableScroll } from "../ui/DataTable";
+import { byNaturalCode } from "./unit/naturalOrder";
 import { openFitmentsKey } from "./unit/queryKeys";
 import "./fleet.css";
+
+// NFR-USE-012: units in natural fleet-number order through the one
+// comparator (TYRE-327), and a unit's rows in its configuration's order,
+// the sequence the server sends.
+function inFleetOrder(rows: FleetFitment[]): FleetFitment[] {
+  return [...rows].sort(
+    (a, b) => byNaturalCode(a.fleetNumber, b.fleetNumber) || a.sequence - b.sequence,
+  );
+}
 
 // D7/ViewFleet: every position the fleet currently has occupied, in one
 // list. daysFitted comes from the server's own tenant-time arithmetic (rule
@@ -59,7 +69,7 @@ export function FitmentList() {
                 </tr>
               </thead>
               <tbody>
-                {fitments.data.map((f: FleetFitment) => (
+                {inFleetOrder(fitments.data).map((f: FleetFitment) => (
                   <tr key={f.fitmentId}>
                     <th scope="row" data-mono="true">
                       <Link to={`/fleet/units/${f.vehicleId}`}>{f.fleetNumber}</Link>

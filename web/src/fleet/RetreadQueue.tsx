@@ -13,6 +13,7 @@ import { useTenantDate } from "../time/tenantTime";
 import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { Field } from "../ui/Field";
 import { PageHeader } from "../ui/PageHeader";
 import { Select } from "../ui/Select";
 import { TextInput } from "../ui/TextInput";
@@ -182,47 +183,59 @@ function RetreadReturnRow({
             </label>
           </div>
 
-          <TextInput
-            aria-label={`Report reference for ${job.displayCode}`}
-            value={reportReference}
-            onChange={(e) => setReportReference(e.target.value)}
-            required
-          />
+          {/* NFR-USE-007: each control sits in a Field, so the name a
+              screen reader speaks is the label on screen. */}
+          <Field label={`Report reference for ${job.displayCode}`}>
+            <TextInput
+              id={`retread-report-${job.id}`}
+              value={reportReference}
+              onChange={(e) => setReportReference(e.target.value)}
+              required
+            />
+          </Field>
 
-          <TextInput
-            aria-label={`Returned on for ${job.displayCode}`}
-            type="date"
-            value={returnedOn}
-            onChange={(e) => setReturnedOn(e.target.value)}
-            required
-          />
+          <Field label={`Returned on for ${job.displayCode}`}>
+            <TextInput
+              id={`retread-returned-${job.id}`}
+              type="date"
+              value={returnedOn}
+              onChange={(e) => setReturnedOn(e.target.value)}
+              required
+            />
+          </Field>
 
           {outcome === "accepted" && (
             <>
-              <TextInput
-                aria-label={`Retread cost for ${job.displayCode}`}
-                mono
-                inputMode="decimal"
-                value={retreadCost}
-                onChange={(e) => setRetreadCost(e.target.value)}
-                required
-              />
-              <TextInput
-                aria-label={`Post-tread for ${job.displayCode}`}
-                mono
-                inputMode="decimal"
-                value={postTreadMm}
-                onChange={(e) => setPostTreadMm(e.target.value)}
-                required
-              />
-              <TextInput
-                aria-label={`Casing value for ${job.displayCode}`}
-                mono
-                inputMode="decimal"
-                value={casingValue}
-                onChange={(e) => setCasingValue(e.target.value)}
-                required
-              />
+              <Field label={`Retread cost for ${job.displayCode}`}>
+                <TextInput
+                  id={`retread-cost-${job.id}`}
+                  mono
+                  inputMode="decimal"
+                  value={retreadCost}
+                  onChange={(e) => setRetreadCost(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label={`Post-tread for ${job.displayCode}`}>
+                <TextInput
+                  id={`retread-tread-${job.id}`}
+                  mono
+                  inputMode="decimal"
+                  value={postTreadMm}
+                  onChange={(e) => setPostTreadMm(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label={`Casing value for ${job.displayCode}`}>
+                <TextInput
+                  id={`retread-casing-${job.id}`}
+                  mono
+                  inputMode="decimal"
+                  value={casingValue}
+                  onChange={(e) => setCasingValue(e.target.value)}
+                  required
+                />
+              </Field>
               {noRetreadPattern && (
                 <p className="fleet-hint">
                   This fleet has no retread pattern yet. Ask an administrator to add the
@@ -231,17 +244,19 @@ function RetreadReturnRow({
               )}
               {patterns !== null && !noRetreadPattern && (
                 <>
-                  <Select
-                    aria-label={`Pattern for ${job.displayCode}`}
-                    value={patternId}
-                    onChange={(e) => setPatternChoice(e.target.value)}
-                    required
-                    aria-describedby={wentOutOn === null ? undefined : hintId}
-                    options={[
-                      { value: "", label: "Choose the retread pattern" },
-                      ...patterns.map((p) => ({ value: p.id, label: p.name })),
-                    ]}
-                  />
+                  <Field label={`Pattern for ${job.displayCode}`}>
+                    <Select
+                      id={`retread-pattern-${job.id}`}
+                      value={patternId}
+                      onChange={(e) => setPatternChoice(e.target.value)}
+                      required
+                      aria-describedby={wentOutOn === null ? undefined : hintId}
+                      options={[
+                        { value: "", label: "Choose the retread pattern" },
+                        ...patterns.map((p) => ({ value: p.id, label: p.name })),
+                      ]}
+                    />
+                  </Field>
                   {wentOutOn !== null && (
                     <p className="fleet-hint" id={hintId}>
                       {`Went out on ${wentOutOn}. Choose the pattern it came back on.`}

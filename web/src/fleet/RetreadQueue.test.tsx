@@ -112,6 +112,29 @@ describe("the retread queue", () => {
     expect(within(row).getByText("12")).toBeInTheDocument();
   });
 
+  // NFR-USE-007: each input's accessible name is the label on screen.
+  it("names every return input by a visible label, never an aria-label", async () => {
+    mockApi({ jobs: [[job({ id: "j1" })]] });
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByRole("rowheader", { name: "POS1" });
+    await user.click(screen.getByRole("radio", { name: "Accepted" }));
+    await screen.findByLabelText("Pattern for POS1");
+
+    for (const name of [
+      "Report reference for POS1",
+      "Returned on for POS1",
+      "Retread cost for POS1",
+      "Post-tread for POS1",
+      "Casing value for POS1",
+      "Pattern for POS1",
+    ]) {
+      const control = screen.getByLabelText(name);
+      expect(control.hasAttribute("aria-label"), name).toBe(false);
+      expect(document.querySelector(`label[for="${control.id}"]`)?.textContent).toBe(name);
+    }
+  });
+
   it("hides the money inputs when Rejected is chosen", async () => {
     mockApi({ jobs: [[job({ id: "j1" })]] });
     const user = userEvent.setup();

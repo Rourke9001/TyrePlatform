@@ -105,4 +105,27 @@ describe("the fitments list", () => {
     expect(await screen.findByRole("link", { name: "HORSE-2" })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+
+  // NFR-USE-012, TYRE-327: fleet numbers in natural order, and a unit's rows
+  // in its configuration's order. A sort by position code, text or natural,
+  // would put 2 before 3 before 10 and fail this.
+  it("orders units naturally and each unit's rows by position sequence", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, [
+        fitment({ fitmentId: "a", fleetNumber: "LINK12", positionCode: "1", sequence: 1 }),
+        fitment({ fitmentId: "b", fleetNumber: "LINK6", positionCode: "2", sequence: 3 }),
+        fitment({ fitmentId: "c", fleetNumber: "LINK6", positionCode: "10", sequence: 1 }),
+        fitment({ fitmentId: "d", fleetNumber: "LINK6", positionCode: "3", sequence: 2 }),
+      ]),
+    );
+    renderScreen();
+
+    const headers = await screen.findAllByRole("rowheader");
+    const rows = headers.map((h) => {
+      const row = h.closest("tr");
+      if (row === null) throw new Error("no row");
+      return `${h.textContent} ${within(row).getAllByRole("cell")[0].textContent}`;
+    });
+    expect(rows).toEqual(["LINK6 10", "LINK6 3", "LINK6 2", "LINK12 1"]);
+  });
 });

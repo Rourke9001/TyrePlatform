@@ -5,6 +5,7 @@ import { createUser, type CreatedUser, type TenantRole } from "../api/admin";
 import { ApiError } from "../api/client";
 import { refusalMessage } from "../api/refusal";
 import { useCan } from "../auth/actorContext";
+import { roleLabel } from "../domain/roles";
 import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
@@ -17,13 +18,9 @@ import "./admin.css";
 // The roles a tenant may create. PLATFORM_ADMIN is absent because it is not
 // creatable through a tenant surface at all (ADR-0011, ADR-0013). This is the
 // full list; the component narrows it per actor before rendering (D9).
-const ROLES: { value: TenantRole; label: string }[] = [
-  { value: "DRIVER", label: "Driver" },
-  { value: "TECHNICIAN", label: "Technician" },
-  { value: "CONTROLLER", label: "Controller" },
-  { value: "DEPOT_MANAGER", label: "Depot manager" },
-  { value: "ORG_ADMIN", label: "Organisation admin" },
-];
+const ROLES: { value: TenantRole; label: string }[] = (
+  ["DRIVER", "TECHNICIAN", "CONTROLLER", "DEPOT_MANAGER", "ORG_ADMIN"] as const
+).map((value) => ({ value, label: roleLabel(value) }));
 
 function refused(error: unknown): string {
   return refusalMessage(error, {

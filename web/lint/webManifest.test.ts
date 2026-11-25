@@ -88,4 +88,14 @@ describe("the web-app manifest", () => {
     ).toBe("Tyre Track");
     expect(doc.title).toBe("Tyre Track");
   });
+
+  // A browser asks for /favicon.ico only when no link names an icon
+  // (https://html.spec.whatwg.org/multipage/links.html#rel-icon).
+  it("names the 192 pixel icon, so no page load asks for /favicon.ico", () => {
+    const doc = new DOMParser().parseFromString(readFileSync(INDEX, "utf8"), "text/html");
+    const icon = doc.querySelector('link[rel="icon"]');
+    expect(icon?.getAttribute("type")).toBe("image/png");
+    expect(icon?.getAttribute("sizes")).toBe("192x192");
+    expect(icon?.getAttribute("href")).toBe("/icons/icon-192.png");
+  });
 });
