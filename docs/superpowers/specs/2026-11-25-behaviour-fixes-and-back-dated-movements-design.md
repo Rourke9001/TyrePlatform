@@ -455,6 +455,13 @@ once the owner says yes.
     silence (`ReportedDifferences.tsx:49-56`).
 14. **Role and tyre state words live in `domain/vocabulary.ts`**
     (`web/CLAUDE.md`, the wire-code rule).
+    *Amended at planning, 25 Nov 2026: `roleLabel` lives in
+    `web/src/domain/roles.ts` instead. `Chrome.tsx` is in the capture
+    entry's closure, and that entry may not import `vocabulary.ts`
+    (`web/CLAUDE.md`, the wire-code rule's exceptions;
+    `web/src/capture/place.ts:3`). `web/CLAUDE.md` names the new file
+    beside the other two exceptions. Tyre state words stay in
+    `vocabulary.ts`.*
 15. **The retread count shows for every state.** It is a fact about the
     casing, and a column that appears for one state is harder to read than
     one that says 0.
