@@ -224,6 +224,13 @@ refused, `TY012`, on either path. Two tyres never share a position, at any
 instant (BR-FIT-002), and today only the open fitments are held to that
 (`db/migrations/000001_init.up.sql:305-306`).
 
+*Amended at the review loop's cap, 25 Nov 2026 (owner, U255). An instant
+passed as before is held to the same last movement the day path reads: the
+tyre's state events and its own fitments' stamps, a closure with no event
+included. An instant earlier than that is refused, `TY012` (review finding
+F13; red team I-6 named the same closure for the day path). Holding both
+rules in the tables, for every writer, is TYRE-496's.*
+
 **Dispatch and retread return use placement.** `app.dispatch_tyre` and
 `app.log_retread_return` stamp an earlier day at its midnight and refuse only
 a stamp before the tyre's last movement, so a tie passes
