@@ -13,6 +13,7 @@ import {
   inspectionWarningLabel,
   judgedAtLabel,
   pressureBasisLabel,
+  rateBasisLabel,
   removalReasonLabel,
   SEVERITY_CODES,
   severityLabel,
@@ -256,6 +257,16 @@ describe("costSourceLabel", () => {
     expect(costSourceLabel("INVOICE")).toBe("actual cost");
     expect(costSourceLabel("PRICE_LIST_ESTIMATE")).toBe("estimated");
     expect(costSourceLabel("UNKNOWN")).toBe("source not recorded");
+  });
+});
+
+describe("rateBasisLabel", () => {
+  it("names a re-rated casing's retread cost, and otherwise the cost source", () => {
+    expect(rateBasisLabel("RETREAD_COST")).toBe("retread cost");
+    expect(rateBasisLabel("INVOICE")).toBe("actual cost");
+    expect(rateBasisLabel("PRICE_LIST_ESTIMATE")).toBe("estimated");
+    expect(rateBasisLabel("UNKNOWN")).toBe("source not recorded");
+    expect(rateBasisLabel("OTHER")).toBe("OTHER");
   });
 });
 

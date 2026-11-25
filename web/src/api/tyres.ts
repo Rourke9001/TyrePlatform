@@ -27,9 +27,11 @@ export interface Tyre {
   randPerMm?: Money;
   casingValue?: Money;
   // What each figure rests on (NFR-PRO-001), sent with the money and hidden
-  // with it: the stored cost source for the price and the rate, and the
-  // valuation's basis for the casing (tyres.go).
+  // with it: the stored cost source for the price, the rate's own basis
+  // (RETREAD_COST or that cost source, BR-VAL-006), and the valuation's
+  // basis for the casing (tyres.go).
   costSource?: string;
+  rateBasis?: string;
   casingBasis?: string;
   // The receipt a received tyre is priced on (FR-CFG-041); null for a tyre
   // received before receipts existed.

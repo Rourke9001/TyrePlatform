@@ -368,6 +368,67 @@ func TestListTyresCarriesTheBasisAndTheValuationsCasing(t *testing.T) {
 	}, got)
 }
 
+// BR-VAL-006 (TYRE-240 F3): an accepted retread return re-rates the casing
+// from the retread cost and leaves the cost source as the purchase price's,
+// so the rate's basis is the retread cost from then on. A casing received as
+// a retread, or one the retreader rejected, still rests on its cost source.
+func TestListTyresRatesARetreadedCasingOnItsRetreadCost(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "tyres-rate-basis")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
+
+	suffix := uuid.NewString()[:8]
+	price := "2000.00"
+	plant := func(code, source, status string, retreads int) uuid.UUID {
+		id := plantTyre(t, ctx, admin, tenantID, code+"-"+suffix, &price)
+		_, err := admin.Exec(ctx,
+			`UPDATE app.tyre SET cost_source = $2::app.cost_source, status = $3::app.tyre_status,
+			        retread_count = $4 WHERE id = $1`,
+			id, source, status, retreads)
+		require.NoError(t, err)
+		return id
+	}
+	job := func(tyreID uuid.UUID, accepted bool, cost, tread, casing *string) {
+		_, err := admin.Exec(ctx,
+			`INSERT INTO app.retread_job (tenant_id, tyre_id, retreader_depot_id, sent_at, returned_at,
+			                              casing_accepted, retread_cost, post_tread_mm, casing_value)
+			 VALUES ($1, $2, $3, current_date - 10, current_date - 2, $4, $5::numeric, $6::numeric, $7::numeric)`,
+			tenantID, tyreID, retreader, accepted, cost, tread, casing)
+		require.NoError(t, err)
+	}
+	cost, tread, casing := "1000.00", "16.0", "500.00"
+	reRated := plant("RATE-RET", "PRICE_LIST_ESTIMATE", "RETREAD", 1)
+	job(reRated, true, &cost, &tread, &casing)
+	receivedRetread := plant("RATE-RCV", "INVOICE", "RETREAD", 1)
+	rejected := plant("RATE-REJ", "UNKNOWN", "NEW", 0)
+	job(rejected, false, nil, nil, nil)
+
+	rec := get(t, h, "/api/tyres", tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Tyres []struct {
+			ID         string  `json:"id"`
+			CostSource *string `json:"costSource"`
+			RateBasis  *string `json:"rateBasis"`
+		} `json:"tyres"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	got := map[string]string{}
+	for _, row := range body.Tyres {
+		require.NotNil(t, row.CostSource, "tyre %s carries no cost source", row.ID)
+		require.NotNil(t, row.RateBasis, "tyre %s carries no rate basis", row.ID)
+		got[row.ID] = *row.CostSource + " " + *row.RateBasis
+	}
+	require.Equal(t, map[string]string{
+		reRated.String():         "PRICE_LIST_ESTIMATE RETREAD_COST",
+		receivedRetread.String(): "INVOICE INVOICE",
+		rejected.String():        "UNKNOWN UNKNOWN",
+	}, got)
+}
+
 type receivedTyresBody struct {
 	Tyres []struct {
 		ID          string `json:"id"`

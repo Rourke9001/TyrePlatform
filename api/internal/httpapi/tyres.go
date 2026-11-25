@@ -42,6 +42,7 @@ type tyreRow struct {
 	randPerMm     *string
 	casingValue   *string
 	costSource    *string
+	rateBasis     *string
 	casingBasis   *string
 	receiptID     *string
 }
@@ -66,10 +67,12 @@ type tyreJSON struct {
 	RandPerMm     *string `json:"randPerMm,omitempty"`
 	CasingValue   *string `json:"casingValue,omitempty"`
 	// The basis each figure rests on (NFR-PRO-001): the stored cost source
-	// for the price and the rate derived from it (BR-VAL-002), and the
-	// valuation's own basis for the casing (BR-VAL-004). Each follows the
-	// money's projection, since it describes a figure the actor may not see.
+	// for the price (BR-VAL-002), the rate's own basis, RETREAD_COST or that
+	// cost source (BR-VAL-006, listTyres), and the valuation's basis for the
+	// casing (BR-VAL-004). Each follows the money's projection, since it
+	// describes a figure the actor may not see.
 	CostSource  *string `json:"costSource,omitempty"`
+	RateBasis   *string `json:"rateBasis,omitempty"`
 	CasingBasis *string `json:"casingBasis,omitempty"`
 	// The receipt a received tyre is priced on (FR-CFG-041); null for a tyre
 	// received before receipts existed, which keeps per-tyre costing.
@@ -80,7 +83,7 @@ type tyreJSON struct {
 }
 
 // tyreJSONFor is the FR-AUT-005a projection: every field copies straight
-// across except the three money fields and their two bases, which are nilled
+// across except the three money fields and their three bases, which are nilled
 // unless the actor holds ViewValuation. It is a pure function of its two
 // arguments so the no-money branch is unit-testable directly. Every role
 // that can reach listTyres today (gated on ManageAssets) also holds
@@ -103,6 +106,7 @@ func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 		RandPerMm:     row.randPerMm,
 		CasingValue:   row.casingValue,
 		CostSource:    row.costSource,
+		RateBasis:     row.rateBasis,
 		CasingBasis:   row.casingBasis,
 		ReceiptID:     row.receiptID,
 	}
@@ -111,6 +115,7 @@ func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 		j.RandPerMm = nil
 		j.CasingValue = nil
 		j.CostSource = nil
+		j.RateBasis = nil
 		j.CasingBasis = nil
 	}
 	return j
@@ -164,11 +169,23 @@ func listTyres(s *store.Store) http.HandlerFunc {
 			// The casing value and its basis are today's slice of the one
 			// valuation, the dashboard's figure (U253), read from
 			// app.v_tyre_valuation rather than restating its fallback here.
+			//
+			// BR-VAL-006: an accepted retread return re-rates the casing from
+			// the retread cost and leaves cost_source as the price's, and
+			// app.costed_rand_per_mm keeps that rate through any later
+			// costing, so one such job decides the rate's basis. The status
+			// is not the test: a casing received as a retread is rated on its
+			// price (TYRE-240 F3).
 			sql := `SELECT t.id, t.display_code, t.state::text, t.status::text,
 			               t.retread_count, s.name, b.name, p.name,
 			               t.received_date::text, (v.tyre_id IS NOT NULL),
 			               t.purchase_price::text, t.rand_per_mm::text, tv.casing_value::text,
-			               t.cost_source::text, tv.casing_basis::text,
+			               t.cost_source::text,
+			               CASE WHEN EXISTS (SELECT 1 FROM app.retread_job j
+			                                  WHERE j.tyre_id = t.id AND j.returned_at IS NOT NULL
+			                                    AND j.casing_accepted)
+			                    THEN 'RETREAD_COST' ELSE t.cost_source::text END,
+			               tv.casing_basis::text,
 			               t.receipt_id::text, (m.tyre_id IS NOT NULL)
 			          FROM app.tyre t
 			          LEFT JOIN app.tyre_size    s ON s.id = t.size_id
@@ -202,7 +219,7 @@ func listTyres(s *store.Store) http.HandlerFunc {
 					&row.retreadCount, &row.sizeName, &row.brandName, &row.patternName,
 					&row.receivedDate, &row.awaitingCost,
 					&row.purchasePrice, &row.randPerMm, &row.casingValue,
-					&row.costSource, &row.casingBasis, &row.receiptID,
+					&row.costSource, &row.rateBasis, &row.casingBasis, &row.receiptID,
 					&row.codePending); err != nil {
 					return fmt.Errorf("scanning tyre: %w", err)
 				}

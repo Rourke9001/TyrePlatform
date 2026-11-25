@@ -12,7 +12,12 @@ import {
   type TyreRegisterFilters,
 } from "../../api/tyres";
 import { useCan } from "../../auth/actorContext";
-import { basisLabel, costSourceLabel, tyreStateLabel } from "../../domain/vocabulary";
+import {
+  basisLabel,
+  costSourceLabel,
+  rateBasisLabel,
+  tyreStateLabel,
+} from "../../domain/vocabulary";
 import { formatCount } from "../../format/numbers";
 import { useTenantDate } from "../../time/tenantTime";
 import { Banner } from "../../ui/Banner";
@@ -383,10 +388,11 @@ export function TyreList() {
                       )}
                     </td>
                     {/* NFR-PRO-001: each figure beside what it rests on; the
-                        price and the rate derived from it share the cost
-                        source (BR-VAL-002), the casing its valuation's basis
-                        (BR-VAL-004, U253). An absent figure reads "Not
-                        valued" (NFR-PRO-002). */}
+                        price its cost source (BR-VAL-002), the rate the basis
+                        the server names for it, which a retread return moves
+                        to the retread cost (BR-VAL-006), and the casing its
+                        valuation's basis (BR-VAL-004, U253). An absent figure
+                        reads "Not valued" (NFR-PRO-002). */}
                     {canSeeMoney && (
                       <MoneyCell
                         value={t.purchasePrice}
@@ -397,7 +403,7 @@ export function TyreList() {
                     {canSeeMoney && (
                       <MoneyCell
                         value={t.randPerMm}
-                        basis={costSourceLabel(t.costSource ?? "UNKNOWN")}
+                        basis={rateBasisLabel(t.rateBasis ?? "UNKNOWN")}
                         currency={currency}
                       />
                     )}
