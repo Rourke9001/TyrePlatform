@@ -17361,6 +17361,9 @@ DECLARE
   tz text; today date; fa uuid; off_at timestamptz;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
+  -- The API's session zone (store.go), so an instant written in it would
+  -- read two hours off BAC's (rule 6, TYRE-240 M1).
+  PERFORM set_config('TimeZone', 'UTC', true);
   SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
   today := app.tenant_today(tz);
   PERFORM pg_temp.t83_units();
@@ -17372,7 +17375,14 @@ BEGIN
   PERFORM pg_temp.t83_says('83d a fit for a day before the position was vacated',
     format('SELECT app.fit_tyre(%L, %L, %L, 12.0, ''MARK_OUTBOARD'', p_reason => ''83d'', p_occurred_on => %L)',
            pg_temp.t83_tyre('d-b'), vt, pg_temp.t83_pos('3'), today - 4),
-    'TY012 ' || format('position %s on %s was vacated at %s; this one cannot predate it', '3', 'T83-T', off_at));
+    'TY012 ' || format('position %s on %s was vacated at %s; this one cannot predate it', '3', 'T83-T',
+                       to_char(off_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI')));
+  -- The tyre's words read in the tenant's time too.
+  PERFORM pg_temp.t83_says('83d a return for a day before the tyre came off',
+    format('SELECT app.return_tyre_to_stock(%L, p_backdate_reason => ''83d'', p_occurred_on => %L)',
+           md5('t83d-a')::uuid, today - 4),
+    'TY012 ' || format('this tyre''s last recorded movement is %s; this one cannot predate it',
+                       to_char(off_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI')));
 
   -- The instant path holds the same rule.
   SELECT r.fitment_id INTO fa
@@ -17383,7 +17393,7 @@ BEGIN
     format('SELECT app.fit_tyre(%L, %L, %L, 12.0, ''MARK_OUTBOARD'', p_occurred_at => %L)',
            pg_temp.t83_tyre('d-d'), vt, pg_temp.t83_pos('5'), now() - interval '2 hours'),
     'TY012 ' || format('position %s on %s was vacated at %s; this one cannot predate it', '5', 'T83-T',
-                       now() - interval '1 hour'));
+                       to_char((now() - interval '1 hour') AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI')));
 
   -- And a rotation onto a position vacated after its instant.
   PERFORM app.fit_tyre(pg_temp.t83_tyre('d-x'), vt, pg_temp.t83_pos('7'), 12.0, 'MARK_OUTBOARD',
@@ -17401,9 +17411,9 @@ BEGIN
              jsonb_build_object('tyre_id', md5('t83d-y')::uuid, 'to_position_id', pg_temp.t83_pos('7'), 'tread_mm', 10.0)),
            now() - interval '2 hours'),
     'TY012 ' || format('position %s on %s was vacated at %s; this one cannot predate it', '9', 'T83-T',
-                       now() - interval '1 hour'));
+                       to_char((now() - interval '1 hour') AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI')));
   PERFORM pg_temp.t83_closing('83d earlier');
-  RAISE NOTICE 'PASS  83d a fit or a rotation before a position was vacated is refused naming it, by day and by instant';
+  RAISE NOTICE 'PASS  83d a fit or a rotation before a position was vacated is refused naming it, by day and by instant, at the tenant''s time';
 END $$;
 ROLLBACK;
 

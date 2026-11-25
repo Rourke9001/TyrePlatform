@@ -10,6 +10,20 @@
 -- function below, so Go never turns a day into an instant (CLAUDE.md, Where
 -- logic belongs). Written as db/CLAUDE.md, Adding a function, says.
 
+-- Rule 6: an instant in a refusal reads in the tenant's zone, to the
+-- minute, never in the session's, which the API pins to UTC (store.go).
+-- The tenant is named for app.last_movement's reason below (P29). TYRE-131
+-- holds the older messages that still write the session's.
+CREATE FUNCTION app.tenant_ts_text(p_at timestamptz)
+RETURNS text
+LANGUAGE plpgsql STABLE
+SET search_path = app, pg_temp AS $$
+DECLARE tz text;
+BEGIN
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = app.current_tenant_id();
+  RETURN to_char(p_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI');
+END $$;
+
 -- The latest instant a new movement of these tyres, or into these
 -- (vehicle, position) pairs, has to follow, with the words to refuse in.
 -- A tyre's open fitment and its closed ones count beside its events: a
@@ -17,39 +31,34 @@
 -- (000039:348-360, BR-FIT-001). A fitment opened and closed at one instant
 -- occupies none (BR-FIT-002). The tenant is named in every query because
 -- app.log_retread_return calls this under a role that may bypass RLS (P29).
+-- The words give the instant in the tenant's time (app.tenant_ts_text).
 CREATE FUNCTION app.last_movement(p_tyres uuid[], p_vehicles uuid[], p_positions uuid[])
 RETURNS TABLE (at timestamptz, words text)
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
 DECLARE
   v_tenant uuid := app.current_tenant_id();
+  v_at     timestamptz;
+  v_code   text;
+  v_fleet  text;
 BEGIN
-  RETURN QUERY
-  SELECT m.stamp, m.said
-    FROM (SELECT e.occurred_at AS stamp,
-                 format('this tyre''s last recorded movement is %s; this one cannot predate it',
-                        e.occurred_at) AS said
+  SELECT m.stamp, m.code, m.fleet INTO v_at, v_code, v_fleet
+    FROM (SELECT e.occurred_at AS stamp, NULL::text AS code, NULL::text AS fleet
             FROM app.tyre_event e
            WHERE e.tenant_id = v_tenant AND e.tyre_id = ANY (p_tyres)
              AND e.to_state IS NOT NULL
           UNION ALL
-          SELECT f.fitted_at,
-                 format('this tyre''s last recorded movement is %s; this one cannot predate it',
-                        f.fitted_at)
+          SELECT f.fitted_at, NULL, NULL
             FROM app.fitment f
            WHERE f.tenant_id = v_tenant AND f.tyre_id = ANY (p_tyres)
              AND f.removed_at IS NULL
           UNION ALL
-          SELECT f.removed_at,
-                 format('this tyre''s last recorded movement is %s; this one cannot predate it',
-                        f.removed_at)
+          SELECT f.removed_at, NULL, NULL
             FROM app.fitment f
            WHERE f.tenant_id = v_tenant AND f.tyre_id = ANY (p_tyres)
              AND f.fitted_at < f.removed_at
           UNION ALL
-          SELECT f.removed_at,
-                 format('position %s on %s was vacated at %s; this one cannot predate it',
-                        p.code, v.fleet_number, f.removed_at)
+          SELECT f.removed_at, p.code, v.fleet_number
             FROM unnest(p_vehicles, p_positions) AS pair(vehicle_id, position_id)
             JOIN app.fitment  f ON f.vehicle_id = pair.vehicle_id
                                AND f.position_id = pair.position_id
@@ -60,6 +69,16 @@ BEGIN
              AND f.fitted_at < f.removed_at) m
    ORDER BY m.stamp DESC
    LIMIT 1;
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+  at := v_at;
+  words := CASE WHEN v_code IS NULL
+                THEN format('this tyre''s last recorded movement is %s; this one cannot predate it',
+                            app.tenant_ts_text(v_at))
+                ELSE format('position %s on %s was vacated at %s; this one cannot predate it',
+                            v_code, v_fleet, app.tenant_ts_text(v_at)) END;
+  RETURN NEXT;
 END $$;
 
 -- Placement: the instant a movement for day p_on is stamped at (FR-FIT-016
@@ -172,6 +191,8 @@ BEGIN
   END LOOP;
 END $$;
 
+REVOKE ALL ON FUNCTION app.tenant_ts_text(timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.tenant_ts_text(timestamptz) TO app_rw;
 REVOKE ALL ON FUNCTION app.lock_position_pairs(uuid[], uuid[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.lock_position_pairs(uuid[], uuid[]) TO app_rw;
 REVOKE ALL ON FUNCTION app.last_movement(uuid[], uuid[], uuid[]) FROM PUBLIC;
