@@ -44,25 +44,28 @@ BEGIN
   RETURN to_char(p_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI');
 END $$;
 
--- FR-FIT-016's instant rule, as 000033 states it and for its reasons. Only
--- an instant reaches it, so its refusal names the last movement exactly in
--- the tenant's time, as the instant path's other refusals do (TYRE-240 M11).
+-- FR-FIT-016's instant rule, as 000033 states it and for its reasons. Its
+-- bound is the last movement the day path reads, so a fitment closed with
+-- no event bounds an instant too (app.last_movement, U255, TYRE-240 F13).
+-- Only an instant reaches it, so its refusal names the last movement
+-- exactly in the tenant's time, as the instant path's other refusals do
+-- (TYRE-240 M11).
 CREATE OR REPLACE FUNCTION app.fitment_instant_ok(p_tyre uuid, p_at timestamptz, p_reason text)
 RETURNS void
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
-DECLARE last_at timestamptz;
+DECLARE
+  last_at    timestamptz;
+  last_words text;
 BEGIN
   IF p_at IS NULL OR p_at > now() THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012',
       MESSAGE = 'a fitment movement is recorded as at now or earlier, never in the future';
   END IF;
-  SELECT max(e.occurred_at) INTO last_at
-    FROM app.tyre_event e WHERE e.tyre_id = p_tyre AND e.to_state IS NOT NULL;
-  IF last_at IS NOT NULL AND p_at < last_at THEN
-    RAISE EXCEPTION USING ERRCODE = 'TY012',
-      MESSAGE = format('this tyre''s last recorded movement is %s; this one cannot predate it',
-                       app.tenant_ts_text(last_at, true));
+  SELECT m.at, m.words INTO last_at, last_words
+    FROM app.last_movement(ARRAY[p_tyre], ARRAY[]::uuid[], ARRAY[]::uuid[], true) m;
+  IF last_at > p_at THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = last_words;
   END IF;
   IF p_at < now() - interval '24 hours'
      AND NULLIF(btrim(COALESCE(p_reason, '')), '') IS NULL THEN
@@ -586,15 +589,15 @@ BEGIN
       MESSAGE = format('a removal records its tread in millimetres, above 0 and at most %s',
                        app.max_tread_mm());
   END IF;
-  -- FR-FIT-016, against the fitment row itself, which fitment_instant_ok has
-  -- no way to see: that helper bounds an instant against the tyre's latest
-  -- to_state EVENT, which a fitment opened outside app.fit_tyre never has.
-  -- Every one of the pilot tenant's 27 open fitments is in that shape. A
-  -- closure stamped before its own fitment orders the casing's history
-  -- against itself, the removal standing ahead of the fit that caused it,
-  -- and gives the fitment a negative elapsed time, a span a distance and a
-  -- cost-per-kilometre would then be computed over (FR-VAL-022, CR-012).
-  -- Placement reads the open fitment for the same reason.
+  -- FR-FIT-016, against the fitment row itself, since a fitment opened
+  -- outside app.fit_tyre has no event: every one of the pilot tenant's 27
+  -- open fitments is in that shape. A closure stamped before its own fitment
+  -- orders the casing's history against itself, the removal standing ahead
+  -- of the fit that caused it, and gives the fitment a negative elapsed
+  -- time, a span a distance and a cost-per-kilometre would then be computed
+  -- over (FR-VAL-022, CR-012). Placement and app.fitment_instant_ok read the
+  -- open fitment too (app.last_movement); this check answers first, in words
+  -- that name the fitment.
   IF p_occurred_on IS NULL THEN
     stamp := COALESCE(p_occurred_at, now());
     IF stamp < fit.fitted_at THEN
@@ -890,7 +893,7 @@ BEGIN
     -- FR-FIT-016, the same hole app.remove_tyre closes and for the harm
     -- stated there: the pass above proved this casing has an open fitment
     -- inside the rig, so the row is read again here, under its lock, for its
-    -- own fitted_at rather than the event history fitment_instant_ok reads.
+    -- own fitted_at, and refused in words that name the rotation.
     -- Per moved casing, not once for the set: a rotation can carry casings
     -- opened years apart.
     SELECT f.fitted_at INTO fit_at FROM app.fitment f
