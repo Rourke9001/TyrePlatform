@@ -17242,7 +17242,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 83c. a tyre moved several times for one earlier day lands in order, each after the last; a day before its last movement is refused; a fitment or a closure with no event still bounds it (Review Focus 1, red team I-6; as BAC, rolled back)'
+\echo '== 83c. a tyre moved several times for one earlier day lands in order, each after the last; a day before its last movement is refused; a fitment or a closure with no event still bounds it (U253, red team I-6; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE
@@ -17407,7 +17407,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 83e. a rotation reaches more than a day back with a reason, by instant or by day, and one for a day before its rig was coupled is refused in the rotation''s own words (FR-FIT-016, Review Focus 4; as BAC, rolled back)'
+\echo '== 83e. a rotation reaches more than a day back with a reason, by instant or by day, and one for a day before its rig was coupled is refused in the rotation''s own words (FR-FIT-016, U16; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE

@@ -3,7 +3,7 @@
 -- Read at 66 before the up and again after the down, the two must match. A
 -- fact with no row prints absent, so a dropped object shows in the diff.
 -- args is read beside src because prosrc holds no defaults, and the up
--- moves p_occurred_at's default from now() to NULL (red team I-4).
+-- moves p_occurred_at's default from now() to NULL.
 SELECT line FROM (
   SELECT format('function %s %s', f.sig, COALESCE((
            SELECT format('owner=%s definer=%s config=%s src=%s args=%s result=%s acl=%s',

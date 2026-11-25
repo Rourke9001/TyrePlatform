@@ -1004,7 +1004,7 @@ describe("a fit or a removal recorded for an earlier day", () => {
 
   // A browser clock behind the server's reads the server's yesterday as
   // today and hides the field; the database's TY014 then opens it, so the
-  // refusal leaves the user something to fill (red team Minor).
+  // refusal leaves the user something to fill (TYRE-240 spec, section 1).
   it("opens the reason field after the database asks why", async () => {
     let call = 0;
     vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
@@ -1046,7 +1046,7 @@ describe("a fit or a removal recorded for an earlier day", () => {
     });
   });
 
-  // Review Focus 2: 23:30 UTC is already the 25th in Johannesburg, so the
+  // Rule 6: 23:30 UTC is already the 25th in Johannesburg, so the
   // 25th is today and the 24th is earlier, whatever UTC says.
   it("reads today in the tenant's zone, not the browser's", async () => {
     vi.setSystemTime(new Date("2026-11-24T23:30:00Z"));

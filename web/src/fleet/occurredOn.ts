@@ -13,8 +13,8 @@ export function isEarlierDay(day: string, today: string): boolean {
 
 // What a movement adds to its body: the day whenever one is filled, a later
 // one included, so the database refuses it in words rather than the form
-// recording today (Review Focus 3). Null holds back an earlier day with no
-// reason. `why` is renamed to the form's wire name by its caller.
+// recording today (TYRE-240 spec, section 1). Null holds back an earlier day
+// with no reason. `why` is renamed to the form's wire name by its caller.
 export function occurredOnBody(
   day: string,
   why: string,
@@ -28,7 +28,8 @@ export function occurredOnBody(
 
 // The reason field also opens after a TY014 while a day is filled: a
 // browser clock behind the server's reads the server's yesterday as today,
-// and the refusal would otherwise leave nothing to fill (red team Minor).
+// and the refusal would otherwise leave nothing to fill (TYRE-240 spec,
+// section 1).
 export function askWhy(day: string, today: string, error: unknown): boolean {
   return (
     isEarlierDay(day, today) || (day !== "" && error instanceof ApiError && error.code === "TY014")

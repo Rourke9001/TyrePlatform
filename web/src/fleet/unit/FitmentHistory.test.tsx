@@ -147,7 +147,7 @@ describe("a fitment history's tread ages", () => {
 });
 
 describe("a fitment history's removal reasons", () => {
-  // FR-FIT-008, Review Focus 5: a reason reads in the tenant's words, a code
+  // FR-FIT-008: a reason reads in the tenant's words, a code
   // with none shows as itself, and an open fitment has none.
   it("shows each removal reason in the tenant's words", () => {
     renderHistory(
