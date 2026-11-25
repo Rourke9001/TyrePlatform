@@ -43,6 +43,32 @@ citation that matches no entry here points at a deleted one, and
 `git log -p -S "<yyyy-mm-dd or title words>" -- docs/lessons.md` finds the
 commit that deleted it.
 
+## 2026-11-25 - A lock or a check inside a function did not hold a rule between rows, and each fix drew the next finding (TYRE-240, #255)
+
+**What happened:** TYRE-240 kept two rules in plpgsql guards: no two fitments
+of one position overlap, and a movement is not dated before the tyre's last
+one. Review 0 found a concurrent open-and-close slipped past the check, so
+the fix added an advisory lock per position inside the function. The next
+review found the lock did nothing above READ COMMITTED: a snapshot taken
+before the wait does not see the first writer's rows
+(https://www.postgresql.org/docs/16/applevel-consistency.html, 13.4.2). The
+fix refused those isolation levels. The review after that found a second
+reader of "the tyre's last movement" that disagreed with the first. Five
+gaps, four reviews, one mechanism, and a raw INSERT walked past all of it
+(TYRE-496). The repo already held the right rule for occupancy, in
+`db/migrations/000033_fitment_functions.up.sql:25-28`, and had three
+exclusion constraints for the same shape of problem (000026, 000060).
+
+**The rule:** a rule about more than one row goes in the table: a UNIQUE or
+EXCLUDE constraint, or for order a trigger whose check is a write to the
+parent row (https://www.postgresql.org/docs/16/ddl-constraints.html, 5.4.1).
+A guard function may choose the stamp and the words; it is never the only
+thing holding the rule. When a review finds a race or a second route in a
+check-then-write, do not add a lock inside the function. Stop and move the
+rule to the table, and if that needs live rows checked first, say so at the
+plan, not at the cap. Read the same fact from one place: before adding a
+second reader of a tyre's or a position's history, `rg` for the first.
+
 ## 2026-11-17 - `/code-review` with no target read the whole PR, not the range its upstream set (TYRE-485, #223)
 
 **What happened:** the re-review of PR #223's fix round ran `/code-review high`
