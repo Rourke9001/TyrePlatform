@@ -30,7 +30,8 @@ SELECT line FROM (
                  ('app.backdate_reason_ok(date,text)'),
                  ('app.positions_free_at(timestamp with time zone,uuid[],uuid[])'),
                  ('app.lock_position_pairs(uuid[],uuid[])'),
-                 ('app.tenant_ts_text(timestamp with time zone,boolean)')) f(sig)
+                 ('app.tenant_ts_text(timestamp with time zone,boolean)'),
+                 ('app.fitment_instant_ok(uuid,timestamp with time zone,text)')) f(sig)
   UNION ALL
   SELECT format('config removal_reason_labels %s', count(*))
     FROM app.configuration c WHERE c.key = 'removal_reason_labels'

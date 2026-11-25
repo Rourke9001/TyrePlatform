@@ -1237,6 +1237,31 @@ BEGIN
    WHERE j.id = p_job AND j.tenant_id = app.current_tenant_id();
 END $$;
 
+-- The instant rule as 000033 left it, byte for byte.
+CREATE OR REPLACE FUNCTION app.fitment_instant_ok(p_tyre uuid, p_at timestamptz, p_reason text)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE last_at timestamptz;
+BEGIN
+  IF p_at IS NULL OR p_at > now() THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = 'a fitment movement is recorded as at now or earlier, never in the future';
+  END IF;
+  SELECT max(e.occurred_at) INTO last_at
+    FROM app.tyre_event e WHERE e.tyre_id = p_tyre AND e.to_state IS NOT NULL;
+  IF last_at IS NOT NULL AND p_at < last_at THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = format('this tyre''s last recorded movement is %s; this one cannot predate it', last_at);
+  END IF;
+  IF p_at < now() - interval '24 hours'
+     AND NULLIF(btrim(COALESCE(p_reason, '')), '') IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY014',
+      MESSAGE = 'a movement backdated more than 24 hours records why',
+      HINT    = 'give the reason the workshop recorded it late (FR-FIT-016)';
+  END IF;
+END $$;
+
 DROP FUNCTION app.lock_position_pairs(uuid[], uuid[]);
 DROP FUNCTION app.positions_free_at(timestamptz, uuid[], uuid[]);
 DROP FUNCTION app.backdate_reason_ok(date, text);
