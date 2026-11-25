@@ -196,6 +196,23 @@ movement recorded for an earlier day records why".
 "Day" is always the tenant's (rule 6). A rotation passes every moved tyre and
 every position it fills, and gets one instant for the set.
 
+*Amended at planning and by the red team, 25 Nov 2026. Four points go past
+the wording above and stand with it.*
+
+- *No day, or today, still reads the last movement. One later than `now()`
+  is refused, `TY012`, and a tie passes. Without this a movement by day for
+  today, and every dispatch and retread return, would lose the guard the
+  instant path keeps (red team I-5).*
+- *A tyre's last movement also counts the `removed_at` of its own closed
+  fitments. A closure with no event exists in seeded and imported data
+  (`db/seeds/gen_seed_volume.py:286-292`), and a movement by day could
+  otherwise land before it (red team I-6, BR-FIT-001).*
+- *A fitment opened and closed at one instant occupies no time, and the
+  position half ignores it.*
+- *The forms send the day whenever the field is filled, so the database
+  refuses a typed future day in words. The reason field also opens after a
+  `TY014` refusal, for a browser whose clock is behind the server's.*
+
 **The four movements take the day.** `app.fit_tyre`, `app.remove_tyre`,
 `app.rotate_tyres` and `app.return_tyre_to_stock` each accept a day in place
 of an instant and resolve it through both halves, under the locks they
