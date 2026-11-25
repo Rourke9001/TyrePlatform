@@ -39,7 +39,15 @@ function sentence(row: ReportedDifference, asDate: (instant: string) => string):
   return `${row.driver.displayName} reported on ${asDate(row.startedAt)} that ${missing} ${verb} not coupled to ${row.rig.motiveFleetNumber}'s rig.`;
 }
 
-function DifferenceCard({ row, tenantKey }: { row: ReportedDifference; tenantKey: string }) {
+function DifferenceCard({
+  row,
+  tenantKey,
+  onActed,
+}: {
+  row: ReportedDifference;
+  tenantKey: string;
+  onActed: (sentence: string) => void;
+}) {
   const asDate = useTenantDate();
   const canAction = useCan("ManageAssignments");
   const [note, setNote] = useState("");
@@ -49,10 +57,12 @@ function DifferenceCard({ row, tenantKey }: { row: ReportedDifference; tenantKey
   const apply = useFormMutation({
     mutate: () => applyReportedDifference(row.id, note.trim() === "" ? {} : { note: note.trim() }),
     invalidate,
+    onSuccess: () => onActed(`The report on ${row.rig.motiveFleetNumber}'s rig was applied.`),
   });
   const dismiss = useFormMutation({
     mutate: () => dismissReportedDifference(row.id, { note: note.trim() }),
     invalidate,
+    onSuccess: () => onActed(`The report on ${row.rig.motiveFleetNumber}'s rig was dismissed.`),
   });
   const error = apply.error ?? dismiss.error;
 
@@ -105,17 +115,24 @@ export function ReportedDifferences() {
     queryKey: observationsKey(tenantKey),
     queryFn: () => fetchReportedDifferences(),
   });
+  // NFR-USE-010: held here, not on the card, so it outlives the card the
+  // refetch removes, as RetreadQueue holds closedCode.
+  const [confirmed, setConfirmed] = useState<string | null>(null);
+  const status = confirmed === null ? null : <p role="status">{confirmed}</p>;
 
   if (!reports.isSuccess || reports.data.length === 0) {
-    return null;
+    return status;
   }
   return (
-    <Card title="Reported differences" padding="none">
-      <ul className="fleet-reports">
-        {reports.data.map((row) => (
-          <DifferenceCard key={row.id} row={row} tenantKey={tenantKey} />
-        ))}
-      </ul>
-    </Card>
+    <>
+      {status}
+      <Card title="Reported differences" padding="none">
+        <ul className="fleet-reports">
+          {reports.data.map((row) => (
+            <DifferenceCard key={row.id} row={row} tenantKey={tenantKey} onActed={setConfirmed} />
+          ))}
+        </ul>
+      </Card>
+    </>
   );
 }

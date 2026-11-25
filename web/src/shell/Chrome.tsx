@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { matchPath, useLocation } from "react-router";
 
 import { useActor, useActorSettled, useCan } from "../auth/actorContext";
+import { roleLabel } from "../domain/roles";
 import { SignInLine } from "../auth/SignInLine";
 import { SignOutButton } from "../auth/SignOutButton";
 import { OutboxIndicator } from "../capture/OutboxIndicator";
@@ -31,7 +32,7 @@ export function Chrome({ children }: { children: ReactNode }) {
   // Never the security boundary (NFR-SEC-006): the server re-checks every
   // capability on every request. This only shows who the app thinks is
   // asking.
-  const actorLine = actor ? `${actor.displayName} · ${actor.role}` : undefined;
+  const actorLine = actor ? `${actor.displayName} · ${roleLabel(actor.role)}` : undefined;
   // A logo exists only once upload and serving land with RBAC (TYRE-26), so
   // the monogram tile is the designed default, not a degraded state.
   const mark = { name: branding.displayName, logoUrl: branding.logoUrl, onBrand: true };

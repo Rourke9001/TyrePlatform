@@ -86,6 +86,27 @@ describe("reported differences", () => {
       "/api/combinations/observations/o1/apply",
     );
     expect(sentBody(1)).toStrictEqual({ note: "seen in the yard" });
+    // NFR-USE-010: the confirmation outlives the card, which the refetch
+    // has emptied away.
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "The report on HORSE-1's rig was applied.",
+    );
+  });
+
+  it("confirms a dismissal in a status line", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(respond(200, [report({ id: "o1" })]));
+    renderSection();
+    await screen.findByRole("button", { name: "Dismiss" });
+
+    await userEvent.type(screen.getByLabelText("Note"), "not our rig");
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(respond(200, []));
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "The report on HORSE-1's rig was dismissed.",
+    );
   });
 
   it("keeps Dismiss disabled until the note is non-blank", async () => {

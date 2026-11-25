@@ -1,4 +1,3 @@
-import { tyreStateLabel } from "../domain/vocabulary";
 import { apiGet, apiPost } from "./client";
 import type { Money } from "./money";
 
@@ -75,9 +74,11 @@ export interface NewTyres {
 // transition table).
 export type Disposal = "SCRAPPED" | "SOLD" | "LOST";
 
-const DISPOSALS: { value: Disposal; label: string }[] = (["SCRAPPED", "SOLD", "LOST"] as const).map(
-  (value) => ({ value, label: tyreStateLabel(value) }),
-);
+const DISPOSALS: { value: Disposal; label: string }[] = [
+  { value: "SCRAPPED", label: "Scrapped" },
+  { value: "SOLD", label: "Sold" },
+  { value: "LOST", label: "Lost" },
+];
 
 // app.dispose_tyre (000031) sells from REMOVED alone and scraps or loses from
 // IN_STOCK or REMOVED; every other pairing it refuses with TY012. Enforcement

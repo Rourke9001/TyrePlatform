@@ -185,7 +185,7 @@ describe("the shell for each audience", () => {
 
     const nav = screen.getByRole("navigation", { name: "Main" });
     expect(within(nav).getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
-    const line = within(screen.getByRole("banner")).getByText("Controller · CONTROLLER");
+    const line = within(screen.getByRole("banner")).getByText("Controller · Controller");
     expect(line.childNodes).toHaveLength(1);
     expect(await screen.findByText(WAITING)).toBeVisible();
     expect(within(screen.getByRole("main")).getByText("screen")).toBeInTheDocument();
@@ -205,7 +205,7 @@ describe("the shell for each audience", () => {
     });
     rerender(shellTree(client, "/my", { actor, settled: true }));
 
-    const line = within(screen.getByRole("banner")).getByText("Sandbox Driver · DRIVER");
+    const line = within(screen.getByRole("banner")).getByText("Sandbox Driver · Driver");
     expect(line.childNodes).toHaveLength(1);
     expect(screen.queryByRole("navigation")).toBeNull();
     expect(screen.queryByRole("button", { name: "Menu" })).toBeNull();
