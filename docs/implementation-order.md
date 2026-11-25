@@ -94,7 +94,6 @@ migration, an endpoint, a route or a screen, or is several defects.
 
 | # | Launch | Carries | Lane | Before it starts |
 |---|---|---|---|---|
-| 8 | `make pipeline T=TYRE-240` | 176 with fold 278; the behaviour fixes 118, 119, 182, 291, 327 and 328, 330's f8, f15 and f16, the favicon, and B41's back-dating field | web, API | none. The favicon reuses the tyre mark under `web/public/icons/` (#234). In Progress on the board with no branch: its Tread ports merged as #153 and #154 |
 | 9 | `make pipeline T=TYRE-243` | slice 1, the lifecycle | database, API, web | none |
 | 10 | `make pipeline T=TYRE-432` | fold 425 | database | none. It merges before BAC's tenant is provisioned (Two ordering rules) |
 | 11 | `make pipeline T=TYRE-152` | its first PR: the server, the queue and the office read | infrastructure, API, web | an ADR first (upload through the API); a role assignment on the photos container |
@@ -180,8 +179,8 @@ queue holds 41 runs; the dates have not been re-planned.
 The table is the 21 Oct plan, kept as the record of what each sprint was to
 unlock; the run queue above decides the order. Its two lanes touch disjoint
 files. The database lane runs one PR after another, because each takes the
-next migration number and suite section: the next free pair is **000067 and
-section 83**, taken by whichever database branch is cut first.
+next migration number and suite section: the next free pair is **000068 and
+section 84**, taken by whichever database branch is cut first.
 
 | Sprint | Dates | Web, API and infrastructure lane | Database lane | Unlocks |
 |---|---|---|---|---|
@@ -210,7 +209,7 @@ dozen batched PRs, so feature work sets the pace.
   287, 292, 319, 320, 322, 325, 366, 367, 377, 441, 448, 455.
 - **Platform:** 321, 371, 398, 434, 438.
 - **Fixes:** 105, 112, 113, 115, 120, 121, 123, 131, 140, 159, 168,
-  176, 190, 240, 244, 245, 270, 323, 354,
+  190, 244, 245, 270, 323, 354,
   363, 372, 381, 432, 450, 457, 458, 459, 460, 461. TYRE-275
   folded into 447, 343 into 445 and 425 into 432 on 21 Oct.
 
