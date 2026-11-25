@@ -27,6 +27,8 @@ function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
     purchasePrice: "1200.00" as Money,
     randPerMm: "150.25" as Money,
     casingValue: "800.00" as Money,
+    costSource: "INVOICE",
+    casingBasis: "ACTUAL",
     receiptId: null,
     codePending: false,
     ...overrides,
@@ -89,9 +91,9 @@ describe("the tyre register", () => {
 
     renderScreen();
 
-    expect(await screen.findByRole("cell", { name: "R4,319.91" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "R205.7100" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "R1,837.50" })).toBeInTheDocument();
+    expect(await screen.findByRole("cell", { name: "R4,319.91 actual cost" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "R205.7100 actual cost" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "R1,837.50 actual cost" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Cost per mm" })).toBeInTheDocument();
   });
 
@@ -473,7 +475,7 @@ describe("the tyre register", () => {
 
     await screen.findAllByRole("rowheader");
     expect(screen.queryByRole("columnheader", { name: /purchase price/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("columnheader", { name: /rand\/mm/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: /cost per mm/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: /casing value/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/1,200\.00/)).not.toBeInTheDocument();
   });
@@ -1001,5 +1003,74 @@ describe("the tyre register", () => {
 
     await screen.findAllByRole("rowheader");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+// NFR-PRO-001, NFR-PRO-002: each figure carries what it rests on, and an
+// absent one reads as absent, never as a dash or a zero.
+describe("the register's money bases and absences", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("names an estimate, an unknown source and an audit casing value", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, {
+        tyres: [
+          tyre({ id: "t1", displayCode: "EST1", costSource: "PRICE_LIST_ESTIMATE" }),
+          tyre({ id: "t2", displayCode: "UNK1", costSource: "UNKNOWN", casingBasis: "AUDIT" }),
+        ],
+      }),
+    );
+    renderScreen();
+
+    const estimate = rowOf((await screen.findAllByRole("rowheader"))[0].textContent ?? "");
+    expect(cellUnder(estimate, "Purchase price").textContent).toBe("R1,200.00 estimated");
+    const unknown = rowOf("UNK1");
+    expect(cellUnder(unknown, "Cost per mm").textContent).toBe("R150.25 source not recorded");
+    expect(cellUnder(unknown, "Casing value").textContent).toBe("R800.00 audit valuation");
+  });
+
+  it("reads an absent figure as not valued, never as a dash", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, {
+        tyres: [
+          tyre({
+            id: "t1",
+            displayCode: "BARE1",
+            purchasePrice: undefined,
+            randPerMm: undefined,
+            casingValue: undefined,
+          }),
+        ],
+      }),
+    );
+    renderScreen();
+
+    await screen.findAllByRole("rowheader");
+    const row = rowOf("BARE1");
+    for (const header of ["Purchase price", "Cost per mm", "Casing value"]) {
+      expect(cellUnder(row, header).textContent).toBe("Not valued");
+    }
+  });
+
+  it("names the state in words and shows the retread count of an unfitted casing", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, {
+        tyres: [
+          tyre({ id: "t1", displayCode: "STK1", state: "IN_STOCK", retreadCount: 2 }),
+          tyre({ id: "t2", displayCode: "BRK1", state: "AT_BREAKDOWN_SUPPLIER" }),
+        ],
+      }),
+    );
+    renderScreen();
+
+    await screen.findAllByRole("rowheader");
+    expect(cellUnder(rowOf("STK1"), "State").textContent).toBe("In stock");
+    expect(cellUnder(rowOf("STK1"), "Retreads").textContent).toBe("2");
+    expect(cellUnder(rowOf("BRK1"), "State").textContent).toBe("At breakdown supplier");
   });
 });

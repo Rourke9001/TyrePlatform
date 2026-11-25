@@ -162,4 +162,20 @@ describe("setting a tyre's cost", () => {
       expect(screen.getByRole("combobox", { name: /cost source for POS1/i })).toHaveValue(""),
     );
   });
+
+  // app.set_tyre_cost answers TY012 for a tyre this fleet cannot see; the
+  // sentence is spoken as sent, not as the general one (TYRE-240).
+  it("speaks a TY012 refusal in the server's words", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(422, { code: "TY012", message: "no such tyre in this fleet" }),
+    );
+    const user = userEvent.setup();
+    renderForm();
+
+    await user.type(screen.getByLabelText(/purchase price for pos1/i), "500.00");
+    await user.selectOptions(screen.getByLabelText(/cost source for pos1/i), "INVOICE");
+    await user.click(screen.getByRole("button", { name: /set cost/i }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe("no such tyre in this fleet");
+  });
 });

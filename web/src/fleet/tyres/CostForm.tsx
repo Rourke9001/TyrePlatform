@@ -10,9 +10,10 @@ import { tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
 // Its own wording, not DisposeForm's: see DisposeForm.tsx's comment on why a
-// shared sentence between the two forms is wrong here.
+// shared sentence between the two forms is wrong here. TY012 is
+// app.set_tyre_cost's "no such tyre in this fleet" (000059), spoken as sent.
 const COST_WORDING = {
-  speakable: ["TY013"],
+  speakable: ["TY012", "TY013"],
   forbidden: "You do not have permission to record a tyre's cost.",
   fallback: "The cost could not be recorded. Try again, or call support if it keeps happening.",
 };

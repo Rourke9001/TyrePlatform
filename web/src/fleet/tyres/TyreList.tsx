@@ -3,7 +3,7 @@ import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
 
 import { getDevTenantId } from "../../api/devTenant";
-import { formatMoney, useCurrency } from "../../api/money";
+import { type Money, moneyText, useCurrency } from "../../api/money";
 import {
   fetchTyreRegister,
   isDisposed,
@@ -12,6 +12,7 @@ import {
   type TyreRegisterFilters,
 } from "../../api/tyres";
 import { useCan } from "../../auth/actorContext";
+import { basisLabel, costSourceLabel, tyreStateLabel } from "../../domain/vocabulary";
 import { formatCount } from "../../format/numbers";
 import { useTenantDate } from "../../time/tenantTime";
 import { Banner } from "../../ui/Banner";
@@ -32,6 +33,28 @@ import { DisposeForm } from "./DisposeForm";
 import { MarkCodeForm } from "./MarkCodeForm";
 import { ReturnToStockButton } from "./ReturnToStockButton";
 import "../fleet.css";
+
+function MoneyCell({
+  value,
+  basis,
+  currency,
+}: {
+  value: Money | undefined;
+  basis: string;
+  currency: string;
+}) {
+  return (
+    <td data-align="right" data-mono="true">
+      {moneyText(value ?? null, true, currency)}
+      {value !== undefined && (
+        <>
+          {" "}
+          <span className="fleet-basis">{basis}</span>
+        </>
+      )}
+    </td>
+  );
+}
 
 // FR-TYR-043: two active tyres carrying one code is a state the register
 // must surface, never resolve on the user's behalf (ADR-0008 rule 3).
@@ -295,6 +318,7 @@ export function TyreList() {
                   <th scope="col">Brand</th>
                   <th scope="col">Pattern</th>
                   <th scope="col">State</th>
+                  <th scope="col">Retreads</th>
                   <th scope="col">Received</th>
                   <th scope="col">Awaiting cost</th>
                   <th scope="col">Set cost</th>
@@ -335,7 +359,10 @@ export function TyreList() {
                     <td data-mono="true">{t.sizeName ?? "—"}</td>
                     <td>{t.brandName ?? "—"}</td>
                     <td>{t.patternName ?? "—"}</td>
-                    <td>{t.state}</td>
+                    <td>{tyreStateLabel(t.state)}</td>
+                    <td data-align="right" data-mono="true">
+                      {formatCount(t.retreadCount)}
+                    </td>
                     <td data-nowrap="true">
                       {t.receivedDate ? asOf(t.receivedDate) : "Not received"}
                     </td>
@@ -355,20 +382,31 @@ export function TyreList() {
                         "—"
                       )}
                     </td>
+                    {/* NFR-PRO-001: each figure beside what it rests on; the
+                        price and the rate derived from it share the cost
+                        source (BR-VAL-002), the casing its valuation's basis
+                        (BR-VAL-004, U253). An absent figure reads "Not
+                        valued" (NFR-PRO-002). */}
                     {canSeeMoney && (
-                      <td data-align="right" data-mono="true">
-                        {t.purchasePrice ? formatMoney(t.purchasePrice, currency) : "—"}
-                      </td>
+                      <MoneyCell
+                        value={t.purchasePrice}
+                        basis={costSourceLabel(t.costSource ?? "UNKNOWN")}
+                        currency={currency}
+                      />
                     )}
                     {canSeeMoney && (
-                      <td data-align="right" data-mono="true">
-                        {t.randPerMm ? formatMoney(t.randPerMm, currency) : "—"}
-                      </td>
+                      <MoneyCell
+                        value={t.randPerMm}
+                        basis={costSourceLabel(t.costSource ?? "UNKNOWN")}
+                        currency={currency}
+                      />
                     )}
                     {canSeeMoney && (
-                      <td data-align="right" data-mono="true">
-                        {t.casingValue ? formatMoney(t.casingValue, currency) : "—"}
-                      </td>
+                      <MoneyCell
+                        value={t.casingValue}
+                        basis={basisLabel(t.casingBasis ?? "UNVALUED")}
+                        currency={currency}
+                      />
                     )}
                     {/* No active-only filter on this register (TYRE-91): a
                         disposed row stays visible, so rowActions hides every
