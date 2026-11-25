@@ -203,27 +203,36 @@ type unitPositionBody struct {
 		LastTreadMm      *string `json:"lastTreadMm"`
 		LastTreadSource  *string `json:"lastTreadSource"`
 		LastTreadAgeDays *int    `json:"lastTreadAgeDays"`
+		LastReading      *struct {
+			InspectionID     string    `json:"inspectionId"`
+			ReadingID        string    `json:"readingId"`
+			TreadsMm         []float64 `json:"treadsMm"`
+			TreadAnatomy     []string  `json:"treadAnatomy"`
+			OrientationKnown *bool     `json:"orientationKnown"`
+			GoverningIndex   *int      `json:"governingIndex"`
+		} `json:"lastReading"`
 	} `json:"fitment"`
 }
 
 type unitBody struct {
-	ID                string             `json:"id"`
-	FleetNumber       string             `json:"fleetNumber"`
-	Registration      *string            `json:"registration"`
-	Description       *string            `json:"description"`
-	BodyType          *string            `json:"bodyType"`
-	UnitDescriptor    *string            `json:"unitDescriptor"`
-	HomeDepotID       *string            `json:"homeDepotId"`
-	OperatingGroupID  *string            `json:"operatingGroupId"`
-	UnitKind          *string            `json:"unitKind"`
-	Status            string             `json:"status"`
-	ConfigurationID   string             `json:"configurationId"`
-	ConfigurationName string             `json:"configurationName"`
-	Tags              []string           `json:"tags"`
-	HasHistory        bool               `json:"hasHistory"`
-	RemovalReasons    []string           `json:"removalReasons"`
-	HasOdometer       bool               `json:"hasOdometer"`
-	Positions         []unitPositionBody `json:"positions"`
+	ID                  string             `json:"id"`
+	FleetNumber         string             `json:"fleetNumber"`
+	Registration        *string            `json:"registration"`
+	Description         *string            `json:"description"`
+	BodyType            *string            `json:"bodyType"`
+	UnitDescriptor      *string            `json:"unitDescriptor"`
+	HomeDepotID         *string            `json:"homeDepotId"`
+	OperatingGroupID    *string            `json:"operatingGroupId"`
+	UnitKind            *string            `json:"unitKind"`
+	Status              string             `json:"status"`
+	ConfigurationID     string             `json:"configurationId"`
+	ConfigurationName   string             `json:"configurationName"`
+	Tags                []string           `json:"tags"`
+	HasHistory          bool               `json:"hasHistory"`
+	RemovalReasons      []string           `json:"removalReasons"`
+	RemovalReasonLabels map[string]string  `json:"removalReasonLabels"`
+	HasOdometer         bool               `json:"hasOdometer"`
+	Positions           []unitPositionBody `json:"positions"`
 }
 
 // A fitted position carries its occupant's code and orientation, an empty
@@ -238,6 +247,11 @@ func TestGetUnitCarriesPositionsAndCurrentFitments(t *testing.T) {
 	s, admin := testStore(t, ctx)
 	tenantID, mine, other, leftPos, _, _ := plantUnitFixture(t, ctx, admin, "unit-fitments")
 	plantRemovalReasons(t, ctx, admin, tenantID, "WORN", "DAMAGED")
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.configuration (tenant_id, key, value, effective_from)
+		 VALUES ($1, 'removal_reason_labels', '{"WORN": "Worn out"}'::jsonb, now() - interval '1 hour')`,
+		tenantID)
+	require.NoError(t, err)
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 
 	mineTyre := plantTyre(t, ctx, admin, tenantID, "UNIT-TYRE-MINE", nil)
@@ -260,6 +274,8 @@ func TestGetUnitCarriesPositionsAndCurrentFitments(t *testing.T) {
 	require.True(t, body.HasHistory, "a fitment exists for this unit")
 	require.True(t, body.HasOdometer, "unit_kind HORSE has an odometer (000025)")
 	require.ElementsMatch(t, []string{"WORN", "DAMAGED"}, body.RemovalReasons)
+	require.Equal(t, map[string]string{"WORN": "Worn out"}, body.RemovalReasonLabels,
+		"the reason words are tenant configuration, sent as configured (FR-FIT-008)")
 	require.Len(t, body.Positions, 3, "left, right and spare")
 
 	var sawLeft, sawRight, sawSpare bool
@@ -392,6 +408,7 @@ func TestGetUnitLastTreadIsTheLatestReadingSinceTheFit(t *testing.T) {
 	require.NotNil(t, left.LastTreadSource)
 	require.Equal(t, "14.0", *left.LastTreadMm, "no reading since the refit, so the refit's tread stands")
 	require.Equal(t, "AUDIT", *left.LastTreadSource)
+	require.Nil(t, left.LastReading, "a fitment tread has no width-wise set")
 
 	right := byCode["1R"].Fitment
 	require.NotNil(t, right)
@@ -399,6 +416,19 @@ func TestGetUnitLastTreadIsTheLatestReadingSinceTheFit(t *testing.T) {
 	require.NotNil(t, right.LastTreadSource)
 	require.Equal(t, "11.0", *right.LastTreadMm, "the newer of two readings since the fit")
 	require.Equal(t, "READING", *right.LastTreadSource)
+	// FR-RPT-015, CR-011: the governing figure travels with the readings it
+	// is the minimum of.
+	require.NotNil(t, right.LastReading)
+	require.Equal(t, []float64{11.0, 11.5, 12.0}, right.LastReading.TreadsMm)
+	require.Equal(t, []string{"OUTER", "CENTRE", "INNER"}, right.LastReading.TreadAnatomy)
+	require.NotNil(t, right.LastReading.OrientationKnown)
+	require.True(t, *right.LastReading.OrientationKnown)
+	require.NotNil(t, right.LastReading.GoverningIndex)
+	require.Equal(t, 0, *right.LastReading.GoverningIndex)
+	_, err := uuid.Parse(right.LastReading.InspectionID)
+	require.NoError(t, err)
+	_, err = uuid.Parse(right.LastReading.ReadingID)
+	require.NoError(t, err)
 
 	require.Nil(t, byCode["SP1"].Fitment)
 }
@@ -571,6 +601,59 @@ type fleetFitmentBody struct {
 	DisplayCode  string `json:"displayCode"`
 	FittedAt     string `json:"fittedAt"`
 	DaysFitted   int    `json:"daysFitted"`
+	Sequence     int    `json:"sequence"`
+}
+
+// NFR-USE-012: a unit's rows come back in its configuration's position
+// order. The codes are chosen so text order (10, 2, 3), natural order
+// (2, 3, 10) and sequence order (10, 3, 2) all differ, and only the last
+// passes.
+func TestOpenFitmentsOrderAUnitsPositionsBySequence(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "open-fitments-order")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	var configID, unitID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.axle_configuration (tenant_id, code, name, axle_count)
+		 VALUES ($1, $2, 'order test rig', 2) RETURNING id`,
+		tenantID, "ORDER-"+uuid.NewString()[:8]).Scan(&configID))
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+		 VALUES ($1, $2, $3, 'TRAILER'::app.unit_kind) RETURNING id`,
+		tenantID, "ORDER-"+uuid.NewString()[:8], configID).Scan(&unitID))
+	for _, p := range []struct {
+		code     string
+		sequence int
+		axle     int
+		side     string
+	}{{"2", 3, 2, "LEFT"}, {"10", 1, 1, "LEFT"}, {"3", 2, 1, "RIGHT"}} {
+		var posID uuid.UUID
+		require.NoError(t, admin.QueryRow(ctx,
+			`INSERT INTO app.position
+			   (tenant_id, configuration_id, code, sequence, axle_number, axle_class, side, slot, is_spare)
+			 VALUES ($1, $2, $3, $4, $5, 'TRAILER'::app.axle_class, $6::app.side, 'SINGLE'::app.fitment_slot, false)
+			 RETURNING id`,
+			tenantID, configID, p.code, p.sequence, p.axle, p.side).Scan(&posID))
+		tyreID := plantTyre(t, ctx, admin, tenantID, "ORDER-"+p.code+"-"+uuid.NewString()[:8], nil)
+		_, err := admin.Exec(ctx,
+			`INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
+			                         fitted_tread_mm, mount_orientation)
+			 VALUES ($1, $2, $3, $4, now(), 9.0, 'MARK_OUTBOARD'::app.mount_orientation)`,
+			tenantID, tyreID, unitID, posID)
+		require.NoError(t, err)
+	}
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	rec := get(t, h, "/api/fitments?open=true", tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var rows []fleetFitmentBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rows))
+	var got []string
+	for _, row := range rows {
+		got = append(got, fmt.Sprintf("%s@%d", row.PositionCode, row.Sequence))
+	}
+	require.Equal(t, []string{"10@1", "3@2", "2@3"}, got)
 }
 
 // GET /api/fitments?open=true reads across every unit in the tenant, not one
@@ -752,6 +835,7 @@ func TestGetUnitAnswersEmptyShapesForABareUnit(t *testing.T) {
 	require.Contains(t, raw, `"positions":[]`, "no positions must marshal as [], not null")
 	require.Contains(t, raw, `"tags":[]`, "no tags must marshal as [], not null")
 	require.Contains(t, raw, `"removalReasons":[]`, "no removal_reasons config row must marshal as [], not null")
+	require.Contains(t, raw, `"removalReasonLabels":{}`, "no labels row must marshal as {}, not null")
 
 	var body unitBody
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
