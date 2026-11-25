@@ -25,6 +25,20 @@ export interface OpenFitment {
   // FR-TYR-017: days since the measurement behind lastTreadMm, in the
   // tenant's calendar; null exactly when lastTreadMm is.
   lastTreadAgeDays: number | null;
+  // The width-wise set behind a READING last tread, null for any other
+  // source (FR-RPT-015, CR-011).
+  lastReading: LastReading | null;
+}
+
+// lastReadingJSON: the same set an inspection's reading carries, so
+// readingCells draws both.
+export interface LastReading {
+  inspectionId: string;
+  readingId: string;
+  treadsMm: number[];
+  treadAnatomy: string[];
+  orientationKnown: boolean | null;
+  governingIndex: number | null;
 }
 
 // unitPositionJSON: side and slot are null for a spare, mirroring
@@ -60,6 +74,8 @@ export interface Unit {
   tags: string[];
   hasHistory: boolean;
   removalReasons: string[];
+  // Each reason's words, tenant configuration ({} when none, FR-FIT-008).
+  removalReasonLabels: Record<string, string>;
   hasOdometer: boolean;
   positions: UnitPosition[];
 }
@@ -100,6 +116,8 @@ export interface FleetFitment {
   displayCode: string;
   fittedAt: string;
   daysFitted: number;
+  // The position's place in its configuration (NFR-USE-012).
+  sequence: number;
 }
 
 export interface Depot {
@@ -145,6 +163,9 @@ export interface NewFitment {
   mountOrientation: string;
   odometer?: number;
   occurredAt?: string;
+  // The day it happened, YYYY-MM-DD, never sent with occurredAt; SQL places
+  // it and asks an earlier day why (FR-FIT-016 as amended).
+  occurredOn?: string;
   reason?: string;
 }
 
@@ -171,6 +192,7 @@ export interface Removal {
   treadMm: string;
   odometer?: number;
   occurredAt?: string;
+  occurredOn?: string;
   backdateReason?: string;
 }
 
@@ -201,6 +223,8 @@ export interface Rotation {
   odometer?: number;
   odometers?: Record<string, number>;
   occurredAt?: string;
+  occurredOn?: string;
+  backdateReason?: string;
 }
 
 export interface RotationMoveResult {

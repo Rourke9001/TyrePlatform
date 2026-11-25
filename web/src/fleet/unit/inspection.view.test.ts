@@ -9,7 +9,7 @@ import {
   voidedText,
   warningValueText,
 } from "./inspection.view";
-import type { InspectionWarning } from "../../api/inspections";
+import type { InspectionReading, InspectionWarning } from "../../api/inspections";
 import { inspectionDetail, inspectionReading, unitInspection } from "../../test/fixtures";
 
 const UNITS = { pressure: "kPa", distance: "km" };
@@ -111,7 +111,8 @@ describe("readingCells", () => {
       "numbered",
     );
     expect(readingCells({ ...base, orientationKnown: false }).naming).toBe("numbered");
-    expect(readingCells({ ...base, side: null, isSpare: true }).naming).toBe("numbered");
+    const spare: InspectionReading = { ...base, side: null, isSpare: true };
+    expect(readingCells(spare).naming).toBe("numbered");
     expect(
       readingCells({
         ...base,

@@ -146,6 +146,43 @@ export function basisLabel(code: string): string {
   return BASIS_LABELS[code] ?? code;
 }
 
+// What a stored price, and the rate derived from it, rests on: app.tyre's
+// cost_source (BR-VAL-002, NFR-PRO-001). The receive and cost forms name the
+// document a person picks (COST_SOURCES in api/tyres.ts); these name the
+// figure's basis beside it.
+const COST_SOURCE_LABELS: Record<string, string> = {
+  INVOICE: "actual cost",
+  PRICE_LIST_ESTIMATE: "estimated",
+  UNKNOWN: "source not recorded",
+};
+
+export function costSourceLabel(code: string): string {
+  return COST_SOURCE_LABELS[code] ?? code;
+}
+
+// FR-TYR-010's states, app.tyre_state (Appendix C).
+const TYRE_STATE_LABELS: Record<string, string> = {
+  IN_STOCK: "In stock",
+  FITTED: "Fitted",
+  REMOVED: "Removed",
+  AT_RETREADER: "At retreader",
+  AT_BREAKDOWN_SUPPLIER: "At breakdown supplier",
+  SCRAPPED: "Scrapped",
+  SOLD: "Sold",
+  LOST: "Lost",
+};
+
+export function tyreStateLabel(code: string): string {
+  return TYRE_STATE_LABELS[code] ?? code;
+}
+
+// FR-FIT-008: the words are tenant configuration (removal_reason_labels,
+// 000067), never a constant here (TYRE-330 f8). A code with no words shows
+// as itself, so a reason is never a blank cell or option.
+export function removalReasonLabel(code: string, labels: Readonly<Record<string, string>>): string {
+  return Object.hasOwn(labels, code) ? labels[code] : code;
+}
+
 // A band bound is whole or half millimetres, so one decimal at most, with a
 // point (see formatMm in src/format/numbers.ts); a whole bound stays "5",
 // not "5.0", to match the accepted mockup's "0 to under 5 mm".
