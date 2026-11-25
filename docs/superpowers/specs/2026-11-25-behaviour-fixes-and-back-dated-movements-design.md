@@ -282,6 +282,13 @@ The down migration restores the six bodies as 000033, 000039, 000048 and
   list estimate, "source not recorded" for a figure with an unknown source.
   Casing value shows `basisLabel(casingBasis)`. No figure stands without its
   basis beside it, in the table and in the phone card.
+  *Amended by the stage 5 review, 25 Nov 2026 (finding F3). The price and
+  the rate share a basis only until a retread. An accepted retread return
+  re-rates the casing from the retread cost and leaves the cost source as
+  the purchase price's (BR-VAL-006), so from then on the cost per mm reads
+  "retread cost" and the purchase price keeps its own basis. SQL decides
+  which the rate rests on, beside the register read, and the web puts the
+  answer into words.*
 - **Absence.** An absent figure reads "Not valued" through `moneyText`
   (`web/src/api/money.ts:52-56`), never a dash. A row is one tyre, so there
   is no count to put beside it.
@@ -458,6 +465,9 @@ once the owner says yes.
 8. **The cost basis is the stored `cost_source`, put into words.** BR-VAL-002
    makes the cost source the provenance of the price and of everything
    derived from it, and 000050:78-81 reads it the same way.
+   *Amended, 25 Nov 2026: this call was wrong for a retreaded casing, whose
+   rate BR-VAL-006 derives from the retread cost. Section 3's rider carries
+   the rule. The dashboard's split has the same fault and is TYRE-495's.*
 9. **The casing value comes from `app.v_tyre_valuation`.** It is today's
    slice of the one valuation (`db/migrations/000011_sponsor_answer_surgery.up.sql:384-398`).
 10. **The server sends position sequence and the web sorts fleet numbers.**
