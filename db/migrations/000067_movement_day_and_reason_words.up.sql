@@ -25,6 +25,7 @@ SET search_path = app, pg_temp AS $$
 DECLARE
   tz  text;
   off interval;
+  fmt text;
 BEGIN
   IF NOT isfinite(p_at) THEN
     RETURN p_at::text;
@@ -32,9 +33,13 @@ BEGIN
   SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = app.current_tenant_id();
   IF p_exact THEN
     off := (p_at AT TIME ZONE tz) - (p_at AT TIME ZONE 'UTC');
+    -- A zone's offset once held seconds (Africa/Monrovia to 1972 is
+    -- -00:44:30), so they print where present, as PostgreSQL's own output
+    -- does (TYRE-240 M10).
+    fmt := CASE WHEN extract(second FROM off) = 0 THEN 'HH24:MI' ELSE 'HH24:MI:SS' END;
     RETURN rtrim(rtrim(to_char(p_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI:SS.US'), '0'), '.')
-        || CASE WHEN off < interval '0' THEN '-' || to_char(-off, 'HH24:MI')
-                ELSE '+' || to_char(off, 'HH24:MI') END;
+        || CASE WHEN off < interval '0' THEN '-' || to_char(-off, fmt)
+                ELSE '+' || to_char(off, fmt) END;
   END IF;
   RETURN to_char(p_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI');
 END $$;

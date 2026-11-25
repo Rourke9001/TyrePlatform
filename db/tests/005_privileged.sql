@@ -75,6 +75,9 @@
 -- P30 plants a tenant in each state, which app_login cannot, and probes
 -- app_job after SET LOCAL ROLE: the tenant listing only it may call, and
 -- that row security binds app_job as it binds app_login (TYRE-371).
+--
+-- P32 plants a tenant in a zone whose offset once held seconds, which
+-- app_login cannot, and reads an instant in it as app_login (TYRE-240).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -2496,6 +2499,30 @@ BEGIN
     RAISE EXCEPTION 'FAIL P31: SET on session_replication_role read %', COALESCE(f, 'no fault');
   END IF;
   RAISE NOTICE 'PASS  P31 a parameter privilege naming app_job is named';
+END $$;
+ROLLBACK;
+
+\echo '== P32. TYRE-240 M10: an instant a refusal names exactly carries its offset''s seconds where the tenant''s zone had them, and hours and minutes where it did not (rule 6) (staged here: a tenant in a zone no fixture tenant has)'
+BEGIN;
+INSERT INTO app.tenant (id, name, subdomain, timezone, state)
+VALUES (md5('p32-monrovia')::uuid, 'P32 Monrovia', 'p32-monrovia', 'Africa/Monrovia', 'ACTIVE');
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE got text;
+BEGIN
+  IF current_user <> 'app_login' THEN RAISE EXCEPTION 'FAIL P32: the probe runs as %', current_user; END IF;
+  PERFORM set_config('app.tenant_id', md5('p32-monrovia')::uuid::text, true);
+  -- Monrovia ran 44 minutes 30 seconds behind UTC until 1972.
+  got := app.tenant_ts_text('1960-06-01 12:00:00.25+00', true);
+  IF got IS DISTINCT FROM '1960-06-01 11:15:30.25-00:44:30' THEN
+    RAISE EXCEPTION 'FAIL P32: an instant of 1960 in Monrovia reads %, not 1960-06-01 11:15:30.25-00:44:30', got;
+  END IF;
+  -- The control: since 1972 the zone is UTC, an offset of whole minutes.
+  got := app.tenant_ts_text('1980-06-01 12:00:00+00', true);
+  IF got IS DISTINCT FROM '1980-06-01 12:00:00+00:00' THEN
+    RAISE EXCEPTION 'FAIL P32: an instant of 1980 in Monrovia reads %, not 1980-06-01 12:00:00+00:00', got;
+  END IF;
+  RAISE NOTICE 'PASS  P32 an exact instant carries its offset''s seconds where the zone had them, and hours and minutes where it did not';
 END $$;
 ROLLBACK;
 
