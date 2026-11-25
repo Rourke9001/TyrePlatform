@@ -13,6 +13,7 @@ import (
 // runs.
 func TestTyreJSONForProjectsMoneyByCapability(t *testing.T) {
 	price, rate, casing := "1500.00", "250.0000", "800.00"
+	source, basis := "INVOICE", "ACTUAL"
 	row := tyreRow{
 		id:            uuid.New(),
 		displayCode:   "UNIT-1",
@@ -22,6 +23,8 @@ func TestTyreJSONForProjectsMoneyByCapability(t *testing.T) {
 		purchasePrice: &price,
 		randPerMm:     &rate,
 		casingValue:   &casing,
+		costSource:    &source,
+		casingBasis:   &basis,
 	}
 
 	withMoney := tyreJSONFor(row, true)
@@ -31,11 +34,18 @@ func TestTyreJSONForProjectsMoneyByCapability(t *testing.T) {
 	req.Equal(t, rate, *withMoney.RandPerMm)
 	req.NotNil(t, withMoney.CasingValue)
 	req.Equal(t, casing, *withMoney.CasingValue)
+	req.NotNil(t, withMoney.CostSource)
+	req.Equal(t, source, *withMoney.CostSource)
+	req.NotNil(t, withMoney.CasingBasis)
+	req.Equal(t, basis, *withMoney.CasingBasis)
 
 	withoutMoney := tyreJSONFor(row, false)
 	req.Nil(t, withoutMoney.PurchasePrice)
 	req.Nil(t, withoutMoney.RandPerMm)
 	req.Nil(t, withoutMoney.CasingValue)
+	// A basis is about the money, so it is hidden with it (FR-AUT-005a).
+	req.Nil(t, withoutMoney.CostSource)
+	req.Nil(t, withoutMoney.CasingBasis)
 	// The projection hides money only. Everything else on the row survives.
 	req.Equal(t, row.displayCode, withoutMoney.DisplayCode)
 	req.Equal(t, row.id.String(), withoutMoney.ID)

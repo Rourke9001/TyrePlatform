@@ -47,6 +47,22 @@ type openFitmentJSON struct {
 	// reading's or else the fit's, in the tenant's calendar
 	// (app.tenant_days_since, rule 6); nil exactly when LastTreadMm is.
 	LastTreadAgeDays *int `json:"lastTreadAgeDays"`
+	// The width-wise set behind a READING last tread, nil for any other
+	// source: a governing figure is shown with the readings it is the
+	// minimum of (FR-RPT-015, CR-011).
+	LastReading *lastReadingJSON `json:"lastReading"`
+}
+
+// lastReadingJSON is inspectionReadingJSON's set and nothing else, so the
+// web draws it with the same cells. GoverningIndex is zero-based and found
+// in SQL: it locates the stored minimum and computes none (rule 4).
+type lastReadingJSON struct {
+	InspectionID     uuid.UUID `json:"inspectionId"`
+	ReadingID        uuid.UUID `json:"readingId"`
+	TreadsMm         []float64 `json:"treadsMm"`
+	TreadAnatomy     []string  `json:"treadAnatomy"`
+	OrientationKnown *bool     `json:"orientationKnown"`
+	GoverningIndex   *int      `json:"governingIndex"`
 }
 
 // unitPositionJSON is one row of the unit's configuration, carrying its
@@ -69,23 +85,26 @@ type unitPositionJSON struct {
 // is a nullable column (000001), and tyres.go's own idiom is to scan a
 // nullable column into a pointer rather than coerce it (lesson 2026-08-26).
 type unitJSON struct {
-	ID                string             `json:"id"`
-	FleetNumber       string             `json:"fleetNumber"`
-	Registration      *string            `json:"registration"`
-	Description       *string            `json:"description"`
-	BodyType          *string            `json:"bodyType"`
-	UnitDescriptor    *string            `json:"unitDescriptor"`
-	UnitKind          *string            `json:"unitKind"`
-	Status            string             `json:"status"`
-	ConfigurationID   string             `json:"configurationId"`
-	ConfigurationName string             `json:"configurationName"`
-	HomeDepotID       *string            `json:"homeDepotId"`
-	OperatingGroupID  *string            `json:"operatingGroupId"`
-	Tags              []string           `json:"tags"`
-	HasHistory        bool               `json:"hasHistory"`
-	RemovalReasons    []string           `json:"removalReasons"`
-	HasOdometer       bool               `json:"hasOdometer"`
-	Positions         []unitPositionJSON `json:"positions"`
+	ID                string   `json:"id"`
+	FleetNumber       string   `json:"fleetNumber"`
+	Registration      *string  `json:"registration"`
+	Description       *string  `json:"description"`
+	BodyType          *string  `json:"bodyType"`
+	UnitDescriptor    *string  `json:"unitDescriptor"`
+	UnitKind          *string  `json:"unitKind"`
+	Status            string   `json:"status"`
+	ConfigurationID   string   `json:"configurationId"`
+	ConfigurationName string   `json:"configurationName"`
+	HomeDepotID       *string  `json:"homeDepotId"`
+	OperatingGroupID  *string  `json:"operatingGroupId"`
+	Tags              []string `json:"tags"`
+	HasHistory        bool     `json:"hasHistory"`
+	RemovalReasons    []string `json:"removalReasons"`
+	// The words for each reason code, tenant configuration beside the codes
+	// (FR-FIT-008, 000067); {} when the tenant has none.
+	RemovalReasonLabels map[string]string  `json:"removalReasonLabels"`
+	HasOdometer         bool               `json:"hasOdometer"`
+	Positions           []unitPositionJSON `json:"positions"`
 }
 
 // fitmentHistoryJSON is one row of GET /api/vehicles/{id}/fitments: every
@@ -129,6 +148,9 @@ type fleetFitmentJSON struct {
 	DisplayCode  string `json:"displayCode"`
 	FittedAt     string `json:"fittedAt"`
 	DaysFitted   int    `json:"daysFitted"`
+	// The position's place in its configuration, so the web can order a
+	// unit's rows as the unit is laid out (NFR-USE-012).
+	Sequence int `json:"sequence"`
 }
 
 type depotJSON struct {
@@ -228,6 +250,26 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 	default:
 		return unitJSON{}, fmt.Errorf("loading removal reasons: %w", err)
 	}
+	// Their words, by the same lookup (FR-FIT-008, 000067). Absent is {}: the
+	// screen shows a code with no words as the code.
+	u.RemovalReasonLabels = map[string]string{}
+	err = tx.QueryRow(ctx, `
+		SELECT value FROM app.configuration
+		 WHERE key = 'removal_reason_labels' AND effective_from <= now()
+		 ORDER BY effective_from DESC LIMIT 1`).Scan(&raw)
+	switch {
+	case err == nil:
+		if err := json.Unmarshal(raw, &u.RemovalReasonLabels); err != nil {
+			return unitJSON{}, fmt.Errorf("decoding removal reason labels: %w", err)
+		}
+		if u.RemovalReasonLabels == nil {
+			u.RemovalReasonLabels = map[string]string{}
+		}
+	case errors.Is(err, pgx.ErrNoRows):
+		// configured nowhere yet, so leave the empty map above.
+	default:
+		return unitJSON{}, fmt.Errorf("loading removal reason labels: %w", err)
+	}
 
 	// One row per position with its open fitment if any, the same LEFT JOIN
 	// chain capture.go's loadCaptureContext already establishes for the
@@ -247,14 +289,17 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 		       CASE WHEN lr.governing_tread_mm IS NOT NULL THEN 'READING'
 		            WHEN f.fitted_tread_mm IS NOT NULL THEN 'AUDIT' END,
 		       CASE WHEN lr.governing_tread_mm IS NOT NULL THEN app.tenant_days_since(lr.submitted_at)
-		            WHEN f.fitted_tread_mm IS NOT NULL THEN app.tenant_days_since(f.fitted_at) END
+		            WHEN f.fitted_tread_mm IS NOT NULL THEN app.tenant_days_since(f.fitted_at) END,
+		       lr.inspection_id, lr.reading_id,
+		       COALESCE(ir.measurements::float8[], '{}'), COALESCE(ir.anatomy::text[], '{}'),
+		       ir.orientation_known, ir.governing_ordinal - 1
 		  FROM app.vehicle v
 		  JOIN app.position p ON p.configuration_id = v.configuration_id
 		  LEFT JOIN app.fitment f ON f.position_id = p.id AND f.vehicle_id = v.id AND f.removed_at IS NULL
 		  LEFT JOIN app.tyre t ON t.id = f.tyre_id
 		  LEFT JOIN app.tyre_size s ON s.id = t.size_id
 		  LEFT JOIN LATERAL (
-		    SELECT d.governing_tread_mm, d.submitted_at
+		    SELECT d.governing_tread_mm, d.submitted_at, d.inspection_id, d.reading_id
 		      FROM app.v_reading_detail d
 		      JOIN app.inspection i ON i.id = d.inspection_id
 		     WHERE d.tyre_id = f.tyre_id AND d.vehicle_id = v.id
@@ -263,6 +308,10 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 		     -- Ties break as app.v_latest_unit_inspection does (000045).
 		     ORDER BY d.submitted_at DESC, i.received_at DESC, d.inspection_id, d.reading_id
 		     LIMIT 1) lr ON true
+		  -- FR-RPT-015, CR-011: the set behind that reading, from the view the
+		  -- inspection read draws from (000065), which locates the stored
+		  -- minimum and computes none.
+		  LEFT JOIN app.v_inspection_reading ir ON ir.reading_id = lr.reading_id
 		 WHERE v.id = $1
 		 ORDER BY p.sequence`, id)
 	if err != nil {
@@ -285,11 +334,17 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 			lastTreadSource                           *string
 			lastTreadAgeDays                          *int
 			retreadCount                              *int
+			inspectionID, readingID                   *uuid.UUID
+			treadsMm                                  []float64
+			treadAnatomy                              []string
+			orientationKnown                          *bool
+			governingIndex                            *int
 		)
 		if err := prows.Scan(&posID, &code, &sequence, &axleNumber, &axleClass, &side, &slot, &isSpare,
 			&fitmentID, &tyreID, &displayCode, &fittedAt, &fittedOdometer, &fittedTreadMm,
 			&mountOrientation, &tyreStatus, &retreadCount, &sizeName, &lastTreadMm, &lastTreadSource,
-			&lastTreadAgeDays); err != nil {
+			&lastTreadAgeDays, &inspectionID, &readingID, &treadsMm, &treadAnatomy,
+			&orientationKnown, &governingIndex); err != nil {
 			return unitJSON{}, fmt.Errorf("scanning unit position: %w", err)
 		}
 		pos := unitPositionJSON{
@@ -311,6 +366,16 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 				LastTreadMm:      lastTreadMm,
 				LastTreadSource:  lastTreadSource,
 				LastTreadAgeDays: lastTreadAgeDays,
+			}
+			if readingID != nil && inspectionID != nil {
+				pos.Fitment.LastReading = &lastReadingJSON{
+					InspectionID:     *inspectionID,
+					ReadingID:        *readingID,
+					TreadsMm:         treadsMm,
+					TreadAnatomy:     treadAnatomy,
+					OrientationKnown: orientationKnown,
+					GoverningIndex:   governingIndex,
+				}
 			}
 		}
 		u.Positions = append(u.Positions, pos)
@@ -459,17 +524,21 @@ func listOpenFitments(s *store.Store) http.HandlerFunc {
 			}
 			// daysFitted is (today - fitted_at's day) in the tenant's own civil
 			// calendar (rule 6), both resolved through app.tenant_today so the
-			// timezone conversion happens exactly once (000015).
+			// timezone conversion happens exactly once (000015). A unit's rows
+			// run in its configuration's order; fleet numbers are sorted in
+			// natural order by the web, which holds the one comparator
+			// (TYRE-327, NFR-USE-012).
 			rows, err := tx.Query(ctx, `
 				SELECT f.id, f.vehicle_id, v.fleet_number, p.code, f.tyre_id, t.display_code, f.fitted_at,
-				       (app.tenant_today(tn.timezone) - app.tenant_today(tn.timezone, f.fitted_at))::int
+				       (app.tenant_today(tn.timezone) - app.tenant_today(tn.timezone, f.fitted_at))::int,
+				       p.sequence
 				  FROM app.fitment f
 				  JOIN app.vehicle v  ON v.id = f.vehicle_id
 				  JOIN app.position p ON p.id = f.position_id
 				  JOIN app.tyre t     ON t.id = f.tyre_id
 				  JOIN app.tenant tn  ON tn.id = f.tenant_id
 				 WHERE f.removed_at IS NULL
-				 ORDER BY v.fleet_number, p.code`)
+				 ORDER BY v.fleet_number, p.sequence`)
 			if err != nil {
 				return fmt.Errorf("listing open fitments: %w", err)
 			}
@@ -479,16 +548,17 @@ func listOpenFitments(s *store.Store) http.HandlerFunc {
 					fitmentID, vehicleID, tyreID           uuid.UUID
 					fleetNumber, positionCode, displayCode string
 					fittedAt                               time.Time
-					daysFitted                             int
+					daysFitted, sequence                   int
 				)
 				if err := rows.Scan(&fitmentID, &vehicleID, &fleetNumber, &positionCode, &tyreID, &displayCode,
-					&fittedAt, &daysFitted); err != nil {
+					&fittedAt, &daysFitted, &sequence); err != nil {
 					return fmt.Errorf("scanning open fitment row: %w", err)
 				}
 				out = append(out, fleetFitmentJSON{
 					FitmentID: fitmentID.String(), VehicleID: vehicleID.String(), FleetNumber: fleetNumber,
 					PositionCode: positionCode, TyreID: tyreID.String(), DisplayCode: displayCode,
 					FittedAt: fittedAt.UTC().Format(time.RFC3339), DaysFitted: daysFitted,
+					Sequence: sequence,
 				})
 			}
 			return rows.Err()

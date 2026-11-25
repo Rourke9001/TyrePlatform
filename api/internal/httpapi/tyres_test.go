@@ -313,6 +313,61 @@ func TestListTyresIncludesMoneyForAViewValuationHolder(t *testing.T) {
 	require.Equal(t, "2000.00", *found.PurchasePrice)
 }
 
+// NFR-PRO-001, BR-VAL-004, U253: each money figure carries its basis, and
+// the casing value is the one valuation's, so a retreaded casing reads the
+// retreader's figure and not the column it was received on.
+func TestListTyresCarriesTheBasisAndTheValuationsCasing(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "tyres-basis")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	suffix := uuid.NewString()[:8]
+	price := "2000.00"
+	retreaded := plantTyre(t, ctx, admin, tenantID, "BASIS-A-"+suffix, &price)
+	_, err := admin.Exec(ctx,
+		`UPDATE app.tyre SET cost_source = 'INVOICE', casing_value = 800.00 WHERE id = $1`, retreaded)
+	require.NoError(t, err)
+	retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
+	var job uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.retread_job (tenant_id, tyre_id, retreader_depot_id, sent_at)
+		 VALUES ($1, $2, $3, current_date - 10) RETURNING id`,
+		tenantID, retreaded, retreader).Scan(&job))
+	_, err = admin.Exec(ctx,
+		`INSERT INTO app.casing_valuation (tenant_id, tyre_id, value, source, retread_job_id, effective_from)
+		 VALUES ($1, $2, 900.00, 'RETREADER', $3, current_date - 1)`,
+		tenantID, retreaded, job)
+	require.NoError(t, err)
+	audited := plantTyre(t, ctx, admin, tenantID, "BASIS-B-"+suffix, nil)
+	_, err = admin.Exec(ctx, `UPDATE app.tyre SET casing_value = 700.00 WHERE id = $1`, audited)
+	require.NoError(t, err)
+
+	rec := get(t, h, "/api/tyres", tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Tyres []struct {
+			ID          string  `json:"id"`
+			CostSource  *string `json:"costSource"`
+			CasingValue *string `json:"casingValue"`
+			CasingBasis *string `json:"casingBasis"`
+		} `json:"tyres"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	got := map[string]string{}
+	for _, row := range body.Tyres {
+		require.NotNil(t, row.CostSource, "tyre %s carries no cost source", row.ID)
+		require.NotNil(t, row.CasingValue, "tyre %s carries no casing value", row.ID)
+		require.NotNil(t, row.CasingBasis, "tyre %s carries no casing basis", row.ID)
+		got[row.ID] = *row.CostSource + " " + *row.CasingValue + " " + *row.CasingBasis
+	}
+	require.Equal(t, map[string]string{
+		retreaded.String(): "INVOICE 900.00 ACTUAL",
+		audited.String():   "UNKNOWN 700.00 AUDIT",
+	}, got)
+}
+
 type receivedTyresBody struct {
 	Tyres []struct {
 		ID          string `json:"id"`

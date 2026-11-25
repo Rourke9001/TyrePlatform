@@ -41,6 +41,8 @@ type tyreRow struct {
 	purchasePrice *string
 	randPerMm     *string
 	casingValue   *string
+	costSource    *string
+	casingBasis   *string
 	receiptID     *string
 }
 
@@ -63,6 +65,12 @@ type tyreJSON struct {
 	PurchasePrice *string `json:"purchasePrice,omitempty"`
 	RandPerMm     *string `json:"randPerMm,omitempty"`
 	CasingValue   *string `json:"casingValue,omitempty"`
+	// The basis each figure rests on (NFR-PRO-001): the stored cost source
+	// for the price and the rate derived from it (BR-VAL-002), and the
+	// valuation's own basis for the casing (BR-VAL-004). Each follows the
+	// money's projection, since it describes a figure the actor may not see.
+	CostSource  *string `json:"costSource,omitempty"`
+	CasingBasis *string `json:"casingBasis,omitempty"`
 	// The receipt a received tyre is priced on (FR-CFG-041); null for a tyre
 	// received before receipts existed, which keeps per-tyre costing.
 	ReceiptID *string `json:"receiptId"`
@@ -72,12 +80,12 @@ type tyreJSON struct {
 }
 
 // tyreJSONFor is the FR-AUT-005a projection: every field copies straight
-// across except the three money fields, which are nilled unless the actor
-// holds ViewValuation. It is a pure function of its two arguments so the
-// no-money branch is unit-testable directly. Every role that can reach
-// listTyres today (gated on ManageAssets) also holds ViewValuation, so that
-// branch is not reachable by driving the handler; see
-// TestTyreJSONForProjectsMoneyByCapability.
+// across except the three money fields and their two bases, which are nilled
+// unless the actor holds ViewValuation. It is a pure function of its two
+// arguments so the no-money branch is unit-testable directly. Every role
+// that can reach listTyres today (gated on ManageAssets) also holds
+// ViewValuation, so that branch is not reachable by driving the handler;
+// see TestTyreJSONForProjectsMoneyByCapability.
 func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 	j := tyreJSON{
 		ID:            row.id.String(),
@@ -94,12 +102,16 @@ func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 		PurchasePrice: row.purchasePrice,
 		RandPerMm:     row.randPerMm,
 		CasingValue:   row.casingValue,
+		CostSource:    row.costSource,
+		CasingBasis:   row.casingBasis,
 		ReceiptID:     row.receiptID,
 	}
 	if !canSeeMoney {
 		j.PurchasePrice = nil
 		j.RandPerMm = nil
 		j.CasingValue = nil
+		j.CostSource = nil
+		j.CasingBasis = nil
 	}
 	return j
 }
@@ -148,17 +160,23 @@ func listTyres(s *store.Store) http.HandlerFunc {
 			// (WHERE purchase_price IS NULL AND state NOT IN
 			// ('SCRAPPED','LOST','SOLD'), migration 000012). See this
 			// function's doc comment for why the flag and the filter share it.
+			//
+			// The casing value and its basis are today's slice of the one
+			// valuation, the dashboard's figure (U253), read from
+			// app.v_tyre_valuation rather than restating its fallback here.
 			sql := `SELECT t.id, t.display_code, t.state::text, t.status::text,
 			               t.retread_count, s.name, b.name, p.name,
 			               t.received_date::text, (v.tyre_id IS NOT NULL),
-			               t.purchase_price::text, t.rand_per_mm::text, t.casing_value::text,
+			               t.purchase_price::text, t.rand_per_mm::text, tv.casing_value::text,
+			               t.cost_source::text, tv.casing_basis::text,
 			               t.receipt_id::text, (m.tyre_id IS NOT NULL)
 			          FROM app.tyre t
 			          LEFT JOIN app.tyre_size    s ON s.id = t.size_id
 			          LEFT JOIN app.tyre_brand   b ON b.id = t.brand_id
 			          LEFT JOIN app.tyre_pattern p ON p.id = t.pattern_id
 			          LEFT JOIN app.v_tyre_awaiting_cost v ON v.tyre_id = t.id
-			          LEFT JOIN app.v_tyre_code_to_mark  m ON m.tyre_id = t.id`
+			          LEFT JOIN app.v_tyre_code_to_mark  m ON m.tyre_id = t.id
+			          LEFT JOIN app.v_tyre_valuation    tv ON tv.tyre_id = t.id`
 			var args []any
 			switch {
 			case code != "":
@@ -183,7 +201,8 @@ func listTyres(s *store.Store) http.HandlerFunc {
 				if err := rows.Scan(&row.id, &row.displayCode, &row.state, &row.status,
 					&row.retreadCount, &row.sizeName, &row.brandName, &row.patternName,
 					&row.receivedDate, &row.awaitingCost,
-					&row.purchasePrice, &row.randPerMm, &row.casingValue, &row.receiptID,
+					&row.purchasePrice, &row.randPerMm, &row.casingValue,
+					&row.costSource, &row.casingBasis, &row.receiptID,
 					&row.codePending); err != nil {
 					return fmt.Errorf("scanning tyre: %w", err)
 				}
