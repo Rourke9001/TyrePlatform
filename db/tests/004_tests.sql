@@ -17713,6 +17713,53 @@ BEGIN
 END $$;
 ROLLBACK;
 
+-- 83l's body, run once at each level above READ COMMITTED. Dropped after.
+CREATE FUNCTION pg_temp.t83_above_read_committed(p_level text) RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE
+  bac  uuid := '11111111-1111-1111-1111-111111111111';
+  vt   uuid := md5('t83t')::uuid;
+  want text := format('25000 a movement runs at read committed isolation, not %s', p_level);
+  tz text; today date;
+BEGIN
+  IF current_setting('transaction_isolation') IS DISTINCT FROM p_level THEN
+    RAISE EXCEPTION 'FAIL 83l: the case runs at %, not %', current_setting('transaction_isolation'), p_level;
+  END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  PERFORM pg_temp.t83_units();
+  INSERT INTO app.fitment (id, tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
+                           fitted_tread_mm, mount_orientation)
+  SELECT md5('t83' || s.name)::uuid, bac, pg_temp.t83_tyre(s.name, 'FITTED'), vt, pg_temp.t83_pos(s.code),
+         app.tenant_day_instant(today - 5), 12.0, 'MARK_OUTBOARD'
+    FROM (VALUES ('l-rm', '3'), ('l-x', '5'), ('l-y', '6')) s(name, code);
+  PERFORM pg_temp.t83_says(format('83l a fit at %s', p_level),
+    format('SELECT app.fit_tyre(%L, %L, %L, 12.0, ''MARK_OUTBOARD'', p_reason => ''83l'', p_occurred_on => %L)',
+           pg_temp.t83_tyre('l-fit'), vt, pg_temp.t83_pos('1'), today - 1), want);
+  PERFORM pg_temp.t83_says(format('83l a removal at %s', p_level),
+    format('SELECT app.remove_tyre(%L, ''damage'', 10.0, p_backdate_reason => ''83l'', p_occurred_on => %L)',
+           md5('t83l-rm')::uuid, today - 1), want);
+  PERFORM pg_temp.t83_says(format('83l a rotation at %s', p_level),
+    format('SELECT app.rotate_tyres(%L, %L::jsonb, p_backdate_reason => ''83l'', p_occurred_on => %L)',
+           vt, jsonb_build_array(
+             jsonb_build_object('tyre_id', md5('t83l-x')::uuid, 'to_position_id', pg_temp.t83_pos('7'), 'tread_mm', 10.0),
+             jsonb_build_object('tyre_id', md5('t83l-y')::uuid, 'to_position_id', pg_temp.t83_pos('5'), 'tread_mm', 10.0)),
+           today - 1), want);
+  PERFORM pg_temp.t83_closing('83l ' || p_level);
+  RAISE NOTICE 'PASS  83l a fit, a removal and a rotation at % are refused', p_level;
+END $fn$;
+
+\echo '== 83l. a fit, a removal and a rotation refuse a transaction above READ COMMITTED, whose snapshot the pair lock''s wait cannot refresh (BR-FIT-002, TYRE-240 F7; 83k is the READ COMMITTED control; as BAC, rolled back)'
+BEGIN ISOLATION LEVEL REPEATABLE READ;
+SELECT pg_temp.t83_above_read_committed('repeatable read');
+ROLLBACK;
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+SELECT pg_temp.t83_above_read_committed('serializable');
+ROLLBACK;
+DROP FUNCTION pg_temp.t83_above_read_committed(text);
+
 DROP FUNCTION pg_temp.t83_closing(text);
 DROP FUNCTION pg_temp.t83_says(text, text, text);
 DROP FUNCTION pg_temp.t83_tyre(text, app.tyre_state);

@@ -182,6 +182,16 @@ SET search_path = app, pg_temp AS $$
 DECLARE
   k record;
 BEGIN
+  -- The reads after the wait see the first writer's rows only at READ
+  -- COMMITTED, where each statement takes a new snapshot. Above it the
+  -- snapshot predates the wait, so a pair filled and vacated since reads
+  -- empty (TYRE-240 F7, https://www.postgresql.org/docs/16/transaction-iso.html).
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION USING ERRCODE = 'invalid_transaction_state',
+      MESSAGE = format('a movement runs at read committed isolation, not %s',
+                       current_setting('transaction_isolation')),
+      HINT    = 'begin the transaction at READ COMMITTED, as the API does (BR-FIT-002)';
+  END IF;
   FOR k IN SELECT DISTINCT hashtext(app.current_tenant_id() || '/' || pair.vehicle_id
                                     || '/' || pair.position_id) AS key
              FROM unnest(p_vehicles, p_positions) AS pair(vehicle_id, position_id)
