@@ -28,6 +28,7 @@ function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
     randPerMm: "150.25" as Money,
     casingValue: "800.00" as Money,
     costSource: "INVOICE",
+    rateBasis: "INVOICE",
     casingBasis: "ACTUAL",
     receiptId: null,
     codePending: false,
@@ -1020,8 +1021,19 @@ describe("the register's money bases and absences", () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, {
         tyres: [
-          tyre({ id: "t1", displayCode: "EST1", costSource: "PRICE_LIST_ESTIMATE" }),
-          tyre({ id: "t2", displayCode: "UNK1", costSource: "UNKNOWN", casingBasis: "AUDIT" }),
+          tyre({
+            id: "t1",
+            displayCode: "EST1",
+            costSource: "PRICE_LIST_ESTIMATE",
+            rateBasis: "PRICE_LIST_ESTIMATE",
+          }),
+          tyre({
+            id: "t2",
+            displayCode: "UNK1",
+            costSource: "UNKNOWN",
+            rateBasis: "UNKNOWN",
+            casingBasis: "AUDIT",
+          }),
         ],
       }),
     );
@@ -1032,6 +1044,29 @@ describe("the register's money bases and absences", () => {
     const unknown = rowOf("UNK1");
     expect(cellUnder(unknown, "Cost per mm").textContent).toBe("R150.25 source not recorded");
     expect(cellUnder(unknown, "Casing value").textContent).toBe("R800.00 audit valuation");
+  });
+
+  // BR-VAL-006 (TYRE-240 F3): the server names the rate's basis apart from
+  // the price's, since a retread return re-rates the casing.
+  it("names a retreaded casing's rate the retread cost, and keeps its price's basis", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, {
+        tyres: [
+          tyre({
+            id: "t1",
+            displayCode: "RET1",
+            costSource: "PRICE_LIST_ESTIMATE",
+            rateBasis: "RETREAD_COST",
+          }),
+        ],
+      }),
+    );
+    renderScreen();
+
+    await screen.findAllByRole("rowheader");
+    const row = rowOf("RET1");
+    expect(cellUnder(row, "Purchase price").textContent).toBe("R1,200.00 estimated");
+    expect(cellUnder(row, "Cost per mm").textContent).toBe("R150.25 retread cost");
   });
 
   it("reads an absent figure as not valued, never as a dash", async () => {

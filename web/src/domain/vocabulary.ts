@@ -160,6 +160,13 @@ export function costSourceLabel(code: string): string {
   return COST_SOURCE_LABELS[code] ?? code;
 }
 
+// What the cost per mm rests on: RETREAD_COST once an accepted retread
+// return has re-rated the casing (BR-VAL-006), otherwise the cost source.
+// The server decides which (listTyres, tyres.go).
+export function rateBasisLabel(code: string): string {
+  return code === "RETREAD_COST" ? "retread cost" : costSourceLabel(code);
+}
+
 // FR-TYR-010's states, app.tyre_state (Appendix C).
 const TYRE_STATE_LABELS: Record<string, string> = {
   IN_STOCK: "In stock",
