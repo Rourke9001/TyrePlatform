@@ -729,7 +729,10 @@ BEGIN
   -- it must not be able to keep half a rotation (FR-FIT-010, FR-FIT-014).
   -- The checks run as ordered passes rather than per move: a later pass's
   -- rule cannot pre-empt an earlier pass's, so an occupancy or tread answer
-  -- never arrives ahead of a visibility one (suite 41n).
+  -- never arrives ahead of a visibility one (suite 41n). The day path's
+  -- placement answers before every pass, since the rig is read at its stamp.
+  -- It reads only this fleet's rows (app.last_movement), so its answer says
+  -- nothing about another fleet's unit or tyre (U11).
   FOR m IN SELECT e.value FROM jsonb_array_elements(p_moves) e LOOP
     -- U15: a move names where the casing is going. Where it is coming from is
     -- derived from its open fitment, which is already the one answer to where
