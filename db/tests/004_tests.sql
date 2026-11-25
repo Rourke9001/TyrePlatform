@@ -4984,16 +4984,20 @@ BEGIN
   -- hours so TY014's separate backdate rule (FR-FIT-016) does not fire
   -- instead. On vh (HORSE): TY009 (000025) needs a fitted_odometer even on a
   -- raw INSERT, supplied here though app.remove_tyre never reads it.
+  -- The refusal names the instant exactly in BAC's time, +02:00 all year,
+  -- not in the session's (rule 6, TYRE-240 M7). A whole second keeps the
+  -- expected text free of a fraction.
   INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
                            fitted_odometer, fitted_tread_mm)
-  VALUES (bac, ty9, vh, p9, now() - interval '1 hour', 300000, 12.0)
+  VALUES (bac, ty9, vh, p9, date_trunc('second', now()) - interval '1 hour', 300000, 12.0)
   RETURNING id INTO fitu;
   BEGIN
     PERFORM app.remove_tyre(fitu, 'damage', 9.0, 300500, now() - interval '2 hours');
     RAISE EXCEPTION 'FAIL 41u: a removal predating its own fitment, with no to_state event to catch it, was accepted';
   EXCEPTION WHEN sqlstate 'TY012' THEN
-    IF SQLERRM <> format('this tyre was fitted at %s; a removal cannot predate its own fitment',
-                         (SELECT f.fitted_at FROM app.fitment f WHERE f.id = fitu)) THEN
+    IF SQLERRM <> format('this tyre was fitted at %s+02:00; a removal cannot predate its own fitment',
+                         (SELECT to_char(f.fitted_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI:SS')
+                            FROM app.fitment f WHERE f.id = fitu)) THEN
       RAISE EXCEPTION 'FAIL 41u: wrong TY012 message: %', SQLERRM;
     END IF;
     RAISE NOTICE 'PASS  41u a removal cannot predate the fitment it closes, even with no bounding event';
@@ -5015,8 +5019,10 @@ BEGIN
       jsonb_build_object(vh::text, 310000), now() - interval '2 hours');
     RAISE EXCEPTION 'FAIL 41v: a rotation predating one moved tyre''s own fitment was accepted';
   EXCEPTION WHEN sqlstate 'TY012' THEN
-    IF SQLERRM NOT LIKE format('tyre %s was fitted at%%', ty9) THEN
-      RAISE EXCEPTION 'FAIL 41v: the refusal does not name the tyre and instant: %', SQLERRM;
+    IF SQLERRM <> format('tyre %s was fitted at %s+02:00; a rotation cannot predate its own fitment',
+                         ty9, (SELECT to_char(f.fitted_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI:SS')
+                                 FROM app.fitment f WHERE f.id = fitu)) THEN
+      RAISE EXCEPTION 'FAIL 41v: the refusal does not name the tyre and instant in BAC''s time: %', SQLERRM;
     END IF;
     RAISE NOTICE 'PASS  41v a rotation cannot predate any moved tyre''s own fitment';
   END;
