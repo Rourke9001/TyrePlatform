@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 import { useActor, useActorSettled } from "../auth/actorContext";
 
@@ -84,11 +84,13 @@ export function tenantDayIso(at: number | Date, timeZone: string): string {
 }
 
 // The tenant's today, in the actor's zone, UTC until GET /api/me arrives.
-// It only decides when a form shows its reason field: the database judges
-// the day (000067).
+// Read from the instant the form mounted, as the capture screens hold
+// theirs; it only decides when a form shows its reason field, and the
+// database judges the day (000067).
 export function useTenantToday(): string {
   const actor = useActor();
-  return tenantDayIso(Date.now(), actor?.timezone ?? "UTC");
+  const [mountedAt] = useState(() => Date.now());
+  return tenantDayIso(mountedAt, actor?.timezone ?? "UTC");
 }
 
 const instantFormatters = new Map<string, Intl.DateTimeFormat>();

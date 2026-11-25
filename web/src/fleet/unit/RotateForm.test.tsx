@@ -625,3 +625,79 @@ describe("rotating tyres across the units of a rig", () => {
     expect(screen.queryByRole("textbox", { name: "Odometer" })).toBeNull();
   });
 });
+
+// FR-FIT-016 as amended (U253): a rotation takes the day it happened, and an
+// earlier day says why.
+describe("a rotation recorded for an earlier day", () => {
+  const WHY = "Why it is recorded late";
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    wireFetch({});
+    vi.useFakeTimers({ now: new Date("2026-11-25T10:00:00Z"), toFake: ["Date"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function pickTheSwap(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("checkbox", { name: "Rotate POS1" }));
+    await user.click(screen.getByRole("checkbox", { name: "Rotate POS2" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target for POS1" }), "p2");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target for POS2" }), "p1");
+    await user.type(screen.getByRole("textbox", { name: "Tread for POS1" }), "11.0");
+    await user.type(screen.getByRole("textbox", { name: "Tread for POS2" }), "12.5");
+  }
+
+  it("asks why for an earlier day and sends the day with the reason", async () => {
+    const user = userEvent.setup();
+    renderForm({ hasOdometer: false });
+    await pickTheSwap(user);
+
+    expect(screen.queryByRole("textbox", { name: WHY })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Occurred on"), { target: { value: "2026-11-20" } });
+    const why = screen.getByRole("textbox", { name: WHY });
+    await user.type(why, "  ");
+    await user.click(screen.getByRole("button", { name: "Rotate" }));
+    expect(
+      await screen.findByText("Say why this movement is recorded for an earlier day."),
+    ).toBeTruthy();
+    expect(rotationCalls()).toHaveLength(0);
+
+    await user.clear(why);
+    await user.type(why, "job card");
+    await user.click(screen.getByRole("button", { name: "Rotate" }));
+    expect(await screen.findByText("The rotation was applied.")).toBeTruthy();
+    expect(rotationBody()).toEqual({
+      moves: [
+        { tyreId: "t1", toPositionId: "p2", treadMm: "11.0" },
+        { tyreId: "t2", toPositionId: "p1", treadMm: "12.5" },
+      ],
+      occurredOn: "2026-11-20",
+      backdateReason: "job card",
+    });
+  });
+
+  // Review Focus 3: max does not stop a typed day, so a later one goes to
+  // the database, which refuses it in words; it is never recorded as today.
+  it("sends a typed future day and speaks the database's refusal", async () => {
+    const message = "a movement is recorded on or before today, never on a future date";
+    wireFetch({ rotation: () => respond(422, { code: "TY014", message }) });
+    const user = userEvent.setup();
+    renderForm({ hasOdometer: false });
+    await pickTheSwap(user);
+
+    fireEvent.change(screen.getByLabelText("Occurred on"), { target: { value: "2999-01-01" } });
+    submitPastValidation();
+
+    expect((await screen.findByRole("alert")).textContent).toBe(message);
+    expect(rotationBody()).toEqual({
+      moves: [
+        { tyreId: "t1", toPositionId: "p2", treadMm: "11.0" },
+        { tyreId: "t2", toPositionId: "p1", treadMm: "12.5" },
+      ],
+      occurredOn: "2999-01-01",
+    });
+  });
+});

@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
@@ -825,5 +825,148 @@ describe("a position panel's latest reading", () => {
 
     expect(await screen.findByText("780 kPa, cold, no target for a spare")).toBeInTheDocument();
     expect(screen.getByText("No open exceptions on this position.")).toBeInTheDocument();
+  });
+});
+
+// FR-FIT-016 as amended (U253): the fit and removal forms take the day it
+// happened, and an earlier day says why. The form only shows the reason
+// field early; the database decides.
+describe("a fit or a removal recorded for an earlier day", () => {
+  const WHY = "Why it is recorded late";
+  const WHY_REQUIRED = "Say why this movement is recorded for an earlier day.";
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    vi.useFakeTimers({ now: new Date("2026-11-25T10:00:00Z"), toFake: ["Date"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function writes(suffix: string): number[] {
+    return vi
+      .mocked(fetch)
+      .mock.calls.flatMap((call, index) => (requestedUrl(call[0]).endsWith(suffix) ? [index] : []));
+  }
+
+  it("asks a fit for an earlier day why, and sends the day and the reason", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPanel(unitPosition({ id: "p1", code: "POS1" }), { id: "u9", hasOdometer: false });
+
+    await screen.findByRole("option", { name: "TY007" });
+    expect(screen.queryByRole("textbox", { name: WHY })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Occurred on"), { target: { value: "2026-11-20" } });
+    const why = screen.getByRole("textbox", { name: WHY });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Tyre" }), "t7");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "15.5");
+    await user.type(why, "  ");
+    await user.click(screen.getByRole("button", { name: "Fit tyre" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(WHY_REQUIRED);
+    expect(writes("/fitments")).toHaveLength(0);
+
+    await user.clear(why);
+    await user.type(why, "fitted from the job card");
+    await user.click(screen.getByRole("button", { name: "Fit tyre" }));
+    await waitFor(() => expect(writes("/fitments")).toHaveLength(1));
+    expect(sentBody(writes("/fitments")[0])).toEqual({
+      tyreId: "t7",
+      positionId: "p1",
+      treadMm: "15.5",
+      mountOrientation: "UNKNOWN",
+      occurredOn: "2026-11-20",
+      reason: "fitted from the job card",
+    });
+  });
+
+  it("asks a removal for an earlier day why, and sends it as the back-date reason", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPanel(
+      unitPosition({ id: "p2", code: "POS2", fitment: openFitment({ fitmentId: "f4" }) }),
+      { hasOdometer: false, removalReasons: ["Worn out"] },
+    );
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Reason" }), "Worn out");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "4.5");
+    expect(screen.queryByRole("textbox", { name: WHY })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Occurred on"), { target: { value: "2026-11-20" } });
+    const why = screen.getByRole("textbox", { name: WHY });
+    await user.type(why, "  ");
+    await user.click(screen.getByRole("button", { name: "Remove tyre" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(WHY_REQUIRED);
+    expect(writes("/remove")).toHaveLength(0);
+
+    await user.clear(why);
+    await user.type(why, "job card");
+    await user.click(screen.getByRole("button", { name: "Remove tyre" }));
+    await waitFor(() => expect(writes("/remove")).toHaveLength(1));
+    expect(sentBody(writes("/remove")[0])).toEqual({
+      reason: "Worn out",
+      treadMm: "4.5",
+      occurredOn: "2026-11-20",
+      backdateReason: "job card",
+    });
+  });
+
+  // A browser clock behind the server's reads the server's yesterday as
+  // today and hides the field; the database's TY014 then opens it, so the
+  // refusal leaves the user something to fill (red team Minor).
+  it("opens the reason field after the database asks why", async () => {
+    let call = 0;
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = requestedUrl(input);
+      if (url.endsWith("/remove")) {
+        call += 1;
+        return Promise.resolve(
+          call === 1
+            ? respond(422, {
+                code: "TY014",
+                message: "a movement recorded for an earlier day records why",
+              })
+            : new Response(null, { status: 204 }),
+        );
+      }
+      throw new Error(`unstubbed ${url}`);
+    });
+    const user = userEvent.setup();
+    renderPanel(
+      unitPosition({ id: "p2", code: "POS2", fitment: openFitment({ fitmentId: "f4" }) }),
+      { hasOdometer: false, removalReasons: ["Worn out"] },
+    );
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Reason" }), "Worn out");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "4.5");
+    fireEvent.change(screen.getByLabelText("Occurred on"), { target: { value: "2026-11-25" } });
+    expect(screen.queryByRole("textbox", { name: WHY })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Remove tyre" }));
+
+    const why = await screen.findByRole("textbox", { name: WHY });
+    await user.type(why, "office was shut");
+    await user.click(screen.getByRole("button", { name: "Remove tyre" }));
+    await waitFor(() => expect(writes("/remove")).toHaveLength(2));
+    expect(sentBody(writes("/remove")[1])).toEqual({
+      reason: "Worn out",
+      treadMm: "4.5",
+      occurredOn: "2026-11-25",
+      backdateReason: "office was shut",
+    });
+  });
+
+  // Review Focus 2: 23:30 UTC is already the 25th in Johannesburg, so the
+  // 25th is today and the 24th is earlier, whatever UTC says.
+  it("reads today in the tenant's zone, not the browser's", async () => {
+    vi.setSystemTime(new Date("2026-11-24T23:30:00Z"));
+    stubFetch();
+    renderPanel(unitPosition({ id: "p1", code: "POS1" }), { hasOdometer: false });
+
+    await screen.findByRole("option", { name: "TY007" });
+    fireEvent.change(screen.getByLabelText("Occurred on"), { target: { value: "2026-11-25" } });
+    expect(screen.queryByRole("textbox", { name: WHY })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Occurred on"), { target: { value: "2026-11-24" } });
+    expect(screen.getByRole("textbox", { name: WHY })).toBeTruthy();
   });
 });
