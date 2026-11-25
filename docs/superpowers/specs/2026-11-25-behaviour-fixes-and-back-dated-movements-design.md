@@ -207,8 +207,9 @@ the wording above and stand with it.*
   fitments. A closure with no event exists in seeded and imported data
   (`db/seeds/gen_seed_volume.py:286-292`), and a movement by day could
   otherwise land before it (red team I-6, BR-FIT-001).*
-- *A fitment opened and closed at one instant occupies no time, and the
-  position half ignores it.*
+- *A fitment opened and closed at one instant occupies no time, and both
+  halves ignore its closure. The tyre half still reads the events the
+  movement functions wrote for it.*
 - *The forms send the day whenever the field is filled, so the database
   refuses a typed future day in words. The reason field also opens after a
   `TY014` refusal, for a browser whose clock is behind the server's.*
