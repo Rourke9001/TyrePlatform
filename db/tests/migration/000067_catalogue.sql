@@ -28,7 +28,8 @@ SELECT line FROM (
                  ('app.last_movement(uuid[],uuid[],uuid[])'),
                  ('app.place_movement(date,uuid[],uuid[],uuid[])'),
                  ('app.backdate_reason_ok(date,text)'),
-                 ('app.positions_free_at(timestamp with time zone,uuid[],uuid[])')) f(sig)
+                 ('app.positions_free_at(timestamp with time zone,uuid[],uuid[])'),
+                 ('app.lock_position_pairs(uuid[],uuid[])')) f(sig)
   UNION ALL
   SELECT format('config removal_reason_labels %s', count(*))
     FROM app.configuration c WHERE c.key = 'removal_reason_labels'

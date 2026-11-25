@@ -148,6 +148,32 @@ BEGIN
   END IF;
 END $$;
 
+-- BR-FIT-002 between concurrent writers. Placement and positions_free_at
+-- read committed rows, so a pair another open transaction has filled and
+-- vacated reads empty. Every function that fills or vacates a (unit,
+-- position) pair takes this lock first, to the end of its transaction, so
+-- the second writer waits and reads the first's rows. In key order, so
+-- writers over shared pairs queue rather than deadlock. Class 240 is apart
+-- from the daily job's 371 (api/internal/job/daily.go). A raw INSERT into
+-- app.fitment takes no lock.
+CREATE FUNCTION app.lock_position_pairs(p_vehicles uuid[], p_positions uuid[])
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  k record;
+BEGIN
+  FOR k IN SELECT DISTINCT hashtext(app.current_tenant_id() || '/' || pair.vehicle_id
+                                    || '/' || pair.position_id) AS key
+             FROM unnest(p_vehicles, p_positions) AS pair(vehicle_id, position_id)
+            WHERE pair.vehicle_id IS NOT NULL AND pair.position_id IS NOT NULL
+            ORDER BY 1 LOOP
+    PERFORM pg_advisory_xact_lock(240, k.key);
+  END LOOP;
+END $$;
+
+REVOKE ALL ON FUNCTION app.lock_position_pairs(uuid[], uuid[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.lock_position_pairs(uuid[], uuid[]) TO app_rw;
 REVOKE ALL ON FUNCTION app.last_movement(uuid[], uuid[], uuid[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.last_movement(uuid[], uuid[], uuid[]) TO app_rw;
 REVOKE ALL ON FUNCTION app.place_movement(date, uuid[], uuid[], uuid[]) FROM PUBLIC;
@@ -259,6 +285,9 @@ BEGIN
       MESSAGE = format('a fitment records its tread in millimetres, above 0 and at most %s',
                        app.max_tread_mm());
   END IF;
+  -- The pair's writers queue here, ahead of every read of it below
+  -- (app.lock_position_pairs, BR-FIT-002).
+  PERFORM app.lock_position_pairs(ARRAY[p_vehicle], ARRAY[p_position]);
   -- Waits out an in-flight closure of the target so placement reads it.
   -- It refuses nothing: occupancy stays the index's rule (header of 000033).
   PERFORM 1 FROM app.fitment f
@@ -424,13 +453,16 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'TY014',
       MESSAGE = 'a movement names a day or an instant, not both';
   END IF;
-  -- Casing first, then fitment. That is the order app.fit_tyre and
-  -- app.rotate_tyres take their locks in, and reversing it here would let a
-  -- rotation and a removal of one casing deadlock against each other.
-  -- Re-reading the fitment under the casing's lock is what makes a
-  -- concurrent second removal answer 'already closed' below, instead of
-  -- falling through to the trigger's TY014 (000032).
+  -- Casing, then the pair it vacates (app.lock_position_pairs, BR-FIT-002),
+  -- then fitment. That is the order app.fit_tyre and app.rotate_tyres take
+  -- their locks in, and reversing it here would let one of them and a
+  -- removal deadlock against each other. A fitment's unit and position never
+  -- change (000032), so the unlocked read above names the pair. Re-reading
+  -- the fitment under the casing's lock is what makes a concurrent second
+  -- removal answer 'already closed' below, instead of falling through to the
+  -- trigger's TY014 (000032).
   SELECT * INTO ty  FROM app.tyre t    WHERE t.id = fit.tyre_id FOR UPDATE;
+  PERFORM app.lock_position_pairs(ARRAY[fit.vehicle_id], ARRAY[fit.position_id]);
   SELECT * INTO fit FROM app.fitment f WHERE f.id = p_fitment   FOR UPDATE;
   -- A second removal is a state error, not a bad input: the row is already
   -- what the caller is asking it to become. Corrections are compensating
@@ -559,6 +591,8 @@ DECLARE
   stamp      timestamptz;
   to_vids    uuid[];
   to_pids    uuid[];
+  from_vids  uuid[];
+  from_pids  uuid[];
   veh        app.vehicle;
   dest       app.vehicle;
   m          jsonb;
@@ -626,6 +660,14 @@ BEGIN
                      FROM jsonb_array_elements(p_moves) WITH ORDINALITY e(value, n) ORDER BY e.n);
   to_pids := ARRAY(SELECT (e.value->>'to_position_id')::uuid
                      FROM jsonb_array_elements(p_moves) WITH ORDINALITY e(value, n) ORDER BY e.n);
+  -- Every pair the moves fill or vacate, after the casings and before any
+  -- read of a position (app.lock_position_pairs, BR-FIT-002). The casings'
+  -- locks hold their open fitments, so the pairs they vacate stay as read.
+  SELECT array_agg(f.vehicle_id ORDER BY f.id), array_agg(f.position_id ORDER BY f.id)
+    INTO from_vids, from_pids
+    FROM app.fitment f
+   WHERE f.tyre_id = ANY (moved) AND f.removed_at IS NULL;
+  PERFORM app.lock_position_pairs(to_vids || from_vids, to_pids || from_pids);
   IF p_occurred_on IS NULL THEN
     stamp := COALESCE(p_occurred_at, now());
   ELSE

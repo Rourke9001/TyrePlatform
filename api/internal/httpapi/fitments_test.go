@@ -1335,3 +1335,157 @@ func TestMovementsRefuseAnEarlierDayWithNoReason(t *testing.T) {
 		})
 	}
 }
+
+// waitUntilBlocked polls until the backend is waiting on a lock, so the test
+// releases the other session only once this one has read and is waiting.
+func waitUntilBlocked(t *testing.T, ctx context.Context, admin *pgx.Conn, pid uint32) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting *string
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1`, pid).Scan(&waiting))
+		if waiting != nil && *waiting == "Lock" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("backend %d never waited on a lock", pid)
+}
+
+// BR-FIT-002 between two sessions (TYRE-240 F1). Session B fits a casing
+// into a position for four days back, takes it off for three days back, and
+// holds its transaction open. Session A then fits, or rotates, another
+// casing into the same position for five days back. Its reads see committed
+// rows only, so unless the pair's writers queue, A finds the position empty
+// and its row goes in once B commits, open across B's closed span.
+func TestAMovementIntoAPositionWaitsOutAConcurrentWriterOfIt(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	s, admin := testStore(t, ctx)
+	for _, kind := range []string{"fit", "rotate"} {
+		t.Run(kind, func(t *testing.T) {
+			tenantID, _, other, leftPos, rightPos, sparePos := plantUnitFixture(t, ctx, admin, "race-"+kind)
+			plantRemovalReasons(t, ctx, admin, tenantID, "WORN")
+			controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+			key := store.ActorKey{TenantID: tenantID, UserID: controller}
+			tyre := func() uuid.UUID {
+				return plantTyre(t, ctx, admin, tenantID, "RACE-"+uuid.NewString()[:8], nil)
+			}
+			const fitSQL = `SELECT fitment_id FROM app.fit_tyre($1, $2, $3, 10.0, 'MARK_OUTBOARD',
+			                  p_reason => 'job card',
+			                  p_occurred_on => (SELECT app.tenant_today(t.timezone) FROM app.tenant t) - $4::int)`
+			fitFor := func(tx pgx.Tx, tyreID, pos uuid.UUID, days int) (uuid.UUID, error) {
+				var fit uuid.UUID
+				err := tx.QueryRow(ctx, fitSQL, tyreID, other, pos, days).Scan(&fit)
+				return fit, err
+			}
+
+			// A's own move. A rotation's casings sit on the other two
+			// positions from ten days back, committed before the race starts.
+			var aMove func(tx pgx.Tx) error
+			switch kind {
+			case "fit":
+				y := tyre()
+				aMove = func(tx pgx.Tx) error {
+					_, err := fitFor(tx, y, leftPos, 5)
+					return err
+				}
+			case "rotate":
+				x, w := tyre(), tyre()
+				require.NoError(t, s.InActorTx(ctx, key, func(tx pgx.Tx, _ auth.Actor) error {
+					if _, err := fitFor(tx, x, rightPos, 10); err != nil {
+						return err
+					}
+					_, err := fitFor(tx, w, sparePos, 10)
+					return err
+				}))
+				moves, err := json.Marshal([]map[string]any{
+					{"tyre_id": x, "to_position_id": leftPos, "tread_mm": 9.0},
+					{"tyre_id": w, "to_position_id": rightPos, "tread_mm": 9.0},
+				})
+				require.NoError(t, err)
+				aMove = func(tx pgx.Tx) error {
+					_, err := tx.Exec(ctx,
+						`SELECT app.rotate_tyres($1, $2::jsonb, p_backdate_reason => 'job card',
+						        p_occurred_on => (SELECT app.tenant_today(t.timezone) FROM app.tenant t) - 5)`,
+						other, string(moves))
+					return err
+				}
+			}
+
+			// Registered after the tenant's cleanup, so it runs first: B's
+			// open transaction would otherwise hold the tenant's delete.
+			release := make(chan struct{})
+			released := false
+			free := func() {
+				if !released {
+					released = true
+					close(release)
+				}
+			}
+			t.Cleanup(free)
+
+			bReady, bDone := make(chan struct{}), make(chan error, 1)
+			z := tyre()
+			go func() {
+				bDone <- s.InActorTx(ctx, key, func(tx pgx.Tx, _ auth.Actor) error {
+					fit, err := fitFor(tx, z, leftPos, 4)
+					if err != nil {
+						return err
+					}
+					if _, err := tx.Exec(ctx,
+						`SELECT app.remove_tyre($1, 'WORN', 9.0, p_backdate_reason => 'job card',
+						        p_occurred_on => (SELECT app.tenant_today(t.timezone) FROM app.tenant t) - 3)`,
+						fit); err != nil {
+						return err
+					}
+					close(bReady)
+					<-release
+					return nil
+				})
+			}()
+			select {
+			case <-bReady:
+			case err := <-bDone:
+				t.Fatalf("session B did not fit and remove: %v", err)
+			}
+
+			pid, aDone := make(chan uint32, 1), make(chan error, 1)
+			go func() {
+				aDone <- s.InActorTx(ctx, key, func(tx pgx.Tx, _ auth.Actor) error {
+					var p uint32
+					if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&p); err != nil {
+						return err
+					}
+					pid <- p
+					return aMove(tx)
+				})
+			}()
+			select {
+			case p := <-pid:
+				waitUntilBlocked(t, ctx, admin, p)
+			case err := <-aDone:
+				t.Fatalf("session A finished before B committed: %v", err)
+			}
+			free()
+			require.NoError(t, <-bDone)
+			aErr := <-aDone
+
+			var overlaps int
+			require.NoError(t, admin.QueryRow(ctx,
+				`SELECT count(*) FROM app.fitment a
+				   JOIN app.fitment b ON b.vehicle_id = a.vehicle_id AND b.position_id = a.position_id
+				                     AND a.id < b.id
+				  WHERE a.vehicle_id = $1
+				    AND tstzrange(a.fitted_at, a.removed_at) && tstzrange(b.fitted_at, b.removed_at)`,
+				other).Scan(&overlaps))
+			require.Zero(t, overlaps, "two fitments of one position overlap; A's %s went in: %v", kind, aErr)
+			var pgErr *pgconn.PgError
+			require.ErrorAs(t, aErr, &pgErr)
+			require.Equal(t, "TY012", pgErr.Code, pgErr.Message)
+			require.Contains(t, pgErr.Message, "position 1L on UNIT-OTHER-")
+			require.Contains(t, pgErr.Message, "was vacated at")
+		})
+	}
+}
