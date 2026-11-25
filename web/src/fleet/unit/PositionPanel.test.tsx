@@ -364,6 +364,26 @@ describe("a position panel", () => {
     expect(sentBody(last)).toEqual({ reason: "Sidewall damage", treadMm: "4.5" });
   });
 
+  // FR-FIT-008: the words are the tenant's, the value the code; a code
+  // with no words shows as itself.
+  it("offers each removal reason in the tenant's words", async () => {
+    stubFetch();
+    renderPanel(
+      unitPosition({ id: "p2", code: "POS2", fitment: openFitment({ fitmentId: "f4" }) }),
+      {
+        hasOdometer: false,
+        removalReasons: ["damage", "puncture"],
+        removalReasonLabels: { damage: "Damage" },
+      },
+    );
+
+    const reason = await screen.findByRole("combobox", { name: "Reason" });
+    const damage = within(reason).getByRole("option", { name: "Damage" });
+    expect(damage.getAttribute("value")).toBe("damage");
+    const puncture = within(reason).getByRole("option", { name: "puncture" });
+    expect(puncture.getAttribute("value")).toBe("puncture");
+  });
+
   // The panel holds both mutations so a fit's warnings survive the swap to
   // the remove form; the confirmation names whichever write was actually
   // last, since two sentences about one tyre (one false) is worse than
@@ -751,6 +771,76 @@ describe("a position panel's latest reading", () => {
     expect(screen.getByRole("link", { name: "Open the inspection" }).getAttribute("href")).toBe(
       "/fleet/units/u9/inspections/i1",
     );
+  });
+
+  // FR-RPT-015, CR-011: the last tread's width-wise set is on the panel,
+  // drawn once when the latest inspection is the reading it came from.
+  const LAST = {
+    inspectionId: "i0",
+    readingId: "r-p2",
+    treadsMm: [6, 5.5, 5],
+    treadAnatomy: ["OUTER", "CENTRE", "INNER"],
+    orientationKnown: true,
+    governingIndex: 2,
+  };
+
+  function lastRead(lastReading: typeof LAST | null) {
+    return unitPosition({
+      id: "p2",
+      code: "POS2",
+      fitment: openFitment({ tyreId: "t1", lastReading }),
+    });
+  }
+
+  it("draws the last tread's set once when the latest inspection read it", async () => {
+    renderLatest(lastRead(LAST), {
+      condition: "ok",
+      why: "read",
+      reading: inspectionReading({ positionId: "p2", positionCode: "POS2" }),
+      exceptions: [],
+    });
+    expect(await screen.findAllByText("Lowest")).toHaveLength(1);
+  });
+
+  it("draws the last tread's set when the latest inspection did not read the position", async () => {
+    renderLatest(lastRead(LAST), {
+      condition: "unread",
+      why: "not-read",
+      reading: null,
+      exceptions: [],
+    });
+    expect(await screen.findAllByText("Lowest")).toHaveLength(1);
+    expect(screen.getByText("Not read at the latest inspection.")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Last tread readings" })).toBeInTheDocument();
+  });
+
+  it("draws no set for a last tread that is not a reading", async () => {
+    renderLatest(lastRead(null), {
+      condition: "unread",
+      why: "not-read",
+      reading: null,
+      exceptions: [],
+    });
+    expect(await screen.findByText("Not read at the latest inspection.")).toBeInTheDocument();
+    expect(screen.queryAllByText("Lowest")).toHaveLength(0);
+  });
+
+  // Cells are named Outer, Centre and Inner only where orientation is known
+  // (CHG-010), as readingCells decides for an inspection's reading.
+  it("names the last tread's cells only where orientation is known", async () => {
+    const notRead = {
+      condition: "unread",
+      why: "not-read",
+      reading: null,
+      exceptions: [],
+    } as const;
+    const known = renderLatest(lastRead(LAST), { ...notRead, exceptions: [] });
+    expect(await screen.findByText("Outer")).toBeInTheDocument();
+    known.unmount();
+
+    renderLatest(lastRead({ ...LAST, orientationKnown: false }), { ...notRead, exceptions: [] });
+    expect(await screen.findAllByText("Lowest")).toHaveLength(1);
+    expect(screen.queryByText("Outer")).toBeNull();
   });
 
   it("says a tyre fitted since the latest inspection has not been read, and draws no reading", async () => {

@@ -10,15 +10,18 @@ import { me, requestedUrl, respond, sentBody, testQueryClient, unit } from "../.
 
 const TY016_MESSAGE = "Unit HORSE-1 still carries 6 fitted tyres and cannot be disposed of.";
 
-function renderForm(overrides: Partial<Unit> = {}) {
-  const u = unit({ id: "u9", ...overrides });
-  return render(
+function tree(u: Unit, client = testQueryClient()) {
+  return (
     <ActorContext.Provider value={{ actor: me({ capabilities: ["ManageAssets"] }), settled: true }}>
-      <QueryClientProvider client={testQueryClient()}>
+      <QueryClientProvider client={client}>
         <UnitStatusForm unit={u} />
       </QueryClientProvider>
-    </ActorContext.Provider>,
+    </ActorContext.Provider>
   );
+}
+
+function renderForm(overrides: Partial<Unit> = {}) {
+  return render(tree(unit({ id: "u9", ...overrides })));
 }
 
 describe("setting a unit's status", () => {
@@ -120,5 +123,28 @@ describe("setting a unit's status", () => {
     await user.click(screen.getByRole("button", { name: "Set status" }));
 
     expect((await screen.findByRole("alert")).textContent).toBe(TY016_MESSAGE);
+  });
+
+  // Comment 13617: the selection follows the unit when another write moves
+  // its status, so "Set status" cannot write back a value nobody chose, and
+  // there is nothing to set while the selection is the unit's own status.
+  it("follows the unit's status when it changes and sets nothing unchanged", async () => {
+    const user = userEvent.setup();
+    const client = testQueryClient();
+    const { rerender } = render(tree(unit({ id: "u9", status: "ACTIVE" }), client));
+    const button = () => screen.getByRole("button", { name: "Set status" });
+    const picker = () => screen.getByRole<HTMLSelectElement>("combobox", { name: "Status" });
+
+    expect(button()).toBeDisabled();
+    await user.selectOptions(picker(), "PARKED");
+    expect(button()).toBeEnabled();
+
+    rerender(tree(unit({ id: "u9", status: "PARKED" }), client));
+    expect(picker().value).toBe("PARKED");
+    expect(button()).toBeDisabled();
+
+    await user.selectOptions(picker(), "DISPOSED");
+    rerender(tree(unit({ id: "u9", status: "PARKED" }), client));
+    expect(picker().value).toBe("DISPOSED");
   });
 });

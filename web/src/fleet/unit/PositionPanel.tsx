@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import type { UnitInspection } from "../../api/inspections";
 import type { FitWarning, Unit, UnitPosition } from "../../api/units";
@@ -6,9 +6,11 @@ import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
 import { Card } from "../../ui/Card";
 import { KeyValue } from "../../ui/KeyValue";
+import { TreadReadings } from "../../ui/TreadReadings";
 import { RefusalAlert } from "../RefusalAlert";
 import type { PositionState } from "./condition.view";
 import { FitForm } from "./FitForm";
+import { readingCells } from "./inspection.view";
 import { LatestReading } from "./LatestReading";
 import { orientationLabel } from "./vocabulary";
 import { RemoveForm } from "./RemoveForm";
@@ -43,6 +45,7 @@ export function PositionPanel({
 }) {
   const canManage = useCan("ManageAssets");
   const asDate = useTenantDate();
+  const lastReadingHeading = useId();
 
   const [acted, setActed] = useState<ActedSummary | null>(null);
   // A refusal this screen raised rather than the server. Setting it drops
@@ -79,14 +82,22 @@ export function PositionPanel({
   const actedStillHolds =
     acted !== null && (position.fitment === null || position.fitment.fitmentId === acted.fitmentId);
 
+  // The last tread's set, unless LatestReading already draws that reading:
+  // the same set twice reads as two inspections (FR-RPT-015, CR-011).
+  const lastReading = position.fitment?.lastReading ?? null;
+  const drawnByLatest =
+    lastReading !== null &&
+    state?.why === "read" &&
+    state.reading?.readingId === lastReading.readingId;
+  const showLastReading = lastReading !== null && !drawnByLatest && lastReading.treadsMm.length > 0;
+
   return (
     <Card padding="md" aria-label={`Position ${position.code}`} title={`Position ${position.code}`}>
       {position.fitment === null ? (
         <p className="unit-panel-empty">No tyre is fitted here.</p>
       ) : (
-        // "Last tread" stays the unit read's single figure, with its source
-        // and age (TYRE-324). The width-wise readings are LatestReading's,
-        // drawn from the latest inspection (CR-011, FR-RPT-015).
+        // "Last tread" is the unit read's single figure, with its source and
+        // age (TYRE-324); the readings it is the minimum of follow it.
         <KeyValue
           className="unit-panel-facts"
           columns={3}
@@ -99,6 +110,18 @@ export function PositionPanel({
             { label: "Last tread", value: lastTreadCell(position.fitment) },
           ]}
         />
+      )}
+
+      {showLastReading && lastReading !== null && (
+        <div className="unit-latest" role="group" aria-labelledby={lastReadingHeading}>
+          <h3 className="unit-latest-heading" id={lastReadingHeading}>
+            Last tread readings
+          </h3>
+          <TreadReadings
+            {...readingCells({ ...lastReading, side: position.side })}
+            governingText="Lowest"
+          />
+        </div>
       )}
 
       <LatestReading unitId={unit.id} state={state} latest={latest} />

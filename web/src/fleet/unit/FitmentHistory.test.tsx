@@ -6,10 +6,13 @@ import { ActorContext } from "../../auth/actorContext";
 import { formatTenantDate } from "../../time/tenantTime";
 import { fitmentRow, me } from "../../test/fixtures";
 
-function renderHistory(rows: Parameters<typeof FitmentHistory>[0]["rows"]) {
+function renderHistory(
+  rows: Parameters<typeof FitmentHistory>[0]["rows"],
+  reasonLabels: Readonly<Record<string, string>> = {},
+) {
   return render(
     <ActorContext.Provider value={{ actor: me(), settled: true }}>
-      <FitmentHistory rows={rows} />
+      <FitmentHistory rows={rows} reasonLabels={reasonLabels} />
     </ActorContext.Provider>,
   );
 }
@@ -106,6 +109,7 @@ describe("a fitment history's distance unit", () => {
               distanceSource: "MEASURED",
             }),
           ]}
+          reasonLabels={{}}
         />
       </ActorContext.Provider>,
     );
@@ -139,5 +143,23 @@ describe("a fitment history's tread ages", () => {
       "Reason",
       "Distance",
     ]);
+  });
+});
+
+describe("a fitment history's removal reasons", () => {
+  // FR-FIT-008, Review Focus 5: a reason reads in the tenant's words, a code
+  // with none shows as itself, and an open fitment has none.
+  it("shows each removal reason in the tenant's words", () => {
+    renderHistory(
+      [
+        fitmentRow({ fitmentId: "f7", displayCode: "TY007", removalReason: "rotation" }),
+        fitmentRow({ fitmentId: "f8", displayCode: "TY008", removalReason: "puncture" }),
+        fitmentRow({ fitmentId: "f9", displayCode: "TY009", removalReason: null }),
+      ],
+      { rotation: "Rotation" },
+    );
+    expect(within(rowFor("TY007")).getByText("Rotation")).toBeTruthy();
+    expect(within(rowFor("TY008")).getByText("puncture")).toBeTruthy();
+    expect(within(rowFor("TY009")).getByText("—")).toBeTruthy();
   });
 });

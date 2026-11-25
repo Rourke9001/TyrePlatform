@@ -615,6 +615,26 @@ describe("rotating tyres across the units of a rig", () => {
     expect((await screen.findByRole("alert")).textContent).toBe(message);
   });
 
+  // NFR-USE-007: each control's accessible name is the text on screen.
+  it("names every row control by visible text, with no aria-label", async () => {
+    wireFetch({ rigs: [rig()], units: [sibling()] });
+    const user = userEvent.setup();
+    const { client } = renderForm({ hasOdometer: false });
+    await siblingSettled(client);
+
+    const pick = screen.getByRole("checkbox", { name: "Rotate POS1" });
+    expect(pick.hasAttribute("aria-label")).toBe(false);
+    await user.click(pick);
+    for (const name of ["Unit for POS1", "Target for POS1"]) {
+      const control = screen.getByLabelText(name);
+      expect(control.tagName).toBe("SELECT");
+      expect(control.hasAttribute("aria-label")).toBe(false);
+    }
+    const tread = screen.getByLabelText("Tread for POS1");
+    expect(tread.tagName).toBe("INPUT");
+    expect(tread.hasAttribute("aria-label")).toBe(false);
+  });
+
   it("never asks a trailer for an odometer and asks a horse for one", () => {
     const { unmount } = renderForm({ hasOdometer: true });
     // Required, not optional: without it the write is refused as TY009.

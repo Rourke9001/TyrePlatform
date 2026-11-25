@@ -162,7 +162,9 @@ export function UnitDetail({ unitId }: { unitId: string }) {
         {fitments.isError && (
           <p role="alert">The fitment history could not be loaded. Retry from the unit list.</p>
         )}
-        {fitments.isSuccess && <FitmentHistory rows={fitments.data} />}
+        {fitments.isSuccess && (
+          <FitmentHistory rows={fitments.data} reasonLabels={unit.data.removalReasonLabels} />
+        )}
       </Card>
     </section>
   );
