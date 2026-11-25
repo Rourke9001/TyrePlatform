@@ -26,12 +26,22 @@ export function occurredOnBody(
   return reason === "" ? { occurredOn: day } : { occurredOn: day, why: reason };
 }
 
-// The reason field also opens after a TY014 while a day is filled: a
+// The database's words when an earlier day comes with no reason
+// (app.backdate_reason_ok, 000067; pinned by suite 83a and
+// TestMovementsRefuseAnEarlierDayWithNoReason). TY014 carries other
+// refusals too, so the code alone cannot say a reason is wanted.
+const LATE_WITHOUT_WHY = "a movement recorded for an earlier day records why";
+
+// The reason field also opens after that refusal while a day is filled: a
 // browser clock behind the server's reads the server's yesterday as today,
 // and the refusal would otherwise leave nothing to fill (TYRE-240 spec,
 // section 1).
 export function askWhy(day: string, today: string, error: unknown): boolean {
   return (
-    isEarlierDay(day, today) || (day !== "" && error instanceof ApiError && error.code === "TY014")
+    isEarlierDay(day, today) ||
+    (day !== "" &&
+      error instanceof ApiError &&
+      error.code === "TY014" &&
+      error.message === LATE_WITHOUT_WHY)
   );
 }
