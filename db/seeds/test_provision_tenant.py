@@ -249,6 +249,23 @@ REFUSALS = [
     ),
     ("reason padded", config("removal_reasons", ["damage "]), "removal_reasons"),
     ("reason blank", config("removal_reasons", [""]), "removal_reasons"),
+    ("labels a list", config("removal_reason_labels", []), "removal_reason_labels"),
+    ("labels empty", config("removal_reason_labels", {}), "removal_reason_labels"),
+    (
+        "label blank",
+        config("removal_reason_labels", {"damage": ""}),
+        "removal_reason_labels",
+    ),
+    (
+        "label padded",
+        config("removal_reason_labels", {"damage": " Damage"}),
+        "removal_reason_labels",
+    ),
+    (
+        "label not text",
+        config("removal_reason_labels", {"damage": 3}),
+        "removal_reason_labels",
+    ),
     ("threshold scope", threshold("AXLE_1", {"max_retreads": 1}), "AXLE_1"),
     (
         "precision",
@@ -407,6 +424,30 @@ class Merge(unittest.TestCase):
             ],
         )
         self.assertEqual(len(p["pressures"]), 4)
+
+    def test_reason_labels_default(self):
+        p = validate(minimal())
+        self.assertEqual(
+            dict(p["configuration"])["removal_reason_labels"],
+            {
+                "worn_to_threshold": "Worn to threshold",
+                "damage": "Damage",
+                "irregular_wear": "Irregular wear",
+                "casing_failure": "Casing failure",
+                "vehicle_disposal": "Vehicle disposal",
+                "rotation": "Rotation",
+                "correction": "Correction",
+                "puncture": "Puncture",
+            },
+        )
+
+    def test_reason_labels_override(self):
+        doc = config("removal_reason_labels", {"damage": "Sidewall damage"})(minimal())
+        p = validate(doc)
+        self.assertEqual(
+            dict(p["configuration"])["removal_reason_labels"],
+            {"damage": "Sidewall damage"},
+        )
 
     def test_configuration_override(self):
         p = validate(config("reading_staleness_days", 21)(minimal()))
@@ -656,7 +697,7 @@ class Main(unittest.TestCase):
         with open(out, encoding="utf-8") as f:
             self.assertIn(first.split(": ")[1], f.read())
         self.assertEqual(stdout.split("\n")[1], f"wrote {out}")
-        self.assertIn("configuration 18", stdout)
+        self.assertIn("configuration 19", stdout)
 
     def test_each_run_mints_a_fresh_id(self):
         path = written(minimal())

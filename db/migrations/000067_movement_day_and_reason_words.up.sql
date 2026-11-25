@@ -1451,3 +1451,17 @@ BEGIN
          new_pattern_id   = CASE WHEN p_casing_accepted THEN p_new_pattern_id END
    WHERE j.id = p_job AND j.tenant_id = app.current_tenant_id();
 END $$;
+
+-- Removal reason words, a key of its own so app.remove_tyre's check of the
+-- codes stays as it is (FR-FIT-008, TYRE-330 f8). Every tenant with reasons
+-- in force gets the shipped words: the migrating role bypasses row security
+-- (docs/runbooks/environment-release.md), and make db-reset loads seeds after
+-- migrations, which carry the key themselves (seed_policy.py).
+INSERT INTO app.configuration (tenant_id, key, value, effective_from)
+SELECT DISTINCT c.tenant_id, 'removal_reason_labels',
+       '{"worn_to_threshold": "Worn to threshold", "damage": "Damage", "irregular_wear": "Irregular wear", "casing_failure": "Casing failure", "vehicle_disposal": "Vehicle disposal", "rotation": "Rotation", "correction": "Correction", "puncture": "Puncture"}'::jsonb,
+       '-infinity'::timestamptz
+  FROM app.configuration c
+ WHERE c.key = 'removal_reasons' AND c.effective_from <= now()
+   AND NOT EXISTS (SELECT 1 FROM app.configuration l
+                    WHERE l.tenant_id = c.tenant_id AND l.key = 'removal_reason_labels');

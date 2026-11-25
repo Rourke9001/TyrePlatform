@@ -73,6 +73,23 @@ CONFIG_DEFAULTS = [
             "puncture",
         ],
     ),
+    # The words for the codes above, tenant configuration too (FR-FIT-008,
+    # TYRE-240). A key of its own, so app.remove_tyre's check of the codes
+    # stays as it is. No apostrophe: gen_seed_configurations.py does not
+    # escape one.
+    (
+        "removal_reason_labels",
+        {
+            "worn_to_threshold": "Worn to threshold",
+            "damage": "Damage",
+            "irregular_wear": "Irregular wear",
+            "casing_failure": "Casing failure",
+            "vehicle_disposal": "Vehicle disposal",
+            "rotation": "Rotation",
+            "correction": "Correction",
+            "puncture": "Puncture",
+        },
+    ),
     # FR-VAL-021 staleness indication. 28 = 4 x the configured
     # inspection interval (FR-CFG-017, default 7 days), not a
     # free-standing constant: a reading older than four missed
