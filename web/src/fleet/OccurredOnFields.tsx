@@ -27,6 +27,7 @@ export function OccurredOnFields({
         <TextInput
           id={`${idPrefix}-occurred-on`}
           type="date"
+          autoComplete="off"
           max={today}
           value={day}
           onChange={(e) => onDay(e.target.value)}
@@ -36,6 +37,7 @@ export function OccurredOnFields({
         <Field label="Why it is recorded late">
           <TextInput
             id={`${idPrefix}-why`}
+            autoComplete="off"
             value={why}
             onChange={(e) => onWhy(e.target.value)}
             required={isEarlierDay(day, today)}
