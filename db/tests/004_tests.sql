@@ -16924,6 +16924,96 @@ BEGIN
   RAISE NOTICE 'PASS  82z section 82 leaves no residue';
 END $$;
 
+\echo '== 83. TYRE-240: a movement recorded for an earlier day lands on that day, after what is already recorded, and says why (FR-FIT-016, BR-FIT-006 as amended, BR-FIT-002, U253; as BAC, rolled back)'
+\echo '== 83a. placement and the reason test, on a tyre with no history'
+BEGIN;
+DO $$
+DECLARE
+  bac     uuid := '11111111-1111-1111-1111-111111111111';
+  ty      uuid := md5('t83a')::uuid;
+  ty_tie  uuid := md5('t83a-tie')::uuid;
+  ty_late uuid := md5('t83a-late')::uuid;
+  tz text; today date; got timestamptz; zone text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  -- The day cases below tell the tenant's day from UTC's only east of UTC.
+  IF NOT ((now() AT TIME ZONE tz) > (now() AT TIME ZONE 'UTC')) THEN
+    RAISE EXCEPTION 'FAIL 83a: BAC''s zone % is not east of UTC, so no case here can tell its day from UTC''s', tz;
+  END IF;
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state) VALUES
+    (ty,      bac, 'T83A',     md5('sz1')::uuid, 'NEW', 0, 'IN_STOCK'),
+    (ty_tie,  bac, 'T83ATIE',  md5('sz1')::uuid, 'NEW', 0, 'IN_STOCK'),
+    (ty_late, bac, 'T83ALATE', md5('sz1')::uuid, 'NEW', 0, 'IN_STOCK');
+  INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, to_state) VALUES
+    (bac, ty_tie,  'RECEIVED', now(),                       'IN_STOCK'),
+    (bac, ty_late, 'RECEIVED', now() + interval '1 minute', 'IN_STOCK');
+
+  IF app.place_movement(NULL, ARRAY[ty]) IS DISTINCT FROM now()
+     OR app.place_movement(today, ARRAY[ty]) IS DISTINCT FROM now() THEN
+    RAISE EXCEPTION 'FAIL 83a: no day, or today, is not stamped now()';
+  END IF;
+
+  -- Today still reads the last movement (red team I-5): a tie with now()
+  -- passes, as the instant path lets it, and a later one is refused.
+  IF app.place_movement(today, ARRAY[ty_tie]) IS DISTINCT FROM now() THEN
+    RAISE EXCEPTION 'FAIL 83a: today on a tyre last moved at now() is not stamped now()';
+  END IF;
+  BEGIN
+    PERFORM app.place_movement(today, ARRAY[ty_late]);
+    RAISE EXCEPTION 'FAIL 83a: today was placed before a movement a minute ahead';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM NOT LIKE 'this tyre''s last recorded movement is %; this one cannot predate it' THEN
+      RAISE EXCEPTION 'FAIL 83a: today''s refusal is not in the tyre words: %', SQLERRM;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.place_movement(NULL, ARRAY[ty_late]);
+    RAISE EXCEPTION 'FAIL 83a: no day was placed before a movement a minute ahead';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM NOT LIKE 'this tyre''s last recorded movement is %; this one cannot predate it' THEN
+      RAISE EXCEPTION 'FAIL 83a: no day''s refusal is not in the tyre words: %', SQLERRM;
+    END IF;
+  END;
+
+  BEGIN
+    PERFORM app.place_movement(today + 1, ARRAY[ty]);
+    RAISE EXCEPTION 'FAIL 83a: a later day was placed';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM <> 'a movement is recorded on or before today, never on a future date' THEN
+      RAISE EXCEPTION 'FAIL 83a: a later day is refused in other words: %', SQLERRM;
+    END IF;
+  END;
+
+  got := app.place_movement(today - 3, ARRAY[ty]);
+  IF got IS DISTINCT FROM app.tenant_day_instant(today - 3)
+     OR got = (today - 3)::timestamp AT TIME ZONE 'UTC' THEN
+    RAISE EXCEPTION 'FAIL 83a: an earlier day landed at %, not the tenant''s start of %', got, today - 3;
+  END IF;
+  -- The tenant's day, never the session's (rule 6).
+  zone := current_setting('TimeZone');
+  PERFORM set_config('TimeZone', 'Pacific/Niue', true);
+  IF app.place_movement(today - 3, ARRAY[ty]) IS DISTINCT FROM got THEN
+    RAISE EXCEPTION 'FAIL 83a: the session''s zone moved an earlier day''s stamp';
+  END IF;
+  PERFORM set_config('TimeZone', zone, true);
+
+  BEGIN
+    PERFORM app.backdate_reason_ok(today - 1, '   ');
+    RAISE EXCEPTION 'FAIL 83a: an earlier day with a blank reason passed';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM <> 'a movement recorded for an earlier day records why' THEN
+      RAISE EXCEPTION 'FAIL 83a: a blank reason is refused in other words: %', SQLERRM;
+    END IF;
+  END;
+  PERFORM app.backdate_reason_ok(today - 1, 'job card');
+  PERFORM app.backdate_reason_ok(today, NULL);
+  PERFORM app.backdate_reason_ok(NULL, NULL);
+  RAISE NOTICE 'PASS  83a no day or today is now() and still reads the last movement; a later day is refused; an earlier day is the tenant''s start of it and needs a reason';
+END $$;
+ROLLBACK;
+
 -- The shared prelude's helpers (db/tests/helpers.sql), dropped once the
 -- last section that calls them has run.
 DROP FUNCTION pg_temp.t76_due(uuid, timestamptz);
