@@ -1234,6 +1234,7 @@ BEGIN
    WHERE j.id = p_job AND j.tenant_id = app.current_tenant_id();
 END $$;
 
+DROP FUNCTION app.lock_position_pairs(uuid[], uuid[]);
 DROP FUNCTION app.positions_free_at(timestamptz, uuid[], uuid[]);
 DROP FUNCTION app.backdate_reason_ok(date, text);
 DROP FUNCTION app.place_movement(date, uuid[], uuid[], uuid[]);

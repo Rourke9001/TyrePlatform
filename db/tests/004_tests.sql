@@ -17657,6 +17657,52 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 83k. a fit, a removal and a rotation each hold the lock on every (unit, position) pair they fill or vacate, to the end of the transaction (BR-FIT-002, TYRE-240 F1; two sessions: TestAMovementIntoAPositionWaitsOutAConcurrentWriterOfIt; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac uuid := '11111111-1111-1111-1111-111111111111';
+  vt  uuid := md5('t83t')::uuid;
+  tz text; today date; got text := '';
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  PERFORM pg_temp.t83_units();
+  -- Opened without the functions, so they hold no lock before the calls.
+  INSERT INTO app.fitment (id, tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
+                           fitted_tread_mm, mount_orientation)
+  SELECT md5('t83' || s.name)::uuid, bac, pg_temp.t83_tyre(s.name, 'FITTED'), vt, pg_temp.t83_pos(s.code),
+         app.tenant_day_instant(today - 5), 12.0, 'MARK_OUTBOARD'
+    FROM (VALUES ('k-rm', '3'), ('k-x', '5'), ('k-y', '6')) s(name, code);
+  got := got || (SELECT count(*) FROM pg_locks l
+                  WHERE l.locktype = 'advisory' AND l.pid = pg_backend_pid() AND l.classid = 240);
+  -- Fills 1.
+  PERFORM app.fit_tyre(pg_temp.t83_tyre('k-fit'), vt, pg_temp.t83_pos('1'), 12.0, 'MARK_OUTBOARD',
+                       p_reason => '83k', p_occurred_on => today - 1);
+  got := got || '/' || (SELECT count(*) FROM pg_locks l
+                         WHERE l.locktype = 'advisory' AND l.pid = pg_backend_pid() AND l.classid = 240);
+  -- Vacates 3.
+  PERFORM app.remove_tyre(md5('t83k-rm')::uuid, 'damage', 10.0, p_backdate_reason => '83k',
+                          p_occurred_on => today - 1);
+  got := got || '/' || (SELECT count(*) FROM pg_locks l
+                         WHERE l.locktype = 'advisory' AND l.pid = pg_backend_pid() AND l.classid = 240);
+  -- Fills 7 and 5, vacates 5 and 6: three pairs, one of each kind alone.
+  PERFORM app.rotate_tyres(vt, jsonb_build_array(
+            jsonb_build_object('tyre_id', md5('t83k-x')::uuid, 'to_position_id', pg_temp.t83_pos('7'), 'tread_mm', 10.0),
+            jsonb_build_object('tyre_id', md5('t83k-y')::uuid, 'to_position_id', pg_temp.t83_pos('5'), 'tread_mm', 10.0)),
+          p_backdate_reason => '83k', p_occurred_on => today - 1);
+  got := got || '/' || (SELECT count(*) FROM pg_locks l
+                         WHERE l.locktype = 'advisory' AND l.pid = pg_backend_pid() AND l.classid = 240
+                           AND l.granted);
+  IF got IS DISTINCT FROM '0/1/2/5' THEN
+    RAISE EXCEPTION 'FAIL 83k: the pair locks held before and after the fit, the removal and the rotation read %, not 0/1/2/5', got;
+  END IF;
+  PERFORM pg_temp.t83_closing('83k');
+  RAISE NOTICE 'PASS  83k a fit, a removal and a rotation each hold the lock on every pair they fill or vacate';
+END $$;
+ROLLBACK;
+
 DROP FUNCTION pg_temp.t83_closing(text);
 DROP FUNCTION pg_temp.t83_says(text, text, text);
 DROP FUNCTION pg_temp.t83_tyre(text, app.tyre_state);
