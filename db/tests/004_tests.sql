@@ -17593,6 +17593,42 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 83i. every fixture tenant has words for each removal reason in force, and BAC''s are the shipped words (FR-FIT-008, TYRE-330 f8)'
+DO $$
+DECLARE
+  shipped jsonb := '{"worn_to_threshold": "Worn to threshold", "damage": "Damage", "irregular_wear": "Irregular wear", "casing_failure": "Casing failure", "vehicle_disposal": "Vehicle disposal", "rotation": "Rotation", "correction": "Correction", "puncture": "Puncture"}';
+  tid text; reasons jsonb; labels jsonb; bare text;
+BEGIN
+  -- Per tenant: app.configuration is row-secured, so one tenant's read
+  -- cannot see another's gap (40f's reason).
+  FOREACH tid IN ARRAY ARRAY['11111111-1111-1111-1111-111111111111',
+                             '22222222-2222-2222-2222-222222222222',
+                             '33333333-3333-3333-3333-333333333333'] LOOP
+    PERFORM set_config('app.tenant_id', tid, true);
+    SELECT c.value INTO reasons FROM app.configuration c
+     WHERE c.key = 'removal_reasons' AND c.effective_from <= now()
+     ORDER BY c.effective_from DESC LIMIT 1;
+    SELECT c.value INTO labels FROM app.configuration c
+     WHERE c.key = 'removal_reason_labels' AND c.effective_from <= now()
+     ORDER BY c.effective_from DESC LIMIT 1;
+    IF labels IS NULL OR jsonb_typeof(labels) <> 'object' THEN
+      RAISE EXCEPTION 'FAIL 83i: tenant % has no removal_reason_labels object in force', tid;
+    END IF;
+    SELECT string_agg(r.code, ', ') INTO bare
+      FROM jsonb_array_elements_text(reasons) r(code)
+     WHERE jsonb_typeof(labels -> r.code) IS DISTINCT FROM 'string'
+        OR btrim(labels ->> r.code) = '';
+    IF bare IS NOT NULL THEN
+      RAISE EXCEPTION 'FAIL 83i: tenant % has no words for %', tid, bare;
+    END IF;
+    IF tid = '11111111-1111-1111-1111-111111111111' AND labels <> shipped THEN
+      RAISE EXCEPTION 'FAIL 83i: BAC''s words are %, not the shipped words', labels;
+    END IF;
+  END LOOP;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  RAISE NOTICE 'PASS  83i every fixture tenant has words for each removal reason in force';
+END $$;
+
 \echo '== 83j. another fleet''s tyre has no last movement here, beside BAC''s own read as the control (rule 1; rolled back)'
 BEGIN;
 DO $$

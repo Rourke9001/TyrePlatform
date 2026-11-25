@@ -237,6 +237,25 @@ def _reasons(value, path):
         )
 
 
+def _reason_labels(value, path):
+    # The register and the unit screen show these words in place of the code
+    # (FR-FIT-008, TYRE-240), so a blank or padded one would show as a gap.
+    ok = len(value) > 0 and all(
+        isinstance(k, str)
+        and k
+        and k == k.strip()
+        and isinstance(v, str)
+        and v
+        and v == v.strip()
+        for k, v in value.items()
+    )
+    if not ok:
+        raise Refusal(
+            f"{path} must be a non-empty object from each reason to its words, each"
+            " text with no space at either end"
+        )
+
+
 # app.configuration has no CHECK and a row at -infinity governs every date, so
 # a value its reader refuses would break the tenant everywhere.
 DOMAINS = {
@@ -256,6 +275,7 @@ DOMAINS = {
     "inflation_compliance_window_days": _positive,
     "tread_bands": _bands,
     "removal_reasons": _reasons,
+    "removal_reason_labels": _reason_labels,
 }
 
 
@@ -266,6 +286,8 @@ def _config_value(key, value, default, path):
         ok = type(value) is bool
     elif isinstance(default, list):
         ok = isinstance(value, list)
+    elif isinstance(default, dict):
+        ok = isinstance(value, dict)
     elif isinstance(default, float) or key.endswith("_mm"):
         ok = type(value) in (int, Decimal)
     else:

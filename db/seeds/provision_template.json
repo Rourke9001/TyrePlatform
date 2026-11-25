@@ -35,6 +35,16 @@
         "correction",
         "puncture"
       ],
+      "removal_reason_labels": {
+        "worn_to_threshold": "Worn to threshold",
+        "damage": "Damage",
+        "irregular_wear": "Irregular wear",
+        "casing_failure": "Casing failure",
+        "vehicle_disposal": "Vehicle disposal",
+        "rotation": "Rotation",
+        "correction": "Correction",
+        "puncture": "Puncture"
+      },
       "reading_staleness_days": 28,
       "wear_rate_min_distance_km": 1000,
       "odometer_max_daily_km": 1600,
