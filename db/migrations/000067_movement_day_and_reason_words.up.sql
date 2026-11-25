@@ -567,7 +567,7 @@ BEGIN
     IF stamp < fit.fitted_at THEN
       RAISE EXCEPTION USING ERRCODE = 'TY012',
         MESSAGE = format('this tyre was fitted at %s; a removal cannot predate its own fitment',
-                         fit.fitted_at);
+                         app.tenant_ts_text(fit.fitted_at, true));
     END IF;
     PERFORM app.fitment_instant_ok(fit.tyre_id, stamp, p_backdate_reason);
   ELSE
@@ -865,7 +865,7 @@ BEGIN
     IF stamp < fit_at THEN
       RAISE EXCEPTION USING ERRCODE = 'TY012',
         MESSAGE = format('tyre %s was fitted at %s; a rotation cannot predate its own fitment',
-                         m->>'tyre_id', fit_at);
+                         m->>'tyre_id', app.tenant_ts_text(fit_at, true));
     END IF;
     IF p_occurred_on IS NULL THEN
       PERFORM app.fitment_instant_ok((m->>'tyre_id')::uuid, stamp, p_backdate_reason);
