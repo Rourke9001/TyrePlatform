@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
@@ -77,5 +77,58 @@ describe("returning a tyre to stock", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).not.toHaveTextContent(/unrecognised/i);
     expect(alert).toHaveTextContent(/could not be returned to stock/i);
+  });
+});
+
+// FR-FIT-016 as amended (U253): today stays one click; an earlier day says
+// why.
+describe("returning a tyre to stock for an earlier day", () => {
+  const WHY = "Why it is recorded late";
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    vi.useFakeTimers({ now: new Date("2026-11-25T10:00:00Z"), toFake: ["Date"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("asks why for an earlier day and sends the day with the reason", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));
+    const user = userEvent.setup();
+    renderButton();
+
+    expect(screen.queryByRole("textbox", { name: WHY })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Occurred on"), { target: { value: "2026-11-20" } });
+    const why = screen.getByRole("textbox", { name: WHY });
+    await user.type(why, "  ");
+    await user.click(screen.getByRole("button", { name: /return to stock/i }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Say why this movement is recorded for an earlier day.",
+    );
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+
+    await user.clear(why);
+    await user.type(why, "yard book");
+    await user.click(screen.getByRole("button", { name: /return to stock/i }));
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls).toHaveLength(1));
+    expect(sentBody(0)).toStrictEqual({ occurredOn: "2026-11-20", backdateReason: "yard book" });
+  });
+
+  it("speaks the database's TY014 rather than the general sentence", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(422, {
+        code: "TY014",
+        message: "a movement is recorded on or before today, never on a future date",
+      }),
+    );
+    const user = userEvent.setup();
+    renderButton();
+
+    await user.click(screen.getByRole("button", { name: /return to stock/i }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "a movement is recorded on or before today, never on a future date",
+    );
   });
 });

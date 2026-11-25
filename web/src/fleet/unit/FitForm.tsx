@@ -4,11 +4,14 @@ import { type FormEvent, useRef, useState } from "react";
 import { getDevTenantId } from "../../api/devTenant";
 import { fetchTyres } from "../../api/tyres";
 import { fitTyre, type NewFitment, type Unit, type UnitPosition } from "../../api/units";
+import { useTenantToday } from "../../time/tenantTime";
 import { Banner } from "../../ui/Banner";
 import { Button } from "../../ui/Button";
 import { Field } from "../../ui/Field";
 import { Select } from "../../ui/Select";
 import { TextInput } from "../../ui/TextInput";
+import { OccurredOnFields } from "../OccurredOnFields";
+import { askWhy, occurredOnBody, WHY_REQUIRED } from "../occurredOn";
 import { RefusalAlert } from "../RefusalAlert";
 import { useFormMutation } from "../useFormMutation";
 import type { ActedSummary } from "./PositionPanel";
@@ -18,9 +21,8 @@ import { useUnitLabels } from "../../units/units";
 import { openFitmentsKey, tyresKey, unitFitmentsKey, unitKey } from "./queryKeys";
 import { MOUNT_ORIENTATIONS, ORIENTATION_UNKNOWN } from "./vocabulary";
 
-// A fit refuses for different reasons than a removal: app.fit_tyre reaches
-// TY009/TY012/TY014 plus two occupancy conflicts (fitments.go), where
-// app.remove_tyre reaches TY009 alone.
+// What app.fit_tyre can answer this form: TY009, TY012 and TY014, and the
+// two occupancy conflicts the unique indexes raise (fitments.go).
 const FIT_WORDING = {
   speakable: ["TY009", "TY012", "TY014", "position_occupied", "tyre_already_fitted"],
   forbidden: "You do not have permission to fit a tyre.",
@@ -53,6 +55,9 @@ export function FitForm({
   // nobody asserted.
   const [orientation, setOrientation] = useState<string>(ORIENTATION_UNKNOWN);
   const [fitOdometer, setFitOdometer] = useState("");
+  const [day, setDay] = useState("");
+  const [why, setWhy] = useState("");
+  const today = useTenantToday();
   // The display code chosen at submit, read again in onSuccess: the picker
   // clears before the fitment id this produced is known, so the code has
   // to survive in something other than the field it came from.
@@ -86,6 +91,8 @@ export function FitForm({
       setTyreId("");
       setFitTread("");
       setFitOdometer("");
+      setDay("");
+      setWhy("");
     },
   });
 
@@ -105,6 +112,11 @@ export function FitForm({
       onRefused(odometerRefusal(labels));
       return;
     }
+    const occurred = occurredOnBody(day, why, today);
+    if (occurred === null) {
+      onRefused(WHY_REQUIRED);
+      return;
+    }
     onRefused("");
     submittedCode.current = inStock.find((t) => t.id === tyreId)?.displayCode ?? "";
     fit.submit({
@@ -113,6 +125,8 @@ export function FitForm({
       treadMm: fitTread.trim(),
       mountOrientation: orientation,
       odometer: odometer.value,
+      occurredOn: occurred.occurredOn,
+      reason: occurred.why,
     });
   }
 
@@ -195,6 +209,16 @@ export function FitForm({
           />
         </Field>
       )}
+
+      <OccurredOnFields
+        idPrefix={`fit-${position.id}`}
+        day={day}
+        onDay={setDay}
+        why={why}
+        onWhy={setWhy}
+        today={today}
+        ask={askWhy(day, today, fit.error)}
+      />
 
       <Button variant="primary" type="submit" disabled={tyreId === "" || fit.isPending}>
         {fit.isPending ? "Fitting…" : "Fit tyre"}

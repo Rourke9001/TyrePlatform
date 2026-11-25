@@ -12,12 +12,15 @@ import {
   type Unit,
   type UnitPosition,
 } from "../../api/units";
+import { useTenantToday } from "../../time/tenantTime";
 import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
 import { Checkbox } from "../../ui/Checkbox";
 import { Field } from "../../ui/Field";
 import { Select } from "../../ui/Select";
 import { TextInput } from "../../ui/TextInput";
+import { OccurredOnFields } from "../OccurredOnFields";
+import { askWhy, occurredOnBody, WHY_REQUIRED } from "../occurredOn";
 import { useFormMutation } from "../useFormMutation";
 import { ODOMETER_REQUIRED, odometerRefusal, readOdometer } from "./odometer";
 import { useUnitLabels } from "../../units/units";
@@ -57,7 +60,10 @@ export function RotateForm({ unit }: { unit: Unit }) {
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [treads, setTreads] = useState<Record<string, string>>({});
   const [odometers, setOdometers] = useState<Record<string, string>>({});
+  const [day, setDay] = useState("");
+  const [why, setWhy] = useState("");
   const [refused, setRefused] = useState("");
+  const today = useTenantToday();
 
   // rigsKey is already paired with fetchRigs() by RigForm/RigList; one key
   // answered by two fetchers would hand whichever screen mounts second a
@@ -111,6 +117,8 @@ export function RotateForm({ unit }: { unit: Unit }) {
       setTargets({});
       setTreads({});
       setOdometers({});
+      setDay("");
+      setWhy("");
     },
   });
 
@@ -184,7 +192,14 @@ export function RotateForm({ unit }: { unit: Unit }) {
       }
       readings[u.id] = reading.value;
     }
+    const occurred = occurredOnBody(day, why, today);
+    if (occurred === null) {
+      setRefused(WHY_REQUIRED);
+      return;
+    }
     const body: Rotation = { moves };
+    if (occurred.occurredOn !== undefined) body.occurredOn = occurred.occurredOn;
+    if (occurred.why !== undefined) body.backdateReason = occurred.why;
     if (perUnit) {
       // Omitted rather than sent empty when no unit involved has an odometer:
       // two trailers give no readings at all, which is not the same request as
@@ -290,6 +305,16 @@ export function RotateForm({ unit }: { unit: Unit }) {
                 />
               </Field>
             )}
+
+        <OccurredOnFields
+          idPrefix={`rotate-${unit.id}`}
+          day={day}
+          onDay={setDay}
+          why={why}
+          onWhy={setWhy}
+          today={today}
+          ask={askWhy(day, today, rotate.error)}
+        />
 
         <Button variant="primary" type="submit" disabled={rotate.isPending}>
           {rotate.isPending ? "Rotating…" : "Rotate"}

@@ -2,10 +2,13 @@ import { type FormEvent, useRef, useState } from "react";
 
 import { getDevTenantId } from "../../api/devTenant";
 import { removeFitment, type Removal, type Unit, type UnitPosition } from "../../api/units";
+import { useTenantToday } from "../../time/tenantTime";
 import { Button } from "../../ui/Button";
 import { Field } from "../../ui/Field";
 import { Select } from "../../ui/Select";
 import { TextInput } from "../../ui/TextInput";
+import { OccurredOnFields } from "../OccurredOnFields";
+import { askWhy, occurredOnBody, WHY_REQUIRED } from "../occurredOn";
 import { RefusalAlert } from "../RefusalAlert";
 import { useFormMutation } from "../useFormMutation";
 import type { ActedSummary } from "./PositionPanel";
@@ -49,6 +52,9 @@ export function RemoveForm({
   const [reason, setReason] = useState("");
   const [removeTread, setRemoveTread] = useState("");
   const [removeOdometer, setRemoveOdometer] = useState("");
+  const [day, setDay] = useState("");
+  const [why, setWhy] = useState("");
+  const today = useTenantToday();
   // What the write named, read again in onSuccess rather than off the
   // fitment prop: a background refetch could have moved that prop on
   // before the response lands, and the sentence must name what this write
@@ -73,6 +79,8 @@ export function RemoveForm({
       setReason("");
       setRemoveTread("");
       setRemoveOdometer("");
+      setDay("");
+      setWhy("");
     },
   });
 
@@ -97,11 +105,22 @@ export function RemoveForm({
       onRefused(belowFittedOdometer(open.fittedOdometer));
       return;
     }
+    const occurred = occurredOnBody(day, why, today);
+    if (occurred === null) {
+      onRefused(WHY_REQUIRED);
+      return;
+    }
     onRefused("");
     submitted.current = { code: open.displayCode, fitmentId: open.fitmentId };
     remove.submit({
       fitmentId: open.fitmentId,
-      body: { reason, treadMm: removeTread.trim(), odometer: odometer.value },
+      body: {
+        reason,
+        treadMm: removeTread.trim(),
+        odometer: odometer.value,
+        occurredOn: occurred.occurredOn,
+        backdateReason: occurred.why,
+      },
     });
   }
 
@@ -144,6 +163,16 @@ export function RemoveForm({
           />
         </Field>
       )}
+
+      <OccurredOnFields
+        idPrefix={`remove-${position.id}`}
+        day={day}
+        onDay={setDay}
+        why={why}
+        onWhy={setWhy}
+        today={today}
+        ask={askWhy(day, today, remove.error)}
+      />
 
       <Button variant="primary" type="submit" disabled={reason === "" || remove.isPending}>
         {remove.isPending ? "Removing…" : "Remove tyre"}
