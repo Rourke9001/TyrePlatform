@@ -1,7 +1,10 @@
 -- Reverses 000067 (TYRE-240).
 
--- The rows the up writes, and only those: a tenant's own words, or a row
--- dated otherwise, stay (db/CLAUDE.md, Schema changes are migrations).
+-- The shipped words at -infinity, the row the up writes (spec, section 1).
+-- A tenant's own words, or a row dated otherwise, stay. Provisioning
+-- writes a tenant added after the up the same row, which cannot be told
+-- from the up's and goes too; the up writes it again for every tenant with
+-- reasons in force.
 DELETE FROM app.configuration
  WHERE key = 'removal_reason_labels' AND effective_from = '-infinity'
    AND value = '{"worn_to_threshold": "Worn to threshold", "damage": "Damage", "irregular_wear": "Irregular wear", "casing_failure": "Casing failure", "vehicle_disposal": "Vehicle disposal", "rotation": "Rotation", "correction": "Correction", "puncture": "Puncture"}'::jsonb;
