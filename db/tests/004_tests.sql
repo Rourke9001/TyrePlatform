@@ -4962,12 +4962,15 @@ BEGIN
   END IF;
   -- And a dated dispatch that would land before the tyre's last movement is
   -- refused rather than clamped: clamping two to_state events onto one
-  -- instant leaves the estate resolution ambiguous.
+  -- instant leaves the estate resolution ambiguous. Dated two days back, a
+  -- day before the removal's at every hour: dated yesterday, it falls on the
+  -- removal's own day between 00:00 and 01:00 tenant time, where placement
+  -- lands it after the removal (FR-FIT-016 as amended, U253).
   SELECT * INTO r FROM app.fit_tyre(ty8, vt, p1, 16.0, 'MARK_OUTBOARD', NULL,
                                     now() - interval '2 hours');
   PERFORM app.remove_tyre(r.fitment_id, 'damage', 8.0, NULL, now() - interval '1 hour');
   BEGIN
-    PERFORM app.dispatch_tyre(ty8, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 1);
+    PERFORM app.dispatch_tyre(ty8, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 2);
     RAISE EXCEPTION 'FAIL 41t: a dispatch dated before the tyre''s last movement was accepted';
   EXCEPTION WHEN sqlstate 'TY012' THEN
     RAISE NOTICE 'PASS  41t a dispatch is stamped now, and never predates the movement before it';
@@ -17476,6 +17479,85 @@ BEGIN
     'TY014 T83-T is not in this unit''s rig at that time');
   PERFORM pg_temp.t83_closing('83e rig');
   RAISE NOTICE 'PASS  83e a cross-unit rotation for a day before its rig was coupled is refused in the rotation''s own words';
+END $$;
+ROLLBACK;
+
+\echo '== 83f. a dispatch and a retread return for the day of a removal land after it, one microsecond apart, and the return''s money is as it was; a day before the removal, or today behind a later movement, is refused (FR-FIT-016 as amended, BR-VAL-002, red team I-5; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac  uuid := '11111111-1111-1111-1111-111111111111';
+  vt   uuid := md5('t83t')::uuid;
+  d_rt uuid := md5('t83f-rt')::uuid;
+  us   interval := interval '1 microsecond';
+  tz text; today date; mid2 timestamptz; fit uuid; ty uuid; job uuid; got text; ret_at timestamptz;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  mid2  := app.tenant_day_instant(today - 2);
+  PERFORM pg_temp.t83_units();
+  INSERT INTO app.depot (id, tenant_id, name, type) VALUES (d_rt, bac, 'T83 Retreaders', 'RETREADER');
+
+  -- Removed Monday and sent Monday, both logged later.
+  ty := pg_temp.t83_tyre('f');
+  SELECT r.fitment_id INTO fit
+    FROM app.fit_tyre(ty, vt, pg_temp.t83_pos('1'), 12.0, 'MARK_OUTBOARD',
+                      p_reason => '83f', p_occurred_on => today - 5) r;
+  PERFORM app.remove_tyre(fit, 'worn_to_threshold', 5.0, p_backdate_reason => '83f',
+                          p_occurred_on => today - 2);
+  SELECT d.retread_job_id INTO job FROM app.dispatch_tyre(ty, 'AT_RETREADER', d_rt, today - 2) d;
+  IF (SELECT e.occurred_at FROM app.tyre_event e WHERE e.tyre_id = ty AND e.type = 'SENT_FOR_RETREAD')
+     IS DISTINCT FROM mid2 + us THEN
+    RAISE EXCEPTION 'FAIL 83f: a dispatch for the day of the removal does not land directly after it';
+  END IF;
+  PERFORM app.log_retread_return(job, today - 2, true, 'T83-RPT', 1000.00, 16.0, 500.00,
+                                 p_new_pattern_id => pg_temp.retread_pattern());
+  ret_at := (SELECT e.occurred_at FROM app.tyre_event e WHERE e.tyre_id = ty AND e.type = 'RETURNED');
+  IF ret_at IS DISTINCT FROM mid2 + 2 * us THEN
+    RAISE EXCEPTION 'FAIL 83f: a retread return for the same day lands at %, not directly after the dispatch', ret_at;
+  END IF;
+  -- The rate is a literal, so the case does not derive it through the
+  -- function the code calls; the threshold it rests on is asserted first.
+  IF (app.threshold_policy_in_force_at(bac, NULL, NULL, ret_at)).retread_threshold_mm IS DISTINCT FROM 4.0 THEN
+    RAISE EXCEPTION 'FAIL 83f: precondition, BAC''s fleet-wide threshold at the return is not 4.0';
+  END IF;
+  SELECT t.rand_per_mm || '/' || j.retread_cost || '/' || j.post_tread_mm || '/' || j.casing_value
+         || '/' || j.returned_at INTO got
+    FROM app.tyre t JOIN app.retread_job j ON j.tyre_id = t.id WHERE j.id = job;
+  IF got IS DISTINCT FROM '83.3333/1000.00/16.0/500.00/' || (today - 2) THEN
+    RAISE EXCEPTION 'FAIL 83f: the return''s rate and job read %', got;
+  END IF;
+  SELECT cv.value || '/' || cv.source || '/' || cv.effective_from INTO got
+    FROM app.casing_valuation cv WHERE cv.retread_job_id = job;
+  IF got IS DISTINCT FROM '500.00/RETREADER/' || (today - 2) THEN
+    RAISE EXCEPTION 'FAIL 83f: the casing valuation reads %', got;
+  END IF;
+
+  -- A dispatch for a day before the removal.
+  ty := pg_temp.t83_tyre('f-early');
+  SELECT r.fitment_id INTO fit
+    FROM app.fit_tyre(ty, vt, pg_temp.t83_pos('2'), 12.0, 'MARK_OUTBOARD',
+                      p_reason => '83f', p_occurred_on => today - 5) r;
+  PERFORM app.remove_tyre(fit, 'worn_to_threshold', 5.0, p_backdate_reason => '83f',
+                          p_occurred_on => today - 2);
+  PERFORM pg_temp.t83_says('83f a dispatch for a day before the removal',
+    format('SELECT app.dispatch_tyre(%L, ''AT_RETREADER'', %L, %L)', ty, d_rt, today - 3),
+    'TY012 %this one cannot predate it');
+
+  -- Today behind a later movement (red team I-5).
+  ty := pg_temp.t83_tyre('f-late', 'REMOVED');
+  INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, from_state, to_state)
+  VALUES (bac, ty, 'REMOVED', now() + interval '1 minute', 'FITTED', 'REMOVED');
+  PERFORM pg_temp.t83_says('83f a dispatch for today behind a later movement',
+    format('SELECT app.dispatch_tyre(%L, ''AT_RETREADER'', %L, %L)', ty, d_rt, today),
+    'TY012 this tyre''s last recorded movement is %; this one cannot predate it');
+  PERFORM pg_temp.t83_says('83f a dispatch with no day behind a later movement',
+    format('SELECT app.dispatch_tyre(%L, ''AT_RETREADER'', %L)', ty, d_rt),
+    'TY012 this tyre''s last recorded movement is %; this one cannot predate it');
+
+  PERFORM pg_temp.t83_closing('83f');
+  RAISE NOTICE 'PASS  83f a dispatch and a return for a removal''s day follow it in order with the return''s money unchanged; an earlier day or a later movement is refused';
 END $$;
 ROLLBACK;
 
