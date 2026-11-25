@@ -5,6 +5,7 @@ import {
   bandRangeLabel,
   basisLabel,
   conditionLabel,
+  costSourceLabel,
   distanceSourceLabel,
   INFLATION_BAND_KEYS,
   inflationBandLabel,
@@ -12,10 +13,12 @@ import {
   inspectionWarningLabel,
   judgedAtLabel,
   pressureBasisLabel,
+  removalReasonLabel,
   SEVERITY_CODES,
   severityLabel,
   subjectPositionLabel,
   treadSourceLabel,
+  tyreStateLabel,
   unavailableLabel,
   warningResponseLabel,
 } from "./vocabulary";
@@ -231,5 +234,34 @@ describe("inspectionMarkLabel", () => {
   it("names the latest and a voided inspection", () => {
     expect(inspectionMarkLabel("latest")).toBe("Latest");
     expect(inspectionMarkLabel("voided")).toBe("Voided");
+  });
+});
+
+describe("tyreStateLabel", () => {
+  it("names the eight tyre states and passes an unknown one through", () => {
+    expect(tyreStateLabel("IN_STOCK")).toBe("In stock");
+    expect(tyreStateLabel("FITTED")).toBe("Fitted");
+    expect(tyreStateLabel("REMOVED")).toBe("Removed");
+    expect(tyreStateLabel("AT_RETREADER")).toBe("At retreader");
+    expect(tyreStateLabel("AT_BREAKDOWN_SUPPLIER")).toBe("At breakdown supplier");
+    expect(tyreStateLabel("SCRAPPED")).toBe("Scrapped");
+    expect(tyreStateLabel("SOLD")).toBe("Sold");
+    expect(tyreStateLabel("LOST")).toBe("Lost");
+    expect(tyreStateLabel("MISLAID")).toBe("MISLAID");
+  });
+});
+
+describe("costSourceLabel", () => {
+  it("names what a stored figure rests on", () => {
+    expect(costSourceLabel("INVOICE")).toBe("actual cost");
+    expect(costSourceLabel("PRICE_LIST_ESTIMATE")).toBe("estimated");
+    expect(costSourceLabel("UNKNOWN")).toBe("source not recorded");
+  });
+});
+
+describe("removalReasonLabel", () => {
+  it("reads the tenant's words, and shows a code that has none", () => {
+    expect(removalReasonLabel("damage", { damage: "Damage" })).toBe("Damage");
+    expect(removalReasonLabel("puncture", {})).toBe("puncture");
   });
 });

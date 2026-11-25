@@ -1,3 +1,4 @@
+import { tyreStateLabel } from "../domain/vocabulary";
 import { apiGet, apiPost } from "./client";
 import type { Money } from "./money";
 
@@ -26,6 +27,11 @@ export interface Tyre {
   purchasePrice?: Money;
   randPerMm?: Money;
   casingValue?: Money;
+  // What each figure rests on (NFR-PRO-001), sent with the money and hidden
+  // with it: the stored cost source for the price and the rate, and the
+  // valuation's basis for the casing (tyres.go).
+  costSource?: string;
+  casingBasis?: string;
   // The receipt a received tyre is priced on (FR-CFG-041); null for a tyre
   // received before receipts existed.
   receiptId: string | null;
@@ -69,11 +75,9 @@ export interface NewTyres {
 // transition table).
 export type Disposal = "SCRAPPED" | "SOLD" | "LOST";
 
-const DISPOSALS: { value: Disposal; label: string }[] = [
-  { value: "SCRAPPED", label: "Scrapped" },
-  { value: "SOLD", label: "Sold" },
-  { value: "LOST", label: "Lost" },
-];
+const DISPOSALS: { value: Disposal; label: string }[] = (["SCRAPPED", "SOLD", "LOST"] as const).map(
+  (value) => ({ value, label: tyreStateLabel(value) }),
+);
 
 // app.dispose_tyre (000031) sells from REMOVED alone and scraps or loses from
 // IN_STOCK or REMOVED; every other pairing it refuses with TY012. Enforcement
@@ -214,7 +218,12 @@ export function dispatchTyre(
 // optional: an absent one leaves the casing where the register already has
 // it (tyres.go's own comment). This says the fleet has it back, not that it
 // moved. Which states restock and which depot types may hold stock are
-// app.return_tyre_to_stock's rules.
-export function returnTyreToStock(tyreId: string, body: { depotId?: string }): Promise<void> {
+// app.return_tyre_to_stock's rules. occurredOn is the day it came back,
+// absent for today, and backdateReason says why an earlier day is late
+// (FR-FIT-016 as amended).
+export function returnTyreToStock(
+  tyreId: string,
+  body: { depotId?: string; occurredOn?: string; backdateReason?: string },
+): Promise<void> {
   return apiPost<void>(`/api/tyres/${tyreId}/return`, body);
 }

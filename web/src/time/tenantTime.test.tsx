@@ -10,6 +10,7 @@ import {
   formatTenantInstant,
   INVALID_INSTANT,
   tenantDateFormatter,
+  tenantDayIso,
   useTenantDate,
   useTenantInstant,
 } from "./tenantTime";
@@ -232,5 +233,16 @@ describe("useTenantInstant", () => {
   it("never marks the invalid-instant marker provisional", () => {
     const { result } = renderHook(() => useTenantInstant(), { wrapper: withActor(null, true) });
     expect(result.current("not-a-date")).toBe(INVALID_INSTANT);
+  });
+});
+
+// The day a form calls today, in the tenant's zone, as the YYYY-MM-DD an
+// occurredOn carries (rule 6): 23:30 UTC is already tomorrow in Johannesburg.
+describe("tenantDayIso", () => {
+  it("names the tenant's day, not UTC's or the runner's", () => {
+    const at = Date.UTC(2026, 10, 24, 23, 30);
+    expect(tenantDayIso(at, "Africa/Johannesburg")).toBe("2026-11-25");
+    expect(tenantDayIso(at, "UTC")).toBe("2026-11-24");
+    expect(tenantDayIso(at, "Pacific/Niue")).toBe("2026-11-24");
   });
 });

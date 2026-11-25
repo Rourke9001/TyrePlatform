@@ -62,6 +62,35 @@ export function tenantDayKey(at: number, timeZone: string): string {
   return tenantDateFormatter(timeZone).format(at);
 }
 
+const isoDayFormatters = new Map<string, Intl.DateTimeFormat>();
+
+// The tenant's calendar date of an instant as YYYY-MM-DD, the day a form
+// calls today (rule 6). Built from formatToParts, never toISOString, which
+// answers UTC's day: 23:30 UTC is already tomorrow in Johannesburg.
+export function tenantDayIso(at: number | Date, timeZone: string): string {
+  let formatter = isoDayFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-ZA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    isoDayFormatters.set(timeZone, formatter);
+  }
+  const parts = formatter.formatToParts(at);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+// The tenant's today, in the actor's zone, UTC until GET /api/me arrives.
+// It only decides when a form shows its reason field: the database judges
+// the day (000067).
+export function useTenantToday(): string {
+  const actor = useActor();
+  return tenantDayIso(Date.now(), actor?.timezone ?? "UTC");
+}
+
 const instantFormatters = new Map<string, Intl.DateTimeFormat>();
 
 // Keyed per zone for the same cost reason as tenantDateFormatter above. Not

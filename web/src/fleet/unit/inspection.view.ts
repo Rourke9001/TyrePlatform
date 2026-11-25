@@ -59,11 +59,18 @@ export interface ReadingCells {
   side?: "left" | "right";
 }
 
+// What readingCells reads: an inspection's reading, or a position's last
+// reading with the position's side beside it.
+export type ReadingSet = Pick<
+  InspectionReading,
+  "treadsMm" | "treadAnatomy" | "orientationKnown" | "governingIndex" | "side"
+>;
+
 // TreadReadings' own idiom: the bare figure in the cell, the unit apart,
 // one decimal with a point as formatMm writes it. Cells are named only where
 // the stored anatomy is the order TreadReadings draws for that side, so a
 // drawn name is always the stored one (CHG-010, FR-INS-029a errata).
-export function readingCells(r: InspectionReading): ReadingCells {
+export function readingCells(r: ReadingSet): ReadingCells {
   const readings = r.treadsMm.map((mm) => mm.toFixed(1));
   const governingIndex = readings.length === 0 ? null : r.governingIndex;
   const side = diagramSide(r.side);

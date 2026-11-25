@@ -230,8 +230,9 @@ looked at before it is reviewed. Rules that are not visible in the code:
 - Every wire code becomes words in `src/domain/vocabulary.ts` and nowhere
   else: severity, `judgedAt`, `unavailable`, tread source, band range. A
   band is labelled from its bounds, never from `bandLabel` (TYRE-270).
-  The two exceptions are unit codes (`src/units/units.ts`) and the currency
-  symbol (`src/api/money.ts`): the capture entry imports both, and
+  The three exceptions are unit codes (`src/units/units.ts`), the currency
+  symbol (`src/api/money.ts`) and the role words the static frame shows
+  (`src/domain/roles.ts`): the capture entry imports all three, and
   `vocabulary.ts` stays out of its budget.
 - The legacy Select is the one Radix import left, so the dashboard and
   Exceptions, which use it, load behind `React.lazy` in `routes.tsx`. The

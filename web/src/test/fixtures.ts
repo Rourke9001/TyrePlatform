@@ -105,6 +105,7 @@ export function openFitment(overrides: Partial<OpenFitment> = {}): OpenFitment {
     lastTreadMm: "12.0",
     lastTreadSource: "READING",
     lastTreadAgeDays: 3,
+    lastReading: null,
     ...overrides,
   };
 }
@@ -140,6 +141,7 @@ export function unit(overrides: Partial<Unit> = {}): Unit {
     tags: [],
     hasHistory: false,
     removalReasons: ["Worn out", "Damaged"],
+    removalReasonLabels: {},
     hasOdometer: true,
     positions: [],
     ...overrides,

@@ -18,6 +18,7 @@ function fitment(overrides: Partial<FleetFitment> & { fitmentId: string }): Flee
     // date: an instant, not a calendar date, is what carries over the wire.
     fittedAt: "2026-08-01T22:30:00Z",
     daysFitted: 10,
+    sequence: 1,
     ...overrides,
   };
 }
