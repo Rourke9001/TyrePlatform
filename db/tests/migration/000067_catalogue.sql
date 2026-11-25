@@ -25,12 +25,12 @@ SELECT line FROM (
                  ('app.return_tyre_to_stock(uuid,uuid,timestamp with time zone,text,date)'),
                  ('app.dispatch_tyre(uuid,app.tyre_state,uuid,date)'),
                  ('app.log_retread_return(uuid,date,boolean,text,numeric,numeric,numeric,uuid)'),
-                 ('app.last_movement(uuid[],uuid[],uuid[])'),
+                 ('app.last_movement(uuid[],uuid[],uuid[],boolean)'),
                  ('app.place_movement(date,uuid[],uuid[],uuid[])'),
                  ('app.backdate_reason_ok(date,text)'),
                  ('app.positions_free_at(timestamp with time zone,uuid[],uuid[])'),
                  ('app.lock_position_pairs(uuid[],uuid[])'),
-                 ('app.tenant_ts_text(timestamp with time zone)')) f(sig)
+                 ('app.tenant_ts_text(timestamp with time zone,boolean)')) f(sig)
   UNION ALL
   SELECT format('config removal_reason_labels %s', count(*))
     FROM app.configuration c WHERE c.key = 'removal_reason_labels'

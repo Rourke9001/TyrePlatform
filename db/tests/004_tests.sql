@@ -17384,16 +17384,19 @@ BEGIN
     'TY012 ' || format('this tyre''s last recorded movement is %s; this one cannot predate it',
                        to_char(off_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI')));
 
-  -- The instant path holds the same rule.
+  -- The instant path holds the same rule, and its words name the closure
+  -- exactly, with BAC's offset (+02:00 all year), so an instant asked for in
+  -- the closure's own minute reads apart from it (TYRE-240 M8).
+  off_at := date_trunc('minute', now() - interval '1 hour') + interval '40 seconds';
   SELECT r.fitment_id INTO fa
     FROM app.fit_tyre(pg_temp.t83_tyre('d-c'), vt, pg_temp.t83_pos('5'), 12.0, 'MARK_OUTBOARD',
                       p_occurred_at => now() - interval '3 hours') r;
-  PERFORM app.remove_tyre(fa, 'damage', 10.0, p_occurred_at => now() - interval '1 hour');
-  PERFORM pg_temp.t83_says('83d a fit at an instant before the position was vacated',
+  PERFORM app.remove_tyre(fa, 'damage', 10.0, p_occurred_at => off_at);
+  PERFORM pg_temp.t83_says('83d a fit at an instant before the position was vacated, in its minute',
     format('SELECT app.fit_tyre(%L, %L, %L, 12.0, ''MARK_OUTBOARD'', p_occurred_at => %L)',
-           pg_temp.t83_tyre('d-d'), vt, pg_temp.t83_pos('5'), now() - interval '2 hours'),
+           pg_temp.t83_tyre('d-d'), vt, pg_temp.t83_pos('5'), off_at - interval '20 seconds'),
     'TY012 ' || format('position %s on %s was vacated at %s; this one cannot predate it', '5', 'T83-T',
-                       to_char((now() - interval '1 hour') AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI')));
+                       to_char(off_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI:SS') || '+02:00'));
 
   -- And a rotation onto a position vacated after its instant.
   PERFORM app.fit_tyre(pg_temp.t83_tyre('d-x'), vt, pg_temp.t83_pos('7'), 12.0, 'MARK_OUTBOARD',
@@ -17403,15 +17406,15 @@ BEGIN
   SELECT r.fitment_id INTO fa
     FROM app.fit_tyre(pg_temp.t83_tyre('d-e'), vt, pg_temp.t83_pos('9'), 12.0, 'MARK_OUTBOARD',
                       p_occurred_at => now() - interval '4 hours') r;
-  PERFORM app.remove_tyre(fa, 'damage', 10.0, p_occurred_at => now() - interval '1 hour');
-  PERFORM pg_temp.t83_says('83d a rotation at an instant before a target was vacated',
+  PERFORM app.remove_tyre(fa, 'damage', 10.0, p_occurred_at => off_at);
+  PERFORM pg_temp.t83_says('83d a rotation at an instant before a target was vacated, in its minute',
     format('SELECT app.rotate_tyres(%L, %L::jsonb, p_occurred_at => %L)', vt,
            jsonb_build_array(
              jsonb_build_object('tyre_id', md5('t83d-x')::uuid, 'to_position_id', pg_temp.t83_pos('9'), 'tread_mm', 10.0),
              jsonb_build_object('tyre_id', md5('t83d-y')::uuid, 'to_position_id', pg_temp.t83_pos('7'), 'tread_mm', 10.0)),
-           now() - interval '2 hours'),
+           off_at - interval '20 seconds'),
     'TY012 ' || format('position %s on %s was vacated at %s; this one cannot predate it', '9', 'T83-T',
-                       to_char((now() - interval '1 hour') AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI')));
+                       to_char(off_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI:SS') || '+02:00'));
   PERFORM pg_temp.t83_closing('83d earlier');
   RAISE NOTICE 'PASS  83d a fit or a rotation before a position was vacated is refused naming it, by day and by instant, at the tenant''s time';
 END $$;
