@@ -275,6 +275,19 @@ grep -qF "function app.active_tenant_ids() owner=$S definer=t " "$work/cat63-63.
 standin_migrate goto 62
 run tyre_standin postgres db/tests/migration/000063_catalogue.sql -At >"$work/cat63-down.txt"
 diff "$work/cat63-62.txt" "$work/cat63-down.txt" || fail 17 "000063's down did not restore 62's catalogue"
+# 000067 the same way: its down restores 66's six bodies, and its up gives
+# a tenant that already has removal reasons their words (TYRE-240).
+standin_migrate goto 66
+run tyre_standin postgres db/tests/migration/000067_catalogue.sql -At >"$work/cat67-66.txt"
+must_run 17 tyre_standin postgres db/tests/migration/000067_before.sql
+standin_migrate goto 67
+must_run 17 tyre_standin postgres db/tests/migration/000067_after.sql
+run tyre_standin postgres db/tests/migration/000067_catalogue.sql -At >"$work/cat67-67.txt"
+grep -qF 'function app.place_movement(date,uuid[],uuid[],uuid[]) owner=' "$work/cat67-67.txt" \
+  || fail 17 "000067's up did not create app.place_movement"
+standin_migrate goto 66
+run tyre_standin postgres db/tests/migration/000067_catalogue.sql -At >"$work/cat67-down.txt"
+diff "$work/cat67-66.txt" "$work/cat67-down.txt" || fail 17 "000067's down did not restore 66's catalogue"
 standin_migrate up
 must_run 17 tyre_standin postgres db/seeds/002_seed_configurations.sql
 must_run 17 tyre_standin postgres db/seeds/003_seed_fixture.sql
@@ -282,7 +295,7 @@ cat db/tests/helpers.sql db/tests/migration/000061_standin.sql >"$work/standin.s
 must_run 17 tyre_standin postgres "$work/standin.sql"
 cat db/tests/helpers.sql db/tests/migration/000063_standin.sql >"$work/standin63.sql"
 must_run 17 tyre_standin postgres "$work/standin63.sql"
-ok 17 "000061 to 000063 up, down and up again as $S, the write-list functions run as app_writer, and app_job lists every ACTIVE tenant, in $((SECONDS - t17))s"
+ok 17 "000061 to 000063 and 000067 up, down and up again as $S, the write-list functions run as app_writer, and app_job lists every ACTIVE tenant, in $((SECONDS - t17))s"
 
 # 18. Clean up only on success, so a failure leaves the databases to inspect;
 # the next run drops them first. DROP ROLE refuses a role that granted a
