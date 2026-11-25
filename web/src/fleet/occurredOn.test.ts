@@ -27,8 +27,8 @@ describe("occurredOnBody", () => {
     });
   });
 
-  // Review Focus 3: the max attribute does not stop typing, so a later day
-  // goes to the database, which refuses it in words.
+  // FR-FIT-016 as amended: the max attribute does not stop typing, so a
+  // later day goes to the database, which refuses it in words.
   it("sends a typed future day for the database to refuse", () => {
     expect(occurredOnBody("2999-01-01", "", today)).toEqual({ occurredOn: "2999-01-01" });
   });

@@ -699,8 +699,9 @@ describe("a rotation recorded for an earlier day", () => {
     });
   });
 
-  // Review Focus 3: max does not stop a typed day, so a later one goes to
-  // the database, which refuses it in words; it is never recorded as today.
+  // FR-FIT-016 as amended: max does not stop a typed day, so a later one
+  // goes to the database, which refuses it in words; it is never recorded
+  // as today.
   it("sends a typed future day and speaks the database's refusal", async () => {
     const message = "a movement is recorded on or before today, never on a future date";
     wireFetch({ rotation: () => respond(422, { code: "TY014", message }) });
