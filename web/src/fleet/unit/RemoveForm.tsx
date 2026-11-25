@@ -16,6 +16,7 @@ import { ODOMETER_REQUIRED, odometerRefusal, readOdometer } from "./odometer";
 import { useUnitLabels } from "../../units/units";
 import { openFitmentsKey, tyresKey, unitFitmentsKey, unitKey } from "./queryKeys";
 import { formatCount } from "../../format/numbers";
+import { removalReasonLabel } from "../../domain/vocabulary";
 
 const REMOVE_WORDING = {
   speakable: ["TY009", "TY012", "TY014"],
@@ -126,8 +127,8 @@ export function RemoveForm({
 
   return (
     <form className="unit-form" onSubmit={submitRemove}>
-      {/* FR-FIT-008: which reasons exist is tenant configuration, read off
-          the unit rather than listed here (rule 5). */}
+      {/* FR-FIT-008: which reasons exist, and their words, are tenant
+          configuration, read off the unit rather than listed here (rule 5). */}
       <Field label="Reason">
         <Select
           id={`remove-reason-${position.id}`}
@@ -135,7 +136,10 @@ export function RemoveForm({
           onChange={(e) => setReason(e.target.value)}
           options={[
             { value: "", label: "Choose…" },
-            ...unit.removalReasons.map((r) => ({ value: r, label: r })),
+            ...unit.removalReasons.map((r) => ({
+              value: r,
+              label: removalReasonLabel(r, unit.removalReasonLabels),
+            })),
           ]}
         />
       </Field>

@@ -150,7 +150,10 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
       <p className="unit-edit-layout">
         Axle layout: <strong>{unit.configurationName}</strong>
         {unit.hasHistory && (
-          <span className="unit-edit-note">Read-only: this unit has history</span>
+          <span className="unit-edit-note">
+            The axle layout and the unit kind are locked: this unit has fitments or inspections.
+            Every field below can still change.
+          </span>
         )}
       </p>
 

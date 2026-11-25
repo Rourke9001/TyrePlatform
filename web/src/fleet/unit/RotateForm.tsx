@@ -228,8 +228,7 @@ export function RotateForm({ unit }: { unit: Unit }) {
             <li key={p.id}>
               <Checkbox
                 className="unit-rotate-pick"
-                label={p.code}
-                aria-label={`Rotate ${p.code}`}
+                label={`Rotate ${p.code}`}
                 checked={picked[p.id] ?? false}
                 onChange={(e) => {
                   setPicked({ ...picked, [p.id]: e.target.checked });
@@ -243,39 +242,45 @@ export function RotateForm({ unit }: { unit: Unit }) {
               {picked[p.id] && (
                 <>
                   {openRig !== undefined && (
-                    <Select
-                      aria-label={`Unit for ${p.code}`}
-                      value={destinationOf(p.id)}
-                      onChange={(e) => {
-                        setDestinations({ ...destinations, [p.id]: e.target.value });
-                        // Cleared with the unit: the same position id is legal
-                        // on both links of a superlink, so a carried selection
-                        // names a position this picker does not offer.
-                        setTargets({ ...targets, [p.id]: "" });
-                      }}
-                      options={rigUnits.map((u) => ({ value: u.id, label: u.fleetNumber }))}
-                    />
+                    <Field label={`Unit for ${p.code}`}>
+                      <Select
+                        id={`rotate-unit-${p.id}`}
+                        value={destinationOf(p.id)}
+                        onChange={(e) => {
+                          setDestinations({ ...destinations, [p.id]: e.target.value });
+                          // Cleared with the unit: the same position id is legal
+                          // on both links of a superlink, so a carried selection
+                          // names a position this picker does not offer.
+                          setTargets({ ...targets, [p.id]: "" });
+                        }}
+                        options={rigUnits.map((u) => ({ value: u.id, label: u.fleetNumber }))}
+                      />
+                    </Field>
                   )}
-                  <Select
-                    aria-label={`Target for ${p.code}`}
-                    value={targets[p.id] ?? ""}
-                    onChange={(e) => setTargets({ ...targets, [p.id]: e.target.value })}
-                    options={[
-                      { value: "", label: "Choose…" },
-                      ...targetsFor(destinationOf(p.id)).map((target) => ({
-                        value: target.id,
-                        label: target.code,
-                      })),
-                    ]}
-                  />
-                  <TextInput
-                    className="unit-rotate-tread"
-                    aria-label={`Tread for ${p.code}`}
-                    inputMode="decimal"
-                    mono
-                    value={treads[p.id] ?? ""}
-                    onChange={(e) => setTreads({ ...treads, [p.id]: e.target.value })}
-                  />
+                  <Field label={`Target for ${p.code}`}>
+                    <Select
+                      id={`rotate-target-${p.id}`}
+                      value={targets[p.id] ?? ""}
+                      onChange={(e) => setTargets({ ...targets, [p.id]: e.target.value })}
+                      options={[
+                        { value: "", label: "Choose…" },
+                        ...targetsFor(destinationOf(p.id)).map((target) => ({
+                          value: target.id,
+                          label: target.code,
+                        })),
+                      ]}
+                    />
+                  </Field>
+                  <Field label={`Tread for ${p.code}`}>
+                    <TextInput
+                      id={`rotate-tread-${p.id}`}
+                      className="unit-rotate-tread"
+                      inputMode="decimal"
+                      mono
+                      value={treads[p.id] ?? ""}
+                      onChange={(e) => setTreads({ ...treads, [p.id]: e.target.value })}
+                    />
+                  </Field>
                 </>
               )}
             </li>

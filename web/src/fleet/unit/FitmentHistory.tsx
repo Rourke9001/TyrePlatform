@@ -1,4 +1,5 @@
 import type { FitmentHistoryRow } from "../../api/units";
+import { removalReasonLabel } from "../../domain/vocabulary";
 import { useTenantDate } from "../../time/tenantTime";
 import { EmptyState } from "../../ui/EmptyState";
 import { TyreIcon } from "../../ui/icons/Tyre";
@@ -10,7 +11,15 @@ import { orientationLabel } from "./vocabulary";
 // FR-FIT's history read, in the server's own order: most recent first is
 // units.go's ORDER BY, and a second sort here would be a second opinion
 // about which fitment is the latest.
-export function FitmentHistory({ rows }: { rows: FitmentHistoryRow[] }) {
+// A reason reads in the tenant's words, the code where it has none
+// (FR-FIT-008).
+export function FitmentHistory({
+  rows,
+  reasonLabels,
+}: {
+  rows: FitmentHistoryRow[];
+  reasonLabels: Readonly<Record<string, string>>;
+}) {
   const asDate = useTenantDate();
   const labels = useUnitLabels();
 
@@ -50,7 +59,11 @@ export function FitmentHistory({ rows }: { rows: FitmentHistoryRow[] }) {
               <td>{treadCell(row.fittedTreadMm, row.fittedAgeDays)}</td>
               <td>{treadCell(row.removedTreadMm, row.removedAgeDays)}</td>
               <td>{orientationLabel(row.mountOrientation)}</td>
-              <td>{row.removalReason ?? "—"}</td>
+              <td>
+                {row.removalReason === null
+                  ? "—"
+                  : removalReasonLabel(row.removalReason, reasonLabels)}
+              </td>
               <td>{distanceCell(row, labels)}</td>
             </tr>
           ))}

@@ -59,14 +59,16 @@ describe("editing a unit's description", () => {
     expect(screen.queryByRole("combobox", { name: /axle layout/i })).toBeNull();
   });
 
-  it("explains the axle layout is fixed once the unit has history, and not before", async () => {
+  it("names what is locked once the unit has history, and why, and not before", async () => {
+    const note =
+      "The axle layout and the unit kind are locked: this unit has fitments or inspections. Every field below can still change.";
     const { unmount } = renderForm({ hasHistory: true });
-    expect(await screen.findByText("Read-only: this unit has history")).toBeTruthy();
+    expect(await screen.findByText(note)).toBeTruthy();
     unmount();
 
     renderForm({ hasHistory: false });
     await screen.findByRole("textbox", { name: "Fleet number" });
-    expect(screen.queryByText("Read-only: this unit has history")).toBeNull();
+    expect(screen.queryByText(note)).toBeNull();
   });
 
   it("sends only the field that changed", async () => {

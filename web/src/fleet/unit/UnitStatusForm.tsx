@@ -27,6 +27,14 @@ export function UnitStatusForm({ unit }: { unit: Unit }) {
   const tenantKey = getDevTenantId() ?? "default";
   const [status, setStatus] = useState(unit.status);
   const [reason, setReason] = useState("");
+  // Comment 13617: when another write moves the unit's status, the
+  // selection follows it, so "Set status" never writes back a value nobody
+  // chose (PositionPanel's seenFitmentId idiom).
+  const [seenStatus, setSeenStatus] = useState(unit.status);
+  if (unit.status !== seenStatus) {
+    setSeenStatus(unit.status);
+    setStatus(unit.status);
+  }
 
   const change = useFormMutation({
     mutate: (vars: { status: string; reason?: string }) => setUnitStatus(unit.id, vars),
@@ -67,7 +75,11 @@ export function UnitStatusForm({ unit }: { unit: Unit }) {
           </Field>
         )}
 
-        <Button variant="primary" type="submit" disabled={change.isPending}>
+        <Button
+          variant="primary"
+          type="submit"
+          disabled={change.isPending || status === unit.status}
+        >
           {change.isPending ? "Setting…" : "Set status"}
         </Button>
       </form>
