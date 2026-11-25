@@ -79,12 +79,12 @@ test("an admin receives a tyre, prices its receipt and scraps it on Sandbox", as
     row.getByRole("button", { name: /^dispose$/i }).click(),
   ]);
 
-  await expect(row.getByText("SCRAPPED", { exact: true })).toBeVisible();
+  await expect(row.getByText("Scrapped", { exact: true })).toBeVisible();
 });
 
 // TYRE-318's definition of done: a priced receive through the form, with its
 // catalogue entries and new tread, is rated, so the register shows a cost
-// per mm where an unrated tyre shows a dash. Sandbox has no price list, so
+// per mm where an unrated tyre reads Not valued. Sandbox has no price list, so
 // the typed price is an invoice price (FR-CFG-041).
 test("a priced receive through the pickers is rated on the register", async ({ page }) => {
   await page.goto("/fleet/tyres/new");
@@ -115,7 +115,7 @@ test("a priced receive through the pickers is rated on the register", async ({ p
   // Appendix E's 4319.91 over (25.0 - 4.0) mm, the figure suite section 7
   // pins, at Sandbox's seeded 4.0 threshold: a literal, so a wrong rate
   // fails here, not only a missing one.
-  await expect(row.getByRole("cell").nth(rateColumn - 1)).toHaveText("R205.7100");
+  await expect(row.getByRole("cell").nth(rateColumn - 1)).toHaveText("R205.7100 actual cost");
 });
 
 // TYRE-99's definition of done 4: under GENERATED the issued code waits in

@@ -26,7 +26,7 @@ test.describe.configure({ mode: "serial" });
 const RUN = Date.now().toString().slice(-6);
 // ActorBadge's whole line, so the DevBar's "Sandbox Driver" option cannot
 // match too.
-const SIGNED_IN_AS = "Sandbox Driver · DRIVER";
+const SIGNED_IN_AS = "Sandbox Driver · Driver";
 let stub: IdpStub;
 
 test.beforeEach(async ({ page }) => {
