@@ -17248,7 +17248,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 83c. a tyre moved several times for one earlier day lands in order, each after the last; a day before its last movement is refused; a fitment or a closure with no event still bounds it (U253, red team I-6; as BAC, rolled back)'
+\echo '== 83c. a tyre moved several times for one earlier day lands in order, each after the last; a day or an instant before its last movement is refused; a fitment or a closure with no event still bounds it (U253, U255, red team I-6, TYRE-240 F13; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE
@@ -17316,6 +17316,13 @@ BEGIN
     format('SELECT app.return_tyre_to_stock(%L, p_backdate_reason => ''83c'', p_occurred_on => %L)',
            md5('t83c-closed')::uuid, today - 4),
     'TY012 this tyre''s last recorded movement is %; this one cannot predate it');
+  -- The instant path reads the same last movement, exactly, with BAC's
+  -- offset (U255, TYRE-240 F13).
+  PERFORM pg_temp.t83_says('83c a return at an instant before a closure with no event',
+    format('SELECT app.return_tyre_to_stock(%L, p_occurred_at => %L, p_backdate_reason => ''83c'')',
+           md5('t83c-closed')::uuid, closed_at - interval '1 hour'),
+    'TY012 ' || format('this tyre''s last recorded movement is %s; this one cannot predate it',
+                       to_char(closed_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI:SS') || '+02:00'));
   PERFORM app.return_tyre_to_stock(md5('t83c-closed')::uuid, p_backdate_reason => '83c job card',
                                    p_occurred_on => today - 3);
   IF (SELECT e.occurred_at FROM app.tyre_event e
@@ -17323,8 +17330,24 @@ BEGIN
     RAISE EXCEPTION 'FAIL 83c: a return for the day of a closure with no event does not land after it';
   END IF;
 
+  -- In stock by a raw write, so no return's event bounds a fit (F13).
+  PERFORM pg_temp.t83_tyre('c-closed-in');
+  INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_tread_mm,
+                           mount_orientation, removed_at, removed_tread_mm, removal_reason)
+  VALUES (bac, md5('t83c-closed-in')::uuid, vt, pg_temp.t83_pos('5'),
+          app.tenant_day_instant(today - 6) + interval '10 hours', 12.0, 'MARK_OUTBOARD',
+          closed_at, 10.0, 'damage');
+  PERFORM pg_temp.t83_says('83c a fit at an instant before a closure with no event',
+    format('SELECT app.fit_tyre(%L, %L, %L, 12.0, ''MARK_OUTBOARD'', p_occurred_at => %L, p_reason => ''83c'')',
+           md5('t83c-closed-in')::uuid, vt, pg_temp.t83_pos('4'), closed_at - interval '30 minutes'),
+    'TY012 ' || format('this tyre''s last recorded movement is %s; this one cannot predate it',
+                       to_char(closed_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI:SS') || '+02:00'));
+  -- A tie passes, as it does on the day path.
+  PERFORM app.fit_tyre(md5('t83c-closed-in')::uuid, vt, pg_temp.t83_pos('4'), 12.0, 'MARK_OUTBOARD',
+                       p_occurred_at => closed_at, p_reason => '83c job card');
+
   PERFORM pg_temp.t83_closing('83c');
-  RAISE NOTICE 'PASS  83c movements for one day land in order a microsecond apart; an earlier day is refused; an eventless fitment or closure bounds the stamp';
+  RAISE NOTICE 'PASS  83c movements for one day land in order a microsecond apart; an earlier day or instant is refused; an eventless fitment or closure bounds the stamp on either path';
 END $$;
 ROLLBACK;
 
