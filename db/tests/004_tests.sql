@@ -17389,6 +17389,12 @@ BEGIN
            md5('t83d-a')::uuid, today - 4),
     'TY012 ' || format('this tyre''s last recorded movement is %s; this one cannot predate it',
                        to_char(off_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI')));
+  -- And on the instant path, exactly, with BAC's offset (TYRE-240 M11).
+  PERFORM pg_temp.t83_says('83d a return at an instant before the tyre came off',
+    format('SELECT app.return_tyre_to_stock(%L, p_occurred_at => %L, p_backdate_reason => ''83d'')',
+           md5('t83d-a')::uuid, off_at - interval '1 hour'),
+    'TY012 ' || format('this tyre''s last recorded movement is %s; this one cannot predate it',
+                       to_char(off_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI:SS') || '+02:00'));
 
   -- The instant path holds the same rule, and its words name the closure
   -- exactly, with BAC's offset (+02:00 all year), so an instant asked for in

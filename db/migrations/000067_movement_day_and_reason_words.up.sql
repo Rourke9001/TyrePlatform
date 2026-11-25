@@ -44,6 +44,34 @@ BEGIN
   RETURN to_char(p_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI');
 END $$;
 
+-- FR-FIT-016's instant rule, as 000033 states it and for its reasons. Only
+-- an instant reaches it, so its refusal names the last movement exactly in
+-- the tenant's time, as the instant path's other refusals do (TYRE-240 M11).
+CREATE OR REPLACE FUNCTION app.fitment_instant_ok(p_tyre uuid, p_at timestamptz, p_reason text)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE last_at timestamptz;
+BEGIN
+  IF p_at IS NULL OR p_at > now() THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = 'a fitment movement is recorded as at now or earlier, never in the future';
+  END IF;
+  SELECT max(e.occurred_at) INTO last_at
+    FROM app.tyre_event e WHERE e.tyre_id = p_tyre AND e.to_state IS NOT NULL;
+  IF last_at IS NOT NULL AND p_at < last_at THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = format('this tyre''s last recorded movement is %s; this one cannot predate it',
+                       app.tenant_ts_text(last_at, true));
+  END IF;
+  IF p_at < now() - interval '24 hours'
+     AND NULLIF(btrim(COALESCE(p_reason, '')), '') IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY014',
+      MESSAGE = 'a movement backdated more than 24 hours records why',
+      HINT    = 'give the reason the workshop recorded it late (FR-FIT-016)';
+  END IF;
+END $$;
+
 -- The latest instant a new movement of these tyres, or into these
 -- (vehicle, position) pairs, has to follow, with the words to refuse in.
 -- A tyre's open fitment and its closed ones count beside its events: a
