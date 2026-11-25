@@ -489,6 +489,25 @@ func dateField(field string, raw *string) (*string, error) {
 	return &trimmed, nil
 }
 
+// occurredFields reads a movement's instant or its day, never both. The day
+// goes to SQL as text and SQL resolves it in the tenant's zone and places it
+// after what is already recorded that day (TYRE-240, rule 6, 000067), so Go
+// neither builds an instant from it nor compares it with anything.
+func occurredFields(at, on *string) (*time.Time, *string, error) {
+	instant, err := instantField("occurredAt", at)
+	if err != nil {
+		return nil, nil, err
+	}
+	day, err := dateField("occurredOn", on)
+	if err != nil {
+		return nil, nil, err
+	}
+	if instant != nil && day != nil {
+		return nil, nil, invalid("occurredOn", "and occurredAt cannot both be given; a movement names a day or an instant")
+	}
+	return instant, day, nil
+}
+
 // isISODate answers whether s is a date as YYYY-MM-DD that a ::date cast
 // reads. time.Parse reads year 0000, which the cast refuses with 22008, so
 // the year is checked as well (TYRE-379, TestDateChecksAgreeWithTheCast).

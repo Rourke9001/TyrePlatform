@@ -25,9 +25,10 @@ import (
 )
 
 // fitTyreRequest is app.fit_tyre's body. Odometer is *int64 so a unit with
-// none sends nothing rather than a zero reading (000025 exempts a trailer),
-// and OccurredAt is *string so an absent instant reaches the function's own
-// now() default instead of a Go clock's idea of the same moment.
+// none sends nothing rather than a zero reading (000025 exempts a trailer).
+// OccurredAt and OccurredOn are *string so that, with neither sent, the
+// function reads a NULL instant as its own now() rather than a Go clock's
+// idea of the same moment (000067).
 type fitTyreRequest struct {
 	TyreID     string `json:"tyreId"`
 	PositionID string `json:"positionId"`
@@ -37,6 +38,7 @@ type fitTyreRequest struct {
 	MountOrientation string  `json:"mountOrientation"`
 	Odometer         *int64  `json:"odometer"`
 	OccurredAt       *string `json:"occurredAt"`
+	OccurredOn       *string `json:"occurredOn"`
 	Reason           *string `json:"reason"`
 }
 
@@ -50,6 +52,7 @@ type fitTyreArgs struct {
 	mountOrientation string
 	odometer         *int64
 	occurredAt       *time.Time
+	occurredOn       *string
 	reason           *string
 }
 
@@ -69,7 +72,7 @@ func (b fitTyreRequest) validate() (fitTyreArgs, error) {
 		return a, err
 	}
 	a.odometer = b.Odometer
-	if a.occurredAt, err = instantField("occurredAt", b.OccurredAt); err != nil {
+	if a.occurredAt, a.occurredOn, err = occurredFields(b.OccurredAt, b.OccurredOn); err != nil {
 		return a, err
 	}
 	if a.reason, err = text("reason", b.Reason); err != nil {
@@ -176,9 +179,9 @@ func fitTyre(s *store.Store) http.HandlerFunc {
 			if err := tx.QueryRow(ctx,
 				`SELECT fitment_id, warnings
 				   FROM app.fit_tyre($1, $2, $3, $4::numeric, $5::app.mount_orientation,
-				                     $6, COALESCE($7::timestamptz, now()), $8)`,
+				                     $6, $7::timestamptz, $8, $9::date)`,
 				args.tyreID, vehicleID, args.positionID, args.treadMm, args.mountOrientation,
-				args.odometer, args.occurredAt, args.reason,
+				args.odometer, args.occurredAt, args.reason, args.occurredOn,
 			).Scan(&fitmentID, &raw); err != nil {
 				return fmt.Errorf("fitting tyre %s to unit %s: %w", args.tyreID, vehicleID, err)
 			}
@@ -206,6 +209,7 @@ type removeFitmentRequest struct {
 	TreadMm        string  `json:"treadMm"`
 	Odometer       *int64  `json:"odometer"`
 	OccurredAt     *string `json:"occurredAt"`
+	OccurredOn     *string `json:"occurredOn"`
 	BackdateReason *string `json:"backdateReason"`
 }
 
@@ -231,7 +235,7 @@ func removeFitment(s *store.Store) http.HandlerFunc {
 		if refuseInvalid(w, r, err) {
 			return
 		}
-		occurredAt, err := instantField("occurredAt", body.OccurredAt)
+		occurredAt, occurredOn, err := occurredFields(body.OccurredAt, body.OccurredOn)
 		if refuseInvalid(w, r, err) {
 			return
 		}
@@ -252,10 +256,9 @@ func removeFitment(s *store.Store) http.HandlerFunc {
 				return err
 			}
 			if _, err := tx.Exec(ctx,
-				`SELECT app.remove_tyre($1, $2, $3::numeric, $4,
-				                        COALESCE($5::timestamptz, now()), $6)`,
+				`SELECT app.remove_tyre($1, $2, $3::numeric, $4, $5::timestamptz, $6, $7::date)`,
 				fitmentID, body.Reason, treadMm, body.Odometer,
-				occurredAt, backdateReason); err != nil {
+				occurredAt, backdateReason, occurredOn); err != nil {
 				return fmt.Errorf("removing fitment %s: %w", fitmentID, err)
 			}
 			return nil
@@ -284,10 +287,12 @@ type rotateMove struct {
 // unit (U20, FR-FIT-002) while a rotation inside one unit has a single
 // reading to give. odometerPayload settles which of the two a body means.
 type rotateRequest struct {
-	Moves      []rotateMove     `json:"moves"`
-	Odometer   *int64           `json:"odometer"`
-	Odometers  map[string]int64 `json:"odometers"`
-	OccurredAt *string          `json:"occurredAt"`
+	Moves          []rotateMove     `json:"moves"`
+	Odometer       *int64           `json:"odometer"`
+	Odometers      map[string]int64 `json:"odometers"`
+	OccurredAt     *string          `json:"occurredAt"`
+	OccurredOn     *string          `json:"occurredOn"`
+	BackdateReason *string          `json:"backdateReason"`
 }
 
 // payload builds app.rotate_tyres' jsonb argument. The list's length is
@@ -423,7 +428,11 @@ func rotateTyres(s *store.Store) http.HandlerFunc {
 		if refuseInvalid(w, r, err) {
 			return
 		}
-		occurredAt, err := instantField("occurredAt", body.OccurredAt)
+		occurredAt, occurredOn, err := occurredFields(body.OccurredAt, body.OccurredOn)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		backdateReason, err := text("backdateReason", body.BackdateReason)
 		if refuseInvalid(w, r, err) {
 			return
 		}
@@ -472,8 +481,8 @@ func rotateTyres(s *store.Store) http.HandlerFunc {
 			}
 			rows, err := tx.Query(ctx,
 				`SELECT tyre_id, fitment_id
-				   FROM app.rotate_tyres($1, $2::jsonb, $3::jsonb, COALESCE($4::timestamptz, now()))`,
-				vehicleID, raw, odometers, occurredAt)
+				   FROM app.rotate_tyres($1, $2::jsonb, $3::jsonb, $4::timestamptz, $5, $6::date)`,
+				vehicleID, raw, odometers, occurredAt, backdateReason, occurredOn)
 			if err != nil {
 				return fmt.Errorf("rotating tyres on unit %s: %w", vehicleID, err)
 			}

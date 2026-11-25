@@ -567,18 +567,22 @@ func dispatchTyre(s *store.Store) http.HandlerFunc {
 
 // returnTyreRequest is app.return_tyre_to_stock's body. DepotID is optional:
 // a NULL leaves the casing where the register already has it, because the
-// return says the fleet has it back rather than that it moved.
+// return says the fleet has it back rather than that it moved. OccurredOn is
+// the day the casing came back, absent for today (FR-FIT-016 as amended,
+// U253).
 type returnTyreRequest struct {
-	DepotID *string `json:"depotId"`
+	DepotID        *string `json:"depotId"`
+	OccurredOn     *string `json:"occurredOn"`
+	BackdateReason *string `json:"backdateReason"`
 }
 
 // returnTyreToStock is FR-FIT-013's receipt back, for the casing the
-// workshop has in hand again. No occurred-at field: a receipt is recorded
-// when it happens, so the function's own now() default is the instant, and
-// backdating one is not a screen this slice builds. Which states restock
-// (never AT_RETREADER, because that casing comes back through Log Retread, which
-// records the tread, the cost and the casing decision) and which depot types
-// may hold stock are app.return_tyre_to_stock's rules.
+// workshop has in hand again. It takes a day, never an instant: the office
+// records the day a casing came back, and SQL places it and asks an earlier
+// day why (000067). Which states restock (never AT_RETREADER, because that
+// casing comes back through Log Retread, which records the tread, the cost
+// and the casing decision) and which depot types may hold stock are
+// app.return_tyre_to_stock's rules.
 func returnTyreToStock(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -598,12 +602,21 @@ func returnTyreToStock(s *store.Store) http.HandlerFunc {
 			}
 			depotID = &parsed
 		}
+		occurredOn, err := dateField("occurredOn", body.OccurredOn)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		backdateReason, err := text("backdateReason", body.BackdateReason)
+		if refuseInvalid(w, r, err) {
+			return
+		}
 		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(ctx,
-				`SELECT app.return_tyre_to_stock($1, $2)`, tyreID, depotID); err != nil {
+				`SELECT app.return_tyre_to_stock($1, $2, NULL, $3, $4::date)`,
+				tyreID, depotID, backdateReason, occurredOn); err != nil {
 				return fmt.Errorf("returning tyre %s to stock: %w", tyreID, err)
 			}
 			return nil

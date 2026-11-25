@@ -1484,6 +1484,45 @@ func TestReturnTyreToStockRefusals(t *testing.T) {
 	}
 }
 
+// FR-FIT-016 as amended (U253): a return takes the day it happened and its
+// reason, as the unit movements do, and the RETURNED event keeps the reason.
+func TestReturnTyreToStockTakesTheDay(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "return-day")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	day := tenantDateAgo(t, ctx, admin, tenantID, 2)
+	send := func(tyreID uuid.UUID, body string) *httptest.ResponseRecorder {
+		return post(t, h, "/api/tyres/"+tyreID.String()+"/return", tenantID.String(), controller.String(), body)
+	}
+
+	tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "RET-DAY-"+uuid.NewString()[:8])
+	rec := send(tyreID, fmt.Sprintf(`{"occurredOn":%q,"backdateReason":"yard book"}`, day))
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	var at time.Time
+	var why *string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT occurred_at, reason FROM app.tyre_event WHERE tyre_id = $1 AND type = 'RETURNED'`,
+		tyreID).Scan(&at, &why))
+	require.True(t, tenantMidnight(t, ctx, admin, tenantID, day).Equal(at),
+		"the return landed at %s, not the tenant's start of %s", at, day)
+	require.NotNil(t, why)
+	require.Equal(t, "yard book", *why)
+
+	other := plantRemovedTyre(t, ctx, admin, tenantID, "RET-DAY-"+uuid.NewString()[:8])
+	var ref refusalBody
+	rec = send(other, `{"occurredOn":"2026-13-01","backdateReason":"yard book"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, refusalBody{Code: "invalid_submission", Message: "occurredOn must be a date as YYYY-MM-DD"}, ref)
+
+	rec = send(other, fmt.Sprintf(`{"occurredOn":%q}`, day))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, refusalBody{Code: "TY014", Message: "a movement recorded for an earlier day records why"}, ref)
+}
+
 // TYRE-208 F6: the dispatch refusals pinned here, not every refusal
 // app.dispatch_tyre raises (its in-force body is 000048's). Two rows never
 // reach the function: sentOn is refused in Go and an unknown destination at
