@@ -1496,13 +1496,15 @@ no foreground work, and a gate it did not wait for is a gate it did not run.
   against `app.tenant_today()` (2026-09-01). Where the caller supplies a
   date rather than a timestamp, the instant is `now()` when the date equals
   the tenant's today, otherwise `least(date::timestamptz, now())` cast in
-  the tenant's zone, and the function refuses the write when that instant
-  is earlier than the tyre's latest recorded movement rather than clamping
-  to it: a clamp ties two events at the same instant, which makes
-  `tyre_in_estate_asof` ambiguous (2026-09-03). `app.tenant_day_instant`
-  (000037) computes that instant: `now()` for the tenant's today,
-  tenant-local midnight for an earlier day, and NULL for a future day so the
-  caller refuses.
+  the tenant's zone. `app.tenant_day_instant` (000037) computes that
+  instant: `now()` for the tenant's today, tenant-local midnight for an
+  earlier day, and NULL for a future day so the caller refuses. A movement
+  that takes a day is placed by `app.place_movement` (000067, U253), the
+  one rule for it: an earlier day lands at that midnight, or one
+  microsecond after a movement of the tyre, or of the position it fills,
+  already recorded that day, and a day before the last movement is
+  refused. Never a tie, and never a clamp onto the same instant: two events
+  at one instant make `tyre_in_estate_asof` ambiguous (2026-09-03).
 - Comparing `occurred_at::date` reads the session `TimeZone`, which nothing
   in this deployment pins: use the `< ((d + 1)::timestamp AT TIME ZONE 'UTC')`
   boundary `000016` uses, so two predicates in one `WHERE` cannot disagree
