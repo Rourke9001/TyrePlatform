@@ -153,6 +153,18 @@ func tenantDaysAgo(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID 
 	return at
 }
 
+// tenantDateAgo is tenantDaysAgo's day as the YYYY-MM-DD a movement's
+// occurredOn carries, read from the tenant's own calendar.
+func tenantDateAgo(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, days int) string {
+	t.Helper()
+	var day string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT (app.tenant_today(timezone) - $2::int)::text FROM app.tenant WHERE id = $1`,
+		tenantID, days,
+	).Scan(&day))
+	return day
+}
+
 // tenantDaysSince is the age app.tenant_days_since should answer for an
 // instant, computed on the admin connection from the tenant's own calendar.
 // The admin connection binds no tenant, so the function itself would read

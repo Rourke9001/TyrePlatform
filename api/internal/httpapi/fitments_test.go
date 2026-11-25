@@ -1155,3 +1155,183 @@ func TestRotateRefusesContradictoryAndMalformedFields(t *testing.T) {
 		[]uuid.UUID{leftTyre, rightTyre}).Scan(&closed))
 	require.Equal(t, 2, closed, "only the control's rotation closed a fitment")
 }
+
+// movementUnderTest is one of the three unit movements, set up on a tenant
+// of its own: where it posts, its body before a day or a reason is added,
+// the wire name of its back-date reason, and a read of the instant it wrote
+// and the reason it stored (TYRE-240).
+type movementUnderTest struct {
+	tenantID   uuid.UUID
+	controller uuid.UUID
+	path       string
+	body       map[string]any
+	reasonKey  string
+	stamped    func(t *testing.T) (time.Time, *string)
+}
+
+func (m movementUnderTest) send(t *testing.T, h http.Handler, extra map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	body := map[string]any{}
+	for k, v := range m.body {
+		body[k] = v
+	}
+	for k, v := range extra {
+		body[k] = v
+	}
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+	return post(t, h, m.path, m.tenantID.String(), m.controller.String(), string(raw))
+}
+
+// setUpMovement plants a fit, a removal or a rotation on the fixture's
+// trailer, whose casings need no odometer (000025). A removal's and a
+// rotation's casings are fitted five days back, so nothing of theirs is
+// recorded on the day each case names.
+func setUpMovement(t *testing.T, ctx context.Context, admin *pgx.Conn, h http.Handler, kind string) movementUnderTest {
+	t.Helper()
+	tenantID, _, other, leftPos, rightPos, _ := plantUnitFixture(t, ctx, admin, "day-"+kind)
+	plantRemovalReasons(t, ctx, admin, tenantID, "WORN")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	fitted := func(pos uuid.UUID) (uuid.UUID, string) {
+		tyreID := plantTyre(t, ctx, admin, tenantID, "DAY-"+uuid.NewString()[:8], nil)
+		rec := post(t, h, "/api/vehicles/"+other.String()+"/fitments", tenantID.String(), controller.String(),
+			fmt.Sprintf(`{"tyreId":%q,"positionId":%q,"treadMm":"10.0","mountOrientation":"MARK_OUTBOARD","occurredAt":%q,"reason":"fitted from the sheet"}`,
+				tyreID, pos, tenantDaysAgo(t, ctx, admin, tenantID, 5).Format(time.RFC3339)))
+		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+		var created fitmentCreatedBody
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+		return tyreID, created.FitmentID
+	}
+	read := func(query string, arg any) func(t *testing.T) (time.Time, *string) {
+		return func(t *testing.T) (time.Time, *string) {
+			t.Helper()
+			var at time.Time
+			var why *string
+			require.NoError(t, admin.QueryRow(ctx, query, arg).Scan(&at, &why))
+			return at, why
+		}
+	}
+	m := movementUnderTest{tenantID: tenantID, controller: controller, reasonKey: "backdateReason"}
+	switch kind {
+	case "fit":
+		tyreID := plantTyre(t, ctx, admin, tenantID, "DAY-"+uuid.NewString()[:8], nil)
+		m.path = "/api/vehicles/" + other.String() + "/fitments"
+		m.body = map[string]any{"tyreId": tyreID, "positionId": leftPos, "treadMm": "10.0",
+			"mountOrientation": "MARK_OUTBOARD"}
+		m.reasonKey = "reason"
+		m.stamped = read(`SELECT f.fitted_at, e.reason FROM app.fitment f
+		                   JOIN app.tyre_event e ON e.tyre_id = f.tyre_id AND e.type = 'FITTED'
+		                  WHERE f.tyre_id = $1`, tyreID)
+	case "remove":
+		_, fitmentID := fitted(leftPos)
+		m.path = "/api/fitments/" + fitmentID + "/remove"
+		m.body = map[string]any{"reason": "WORN", "treadMm": "4.0"}
+		m.stamped = read(`SELECT f.removed_at, e.payload->>'backdate_reason' FROM app.fitment f
+		                   JOIN app.tyre_event e ON e.tyre_id = f.tyre_id AND e.type = 'REMOVED'
+		                  WHERE f.id = $1`, fitmentID)
+	case "rotate":
+		left, _ := fitted(leftPos)
+		right, _ := fitted(rightPos)
+		m.path = "/api/vehicles/" + other.String() + "/rotations"
+		m.body = map[string]any{"moves": []map[string]any{
+			{"tyreId": left, "toPositionId": rightPos, "treadMm": "9.0"},
+			{"tyreId": right, "toPositionId": leftPos, "treadMm": "9.0"},
+		}}
+		m.stamped = read(`SELECT f.fitted_at, e.payload->>'backdate_reason' FROM app.fitment f
+		                   JOIN app.tyre_event e ON e.payload->>'fitment_id' = f.id::text AND e.type = 'ROTATED'
+		                  WHERE f.tyre_id = $1 AND f.removed_at IS NULL`, left)
+	default:
+		t.Fatalf("no movement %s", kind)
+	}
+	return m
+}
+
+// tenantMidnight is the tenant's start of a day, read on the admin
+// connection from the tenant's own zone, never Go's (rule 6).
+func tenantMidnight(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, day string) time.Time {
+	t.Helper()
+	var at time.Time
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT ($2::date)::timestamp AT TIME ZONE timezone FROM app.tenant WHERE id = $1`,
+		tenantID, day).Scan(&at))
+	return at
+}
+
+var dayMovements = []string{"fit", "remove", "rotate"}
+
+// FR-FIT-016 as amended (U253): the day reaches SQL as text, and the row
+// lands at the tenant's start of that day carrying the reason, where the
+// movement's own event keeps it.
+func TestMovementsTakeTheDayTheyHappened(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	for _, kind := range dayMovements {
+		t.Run(kind, func(t *testing.T) {
+			m := setUpMovement(t, ctx, admin, h, kind)
+			day := tenantDateAgo(t, ctx, admin, m.tenantID, 2)
+			rec := m.send(t, h, map[string]any{"occurredOn": day, m.reasonKey: "job card"})
+			require.Less(t, rec.Code, 300, rec.Body.String())
+			at, why := m.stamped(t)
+			require.True(t, tenantMidnight(t, ctx, admin, m.tenantID, day).Equal(at),
+				"the %s landed at %s, not the tenant's start of %s", kind, at, day)
+			require.NotNil(t, why)
+			require.Equal(t, "job card", *why)
+		})
+	}
+}
+
+func TestMovementsRefuseADayThatIsNotOne(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	for _, kind := range dayMovements {
+		t.Run(kind, func(t *testing.T) {
+			m := setUpMovement(t, ctx, admin, h, kind)
+			rec := m.send(t, h, map[string]any{"occurredOn": "2026-13-01", m.reasonKey: "job card"})
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, refusalBody{Code: "invalid_submission",
+				Message: "occurredOn must be a date as YYYY-MM-DD"}, ref)
+		})
+	}
+}
+
+func TestMovementsRefuseADayAndAnInstantTogether(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	for _, kind := range dayMovements {
+		t.Run(kind, func(t *testing.T) {
+			m := setUpMovement(t, ctx, admin, h, kind)
+			rec := m.send(t, h, map[string]any{
+				"occurredOn": tenantDateAgo(t, ctx, admin, m.tenantID, 1),
+				"occurredAt": time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+				m.reasonKey:  "job card",
+			})
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, refusalBody{Code: "invalid_submission",
+				Message: "occurredOn and occurredAt cannot both be given; a movement names a day or an instant"}, ref)
+		})
+	}
+}
+
+func TestMovementsRefuseAnEarlierDayWithNoReason(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	for _, kind := range dayMovements {
+		t.Run(kind, func(t *testing.T) {
+			m := setUpMovement(t, ctx, admin, h, kind)
+			rec := m.send(t, h, map[string]any{"occurredOn": tenantDateAgo(t, ctx, admin, m.tenantID, 2)})
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, refusalBody{Code: "TY014",
+				Message: "a movement recorded for an earlier day records why"}, ref)
+		})
+	}
+}

@@ -210,6 +210,8 @@
       "app.log_retread_return",
       "app.mark_code_on_sidewall",
       "app.nominate_for_task",
+      "app.place_movement",
+      "app.positions_free_at",
       "app.record_receipt_invoice",
       "app.remove_tyre",
       "app.return_tyre_to_stock",
@@ -229,13 +231,15 @@
   "TY014": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "a fitment write refused: a closed row is frozen entire, and an open row's removal columns may only move together (rule 3, FR-FIT-014/015, CR-004); or a retread return's pattern that is not an active retread pattern of the fleet (U225, TYRE-102)",
+    "meaning": "a fitment write refused: a closed row is frozen entire, and an open row's removal columns may only move together (rule 3, FR-FIT-014/015, CR-004); or a retread return's pattern that is not an active retread pattern of the fleet (U225, TYRE-102); or a movement given a day and an instant together, a later day, or an earlier day with no reason (FR-FIT-016, TYRE-240)",
     "raisedBy": [
+      "app.backdate_reason_ok",
       "app.dispatch_tyre",
       "app.fit_tyre",
       "app.fitment_instant_ok",
       "app.fitment_is_written_once",
       "app.log_retread_return",
+      "app.place_movement",
       "app.remove_tyre",
       "app.return_tyre_to_stock",
       "app.rotate_tyres"
