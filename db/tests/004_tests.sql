@@ -4999,8 +4999,8 @@ BEGIN
   -- (v) I1, the rotation half: ty9's raw fitment has no to_state event
   -- either; ty5 is fitted twenty days back so its own check already passes
   -- and cannot be the one refusing. Only the per-move check against each
-  -- tyre's own fitted_at can catch ty9. Stamped two hours back, inside the
-  -- 24-hour rule rotate_tyres cannot satisfy with a reason (TYRE-108).
+  -- tyre's own fitted_at can catch ty9. Stamped two hours back, which keeps
+  -- FR-FIT-016's 24-hour reason out of the case.
   SELECT * INTO r FROM app.fit_tyre(ty5, vh, p7, 12.0, 'MARK_OUTBOARD', 290000,
                                     now() - interval '20 days',
                                     'fitment backfilled from the paper sheet');
@@ -7252,7 +7252,8 @@ BEGIN
   -- U16 needs a rig whose window closed less than a day ago, which no
   -- function-call pair can produce: a rig created and ended on one date has
   -- a zero-width window (U8), and app.fitment_instant_ok refuses a rotation
-  -- backdated over 24 hours (000033) before membership is ever reached. So
+  -- backdated over 24 hours with no back-date reason (000033) before
+  -- membership is ever reached. So
   -- the composition is written directly at explicit instants, members added
   -- while the rig is still open, since combination_member_in_order (000037)
   -- refuses growing an ended one.
@@ -17013,6 +17014,536 @@ BEGIN
   RAISE NOTICE 'PASS  83a no day or today is now() and still reads the last movement; a later day is refused; an earlier day is the tenant''s start of it and needs a reason';
 END $$;
 ROLLBACK;
+
+-- Section 83's units, positions and tyres, its answer check, and the
+-- closing check each staged block runs before its rollback (83h). Dropped
+-- after 83j.
+CREATE FUNCTION pg_temp.t83_units() RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE cfg uuid;
+BEGIN
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (md5('t83h')::uuid, app.current_tenant_id(), 'T83-H', 'T83H GP', cfg, 'HORSE',
+          md5('depot1')::uuid, 'ACTIVE'),
+         (md5('t83t')::uuid, app.current_tenant_id(), 'T83-T', 'T83T GP', cfg, 'TRAILER',
+          md5('depot1')::uuid, 'ACTIVE');
+END $fn$;
+
+CREATE FUNCTION pg_temp.t83_pos(p_code text) RETURNS uuid
+LANGUAGE sql
+SET search_path = app, pg_temp AS $fn$
+  SELECT p.id FROM app.position p
+    JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = md5('veh1')::uuid AND p.code = p_code;
+$fn$;
+
+CREATE FUNCTION pg_temp.t83_tyre(p_name text, p_state app.tyre_state DEFAULT 'IN_STOCK') RETURNS uuid
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+BEGIN
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state)
+  VALUES (md5('t83' || p_name)::uuid, app.current_tenant_id(), upper('T83' || p_name),
+          md5('sz1')::uuid, 'NEW', 0, p_state);
+  RETURN md5('t83' || p_name)::uuid;
+END $fn$;
+
+-- p_want is a LIKE pattern over 'SQLSTATE message', or 'ok'.
+CREATE FUNCTION pg_temp.t83_says(p_case text, p_sql text, p_want text) RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE got text := pg_temp.t76_try(p_sql);
+BEGIN
+  IF got NOT LIKE p_want THEN
+    RAISE EXCEPTION 'FAIL %: answered "%", not "%"', p_case, got, p_want;
+  END IF;
+END $fn$;
+
+-- 83h: no T83 tyre holds two state events at one instant, and no two
+-- fitments of one position or of one tyre overlap (BR-FIT-001, BR-FIT-002).
+CREATE FUNCTION pg_temp.t83_closing(p_case text) RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE n int;
+BEGIN
+  SELECT count(*) INTO n FROM (
+    SELECT e.tyre_id FROM app.tyre_event e JOIN app.tyre t ON t.id = e.tyre_id
+     WHERE t.display_code LIKE 'T83%' AND e.to_state IS NOT NULL
+     GROUP BY e.tyre_id, e.occurred_at HAVING count(*) > 1) s;
+  IF n > 0 THEN
+    RAISE EXCEPTION 'FAIL 83h (%): % instants each hold two state events of one tyre', p_case, n;
+  END IF;
+  SELECT count(*) INTO n FROM app.fitment a
+    JOIN app.fitment b ON b.vehicle_id = a.vehicle_id AND b.position_id = a.position_id
+                      AND a.id < b.id
+   WHERE a.vehicle_id IN (md5('t83h')::uuid, md5('t83t')::uuid)
+     AND tstzrange(a.fitted_at, a.removed_at) && tstzrange(b.fitted_at, b.removed_at);
+  IF n > 0 THEN
+    RAISE EXCEPTION 'FAIL 83h (%): % pairs of fitments of one position overlap', p_case, n;
+  END IF;
+  SELECT count(*) INTO n FROM app.fitment a
+    JOIN app.fitment b ON b.tyre_id = a.tyre_id AND a.id < b.id
+    JOIN app.tyre t ON t.id = a.tyre_id
+   WHERE t.display_code LIKE 'T83%'
+     AND tstzrange(a.fitted_at, a.removed_at) && tstzrange(b.fitted_at, b.removed_at);
+  IF n > 0 THEN
+    RAISE EXCEPTION 'FAIL 83h (%): % pairs of fitments of one tyre overlap', p_case, n;
+  END IF;
+  RAISE NOTICE 'PASS  83h % leaves no two state events of a tyre at one instant and no overlapping fitments', p_case;
+END $fn$;
+
+\echo '== 83b. each movement for today, for an earlier day with and without a reason, and for a later day (FR-FIT-016 as amended, U253; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac   uuid := '11111111-1111-1111-1111-111111111111';
+  vt    uuid := md5('t83t')::uuid;
+  later text := 'TY014 a movement is recorded on or before today, never on a future date';
+  why   text := 'TY014 a movement recorded for an earlier day records why';
+  tz text; today date; mid2 timestamptz; got text;
+  t_now uuid; t_late uuid; t_back uuid; fit_now uuid; fit_back uuid;
+  rx uuid; ry uuid; rz uuid; rw uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  mid2  := app.tenant_day_instant(today - 2);
+  PERFORM pg_temp.t83_units();
+
+  -- Fit.
+  t_now  := pg_temp.t83_tyre('b-fit-now');
+  t_late := pg_temp.t83_tyre('b-fit-late');
+  t_back := pg_temp.t83_tyre('b-fit-back');
+  INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, to_state)
+  VALUES (bac, t_late, 'RECEIVED', now() + interval '1 minute', 'IN_STOCK');
+  PERFORM app.fit_tyre(t_now, vt, pg_temp.t83_pos('1'), 12.0, 'MARK_OUTBOARD', p_occurred_on => today);
+  SELECT f.fitted_at || '/' || e.occurred_at INTO got
+    FROM app.fitment f JOIN app.tyre_event e ON e.tyre_id = f.tyre_id AND e.type = 'FITTED'
+   WHERE f.tyre_id = t_now;
+  IF got IS DISTINCT FROM now() || '/' || now() THEN
+    RAISE EXCEPTION 'FAIL 83b: a fit for today is stamped %, not now()', got;
+  END IF;
+  PERFORM pg_temp.t83_says('83b a fit for today after a later movement',
+    format('SELECT app.fit_tyre(%L, %L, %L, 12.0, ''MARK_OUTBOARD'', p_occurred_on => %L)',
+           t_late, vt, pg_temp.t83_pos('2'), today),
+    'TY012 this tyre''s last recorded movement is %; this one cannot predate it');
+  PERFORM pg_temp.t83_says('83b a fit for an earlier day with no reason',
+    format('SELECT app.fit_tyre(%L, %L, %L, 12.0, ''MARK_OUTBOARD'', p_occurred_on => %L)',
+           t_back, vt, pg_temp.t83_pos('2'), today - 2), why);
+  PERFORM pg_temp.t83_says('83b a fit for a later day',
+    format('SELECT app.fit_tyre(%L, %L, %L, 12.0, ''MARK_OUTBOARD'', p_occurred_on => %L)',
+           t_back, vt, pg_temp.t83_pos('2'), today + 1), later);
+  PERFORM app.fit_tyre(t_back, vt, pg_temp.t83_pos('2'), 12.0, 'MARK_OUTBOARD',
+                       p_reason => '83b job card', p_occurred_on => today - 2);
+  SELECT f.fitted_at || '/' || e.occurred_at || '/' || e.reason INTO got
+    FROM app.fitment f JOIN app.tyre_event e ON e.tyre_id = f.tyre_id AND e.type = 'FITTED'
+   WHERE f.tyre_id = t_back;
+  IF got IS DISTINCT FROM mid2 || '/' || mid2 || '/83b job card' THEN
+    RAISE EXCEPTION 'FAIL 83b: a fit for an earlier day reads %, not its start and the reason', got;
+  END IF;
+
+  -- Remove, on tyres fitted five days back.
+  SELECT r.fitment_id INTO fit_now
+    FROM app.fit_tyre(pg_temp.t83_tyre('b-rm-now'), vt, pg_temp.t83_pos('3'), 12.0, 'MARK_OUTBOARD',
+                      p_reason => '83b setup', p_occurred_on => today - 5) r;
+  SELECT r.fitment_id INTO fit_back
+    FROM app.fit_tyre(pg_temp.t83_tyre('b-rm-back'), vt, pg_temp.t83_pos('4'), 12.0, 'MARK_OUTBOARD',
+                      p_reason => '83b setup', p_occurred_on => today - 5) r;
+  PERFORM app.remove_tyre(fit_now, 'damage', 9.0, p_occurred_on => today);
+  SELECT f.removed_at || '/' || e.occurred_at INTO got
+    FROM app.fitment f JOIN app.tyre_event e ON e.tyre_id = f.tyre_id AND e.type = 'REMOVED'
+   WHERE f.id = fit_now;
+  IF got IS DISTINCT FROM now() || '/' || now() THEN
+    RAISE EXCEPTION 'FAIL 83b: a removal for today is stamped %, not now()', got;
+  END IF;
+  PERFORM pg_temp.t83_says('83b a removal for an earlier day with no reason',
+    format('SELECT app.remove_tyre(%L, ''damage'', 9.0, p_occurred_on => %L)', fit_back, today - 2), why);
+  PERFORM pg_temp.t83_says('83b a removal for a later day',
+    format('SELECT app.remove_tyre(%L, ''damage'', 9.0, p_occurred_on => %L)', fit_back, today + 1), later);
+  PERFORM app.remove_tyre(fit_back, 'damage', 9.0, p_backdate_reason => '83b job card',
+                          p_occurred_on => today - 2);
+  SELECT f.removed_at || '/' || e.occurred_at || '/' || e.reason || '/' || (e.payload->>'backdate_reason')
+    INTO got
+    FROM app.fitment f JOIN app.tyre_event e ON e.tyre_id = f.tyre_id AND e.type = 'REMOVED'
+   WHERE f.id = fit_back;
+  IF got IS DISTINCT FROM mid2 || '/' || mid2 || '/damage/83b job card' THEN
+    RAISE EXCEPTION 'FAIL 83b: a removal for an earlier day reads %, not its start, its reason and why', got;
+  END IF;
+
+  -- Rotate, two tyres swapping on the trailer, fitted five days back.
+  rx := pg_temp.t83_tyre('b-rx'); ry := pg_temp.t83_tyre('b-ry');
+  rz := pg_temp.t83_tyre('b-rz'); rw := pg_temp.t83_tyre('b-rw');
+  PERFORM app.fit_tyre(rx, vt, pg_temp.t83_pos('5'), 12.0, 'MARK_OUTBOARD', p_reason => '83b setup', p_occurred_on => today - 5);
+  PERFORM app.fit_tyre(ry, vt, pg_temp.t83_pos('6'), 12.0, 'MARK_OUTBOARD', p_reason => '83b setup', p_occurred_on => today - 5);
+  PERFORM app.fit_tyre(rz, vt, pg_temp.t83_pos('7'), 12.0, 'MARK_OUTBOARD', p_reason => '83b setup', p_occurred_on => today - 5);
+  PERFORM app.fit_tyre(rw, vt, pg_temp.t83_pos('8'), 12.0, 'MARK_OUTBOARD', p_reason => '83b setup', p_occurred_on => today - 5);
+  PERFORM app.rotate_tyres(vt, jsonb_build_array(
+            jsonb_build_object('tyre_id', rz, 'to_position_id', pg_temp.t83_pos('8'), 'tread_mm', 10.0),
+            jsonb_build_object('tyre_id', rw, 'to_position_id', pg_temp.t83_pos('7'), 'tread_mm', 10.0)),
+          p_occurred_on => today);
+  IF EXISTS (SELECT 1 FROM app.fitment f WHERE f.tyre_id IN (rz, rw)
+              AND f.removed_at IS DISTINCT FROM now() AND f.removed_at IS NOT NULL)
+     OR EXISTS (SELECT 1 FROM app.fitment f WHERE f.tyre_id IN (rz, rw) AND f.removed_at IS NULL
+                   AND f.fitted_at <> now())
+     OR (SELECT count(*) FROM app.tyre_event e WHERE e.tyre_id IN (rz, rw) AND e.type = 'ROTATED'
+            AND e.occurred_at = now()) <> 2 THEN
+    RAISE EXCEPTION 'FAIL 83b: a rotation for today is not stamped now()';
+  END IF;
+  PERFORM pg_temp.t83_says('83b a rotation for an earlier day with no reason',
+    format('SELECT app.rotate_tyres(%L, %L::jsonb, p_occurred_on => %L)', vt,
+           jsonb_build_array(
+             jsonb_build_object('tyre_id', rx, 'to_position_id', pg_temp.t83_pos('6'), 'tread_mm', 10.0),
+             jsonb_build_object('tyre_id', ry, 'to_position_id', pg_temp.t83_pos('5'), 'tread_mm', 10.0)),
+           today - 2), why);
+  PERFORM pg_temp.t83_says('83b a rotation for a later day',
+    format('SELECT app.rotate_tyres(%L, %L::jsonb, p_occurred_on => %L)', vt,
+           jsonb_build_array(
+             jsonb_build_object('tyre_id', rx, 'to_position_id', pg_temp.t83_pos('6'), 'tread_mm', 10.0),
+             jsonb_build_object('tyre_id', ry, 'to_position_id', pg_temp.t83_pos('5'), 'tread_mm', 10.0)),
+           today + 1), later);
+  PERFORM app.rotate_tyres(vt, jsonb_build_array(
+            jsonb_build_object('tyre_id', rx, 'to_position_id', pg_temp.t83_pos('6'), 'tread_mm', 10.0),
+            jsonb_build_object('tyre_id', ry, 'to_position_id', pg_temp.t83_pos('5'), 'tread_mm', 10.0)),
+          p_backdate_reason => '83b job card', p_occurred_on => today - 2);
+  IF EXISTS (SELECT 1 FROM app.fitment f WHERE f.tyre_id IN (rx, ry) AND f.removed_at IS NULL
+                AND f.fitted_at <> mid2)
+     OR (SELECT count(*) FROM app.tyre_event e WHERE e.tyre_id IN (rx, ry) AND e.type = 'ROTATED'
+            AND e.occurred_at = mid2 AND e.reason = 'rotation'
+            AND e.payload->>'backdate_reason' = '83b job card') <> 2 THEN
+    RAISE EXCEPTION 'FAIL 83b: a rotation for an earlier day is not at its start carrying why';
+  END IF;
+
+  -- Return to stock, on tyres planted removed.
+  t_now  := pg_temp.t83_tyre('b-ret-now', 'REMOVED');
+  t_back := pg_temp.t83_tyre('b-ret-back', 'REMOVED');
+  PERFORM app.return_tyre_to_stock(t_now, p_occurred_on => today);
+  IF (SELECT e.occurred_at FROM app.tyre_event e WHERE e.tyre_id = t_now AND e.type = 'RETURNED')
+     IS DISTINCT FROM now() THEN
+    RAISE EXCEPTION 'FAIL 83b: a return for today is not stamped now()';
+  END IF;
+  PERFORM pg_temp.t83_says('83b a return for an earlier day with no reason',
+    format('SELECT app.return_tyre_to_stock(%L, p_occurred_on => %L)', t_back, today - 2), why);
+  PERFORM pg_temp.t83_says('83b a return for a later day',
+    format('SELECT app.return_tyre_to_stock(%L, p_occurred_on => %L)', t_back, today + 1), later);
+  PERFORM app.return_tyre_to_stock(t_back, p_backdate_reason => '83b job card', p_occurred_on => today - 2);
+  SELECT e.occurred_at || '/' || e.reason INTO got
+    FROM app.tyre_event e WHERE e.tyre_id = t_back AND e.type = 'RETURNED';
+  IF got IS DISTINCT FROM mid2 || '/83b job card' THEN
+    RAISE EXCEPTION 'FAIL 83b: a return for an earlier day reads %, not its start and the reason', got;
+  END IF;
+
+  PERFORM pg_temp.t83_closing('83b');
+  RAISE NOTICE 'PASS  83b fit, remove, rotate and return: today is now(), an earlier day is its start and keeps why, no reason or a later day is refused';
+END $$;
+ROLLBACK;
+
+\echo '== 83c. a tyre moved several times for one earlier day lands in order, each after the last; a day before its last movement is refused; a fitment or a closure with no event still bounds it (Review Focus 1, red team I-6; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac  uuid := '11111111-1111-1111-1111-111111111111';
+  vt   uuid := md5('t83t')::uuid;
+  us   interval := interval '1 microsecond';
+  tz text; today date; m3 timestamptz; t uuid; fit1 uuid; fit2 uuid; got text;
+  raw_at timestamptz; closed_at timestamptz;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT tn.timezone INTO tz FROM app.tenant tn WHERE tn.id = bac;
+  today := app.tenant_today(tz);
+  m3    := app.tenant_day_instant(today - 3);
+  PERFORM pg_temp.t83_units();
+
+  -- Removed, returned and refitted on one day, all logged later.
+  t := pg_temp.t83_tyre('c');
+  SELECT r.fitment_id INTO fit1
+    FROM app.fit_tyre(t, vt, pg_temp.t83_pos('1'), 12.0, 'MARK_OUTBOARD',
+                      p_reason => '83c job card', p_occurred_on => today - 3) r;
+  PERFORM app.remove_tyre(fit1, 'damage', 11.0, p_backdate_reason => '83c job card',
+                          p_occurred_on => today - 3);
+  PERFORM app.return_tyre_to_stock(t, p_backdate_reason => '83c job card', p_occurred_on => today - 3);
+  SELECT r.fitment_id INTO fit2
+    FROM app.fit_tyre(t, vt, pg_temp.t83_pos('1'), 11.0, 'MARK_OUTBOARD',
+                      p_reason => '83c job card', p_occurred_on => today - 3) r;
+  SELECT string_agg(e.type || '@' || e.occurred_at, ' ' ORDER BY e.occurred_at) INTO got
+    FROM app.tyre_event e WHERE e.tyre_id = t AND e.to_state IS NOT NULL;
+  IF got IS DISTINCT FROM 'FITTED@' || m3 || ' REMOVED@' || (m3 + us) || ' RETURNED@' || (m3 + 2 * us)
+                          || ' REFITTED@' || (m3 + 3 * us) THEN
+    RAISE EXCEPTION 'FAIL 83c: four movements for one day read %', got;
+  END IF;
+  IF app.tenant_today(tz, m3 + 3 * us) <> today - 3
+     OR (SELECT f.removed_at FROM app.fitment f WHERE f.id = fit1) <> m3 + us
+     OR (SELECT f.fitted_at FROM app.fitment f WHERE f.id = fit2) <> m3 + 3 * us THEN
+    RAISE EXCEPTION 'FAIL 83c: the fitments do not carry the placed instants on the day given';
+  END IF;
+  PERFORM pg_temp.t83_says('83c a removal for a day before the tyre''s last movement',
+    format('SELECT app.remove_tyre(%L, ''damage'', 10.0, p_backdate_reason => ''83c'', p_occurred_on => %L)',
+           fit2, today - 4),
+    'TY012 this tyre''s last recorded movement is %; this one cannot predate it');
+
+  -- A fitment opened with no event (000039:348-360).
+  raw_at := app.tenant_day_instant(today - 2) + interval '13 hours';
+  PERFORM pg_temp.t83_tyre('c-raw', 'FITTED');
+  INSERT INTO app.fitment (id, tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
+                           fitted_tread_mm, mount_orientation)
+  VALUES (md5('t83c-raw')::uuid, bac, md5('t83c-raw')::uuid, vt, pg_temp.t83_pos('2'), raw_at,
+          12.0, 'MARK_OUTBOARD');
+  PERFORM app.remove_tyre(md5('t83c-raw')::uuid, 'damage', 11.0, p_backdate_reason => '83c job card',
+                          p_occurred_on => today - 2);
+  IF (SELECT f.removed_at FROM app.fitment f WHERE f.id = md5('t83c-raw')::uuid) <> raw_at + us THEN
+    RAISE EXCEPTION 'FAIL 83c: a removal for the day of a fitment with no event does not land after it';
+  END IF;
+
+  -- A closed fitment with no event (red team I-6).
+  closed_at := app.tenant_day_instant(today - 3) + interval '13 hours';
+  PERFORM pg_temp.t83_tyre('c-closed', 'REMOVED');
+  INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_tread_mm,
+                           mount_orientation, removed_at, removed_tread_mm, removal_reason)
+  VALUES (bac, md5('t83c-closed')::uuid, vt, pg_temp.t83_pos('3'),
+          app.tenant_day_instant(today - 6) + interval '10 hours', 12.0, 'MARK_OUTBOARD',
+          closed_at, 10.0, 'damage');
+  PERFORM pg_temp.t83_says('83c a return for a day before a closure with no event',
+    format('SELECT app.return_tyre_to_stock(%L, p_backdate_reason => ''83c'', p_occurred_on => %L)',
+           md5('t83c-closed')::uuid, today - 4),
+    'TY012 this tyre''s last recorded movement is %; this one cannot predate it');
+  PERFORM app.return_tyre_to_stock(md5('t83c-closed')::uuid, p_backdate_reason => '83c job card',
+                                   p_occurred_on => today - 3);
+  IF (SELECT e.occurred_at FROM app.tyre_event e
+       WHERE e.tyre_id = md5('t83c-closed')::uuid AND e.type = 'RETURNED') <> closed_at + us THEN
+    RAISE EXCEPTION 'FAIL 83c: a return for the day of a closure with no event does not land after it';
+  END IF;
+
+  PERFORM pg_temp.t83_closing('83c');
+  RAISE NOTICE 'PASS  83c movements for one day land in order a microsecond apart; an earlier day is refused; an eventless fitment or closure bounds the stamp';
+END $$;
+ROLLBACK;
+
+\echo '== 83d. a fit for the day a position was vacated lands after the tyre that came off; one for an earlier day, or at an earlier instant, is refused naming the position (BR-FIT-002; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac uuid := '11111111-1111-1111-1111-111111111111';
+  vt  uuid := md5('t83t')::uuid;
+  tz text; today date; fa uuid; off_at timestamptz;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  PERFORM pg_temp.t83_units();
+  SELECT r.fitment_id INTO fa
+    FROM app.fit_tyre(pg_temp.t83_tyre('d-a'), vt, pg_temp.t83_pos('3'), 12.0, 'MARK_OUTBOARD',
+                      p_reason => '83d', p_occurred_on => today - 6) r;
+  PERFORM app.remove_tyre(fa, 'damage', 10.0, p_backdate_reason => '83d', p_occurred_on => today - 4);
+  off_at := (SELECT f.removed_at FROM app.fitment f WHERE f.id = fa);
+  IF off_at <> app.tenant_day_instant(today - 4) THEN
+    RAISE EXCEPTION 'FAIL 83d: the removal landed at %, not the start of its day', off_at;
+  END IF;
+  PERFORM app.fit_tyre(pg_temp.t83_tyre('d-b'), vt, pg_temp.t83_pos('3'), 12.0, 'MARK_OUTBOARD',
+                       p_reason => '83d', p_occurred_on => today - 4);
+  IF (SELECT f.fitted_at FROM app.fitment f WHERE f.tyre_id = md5('t83d-b')::uuid)
+     <> off_at + interval '1 microsecond' THEN
+    RAISE EXCEPTION 'FAIL 83d: a fit for the day the position was vacated does not land after the closure';
+  END IF;
+  PERFORM pg_temp.t83_closing('83d same day');
+  RAISE NOTICE 'PASS  83d a fit for the day a position was vacated lands directly after the closure';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac uuid := '11111111-1111-1111-1111-111111111111';
+  vt  uuid := md5('t83t')::uuid;
+  tz text; today date; fa uuid; off_at timestamptz;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  PERFORM pg_temp.t83_units();
+  SELECT r.fitment_id INTO fa
+    FROM app.fit_tyre(pg_temp.t83_tyre('d-a'), vt, pg_temp.t83_pos('3'), 12.0, 'MARK_OUTBOARD',
+                      p_reason => '83d', p_occurred_on => today - 6) r;
+  PERFORM app.remove_tyre(fa, 'damage', 10.0, p_backdate_reason => '83d', p_occurred_on => today - 2);
+  off_at := (SELECT f.removed_at FROM app.fitment f WHERE f.id = fa);
+  PERFORM pg_temp.t83_says('83d a fit for a day before the position was vacated',
+    format('SELECT app.fit_tyre(%L, %L, %L, 12.0, ''MARK_OUTBOARD'', p_reason => ''83d'', p_occurred_on => %L)',
+           pg_temp.t83_tyre('d-b'), vt, pg_temp.t83_pos('3'), today - 4),
+    'TY012 ' || format('position %s on %s was vacated at %s; this one cannot predate it', '3', 'T83-T', off_at));
+
+  -- The instant path holds the same rule.
+  SELECT r.fitment_id INTO fa
+    FROM app.fit_tyre(pg_temp.t83_tyre('d-c'), vt, pg_temp.t83_pos('5'), 12.0, 'MARK_OUTBOARD',
+                      p_occurred_at => now() - interval '3 hours') r;
+  PERFORM app.remove_tyre(fa, 'damage', 10.0, p_occurred_at => now() - interval '1 hour');
+  PERFORM pg_temp.t83_says('83d a fit at an instant before the position was vacated',
+    format('SELECT app.fit_tyre(%L, %L, %L, 12.0, ''MARK_OUTBOARD'', p_occurred_at => %L)',
+           pg_temp.t83_tyre('d-d'), vt, pg_temp.t83_pos('5'), now() - interval '2 hours'),
+    'TY012 ' || format('position %s on %s was vacated at %s; this one cannot predate it', '5', 'T83-T',
+                       now() - interval '1 hour'));
+
+  -- And a rotation onto a position vacated after its instant.
+  PERFORM app.fit_tyre(pg_temp.t83_tyre('d-x'), vt, pg_temp.t83_pos('7'), 12.0, 'MARK_OUTBOARD',
+                       p_occurred_at => now() - interval '5 hours');
+  PERFORM app.fit_tyre(pg_temp.t83_tyre('d-y'), vt, pg_temp.t83_pos('8'), 12.0, 'MARK_OUTBOARD',
+                       p_occurred_at => now() - interval '5 hours');
+  SELECT r.fitment_id INTO fa
+    FROM app.fit_tyre(pg_temp.t83_tyre('d-e'), vt, pg_temp.t83_pos('9'), 12.0, 'MARK_OUTBOARD',
+                      p_occurred_at => now() - interval '4 hours') r;
+  PERFORM app.remove_tyre(fa, 'damage', 10.0, p_occurred_at => now() - interval '1 hour');
+  PERFORM pg_temp.t83_says('83d a rotation at an instant before a target was vacated',
+    format('SELECT app.rotate_tyres(%L, %L::jsonb, p_occurred_at => %L)', vt,
+           jsonb_build_array(
+             jsonb_build_object('tyre_id', md5('t83d-x')::uuid, 'to_position_id', pg_temp.t83_pos('9'), 'tread_mm', 10.0),
+             jsonb_build_object('tyre_id', md5('t83d-y')::uuid, 'to_position_id', pg_temp.t83_pos('7'), 'tread_mm', 10.0)),
+           now() - interval '2 hours'),
+    'TY012 ' || format('position %s on %s was vacated at %s; this one cannot predate it', '9', 'T83-T',
+                       now() - interval '1 hour'));
+  PERFORM pg_temp.t83_closing('83d earlier');
+  RAISE NOTICE 'PASS  83d a fit or a rotation before a position was vacated is refused naming it, by day and by instant';
+END $$;
+ROLLBACK;
+
+\echo '== 83e. a rotation reaches more than a day back with a reason, by instant or by day, and one for a day before its rig was coupled is refused in the rotation''s own words (FR-FIT-016, Review Focus 4; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac uuid := '11111111-1111-1111-1111-111111111111';
+  vt  uuid := md5('t83t')::uuid;
+  tz text; today date; x uuid; y uuid; z uuid; w uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  PERFORM pg_temp.t83_units();
+  x := pg_temp.t83_tyre('e-x'); y := pg_temp.t83_tyre('e-y');
+  z := pg_temp.t83_tyre('e-z'); w := pg_temp.t83_tyre('e-w');
+  PERFORM app.fit_tyre(x, vt, pg_temp.t83_pos('1'), 12.0, 'MARK_OUTBOARD', p_reason => '83e', p_occurred_on => today - 5);
+  PERFORM app.fit_tyre(y, vt, pg_temp.t83_pos('2'), 12.0, 'MARK_OUTBOARD', p_reason => '83e', p_occurred_on => today - 5);
+  PERFORM app.fit_tyre(z, vt, pg_temp.t83_pos('5'), 12.0, 'MARK_OUTBOARD', p_reason => '83e', p_occurred_on => today - 5);
+  PERFORM app.fit_tyre(w, vt, pg_temp.t83_pos('6'), 12.0, 'MARK_OUTBOARD', p_reason => '83e', p_occurred_on => today - 5);
+  PERFORM app.rotate_tyres(vt, jsonb_build_array(
+            jsonb_build_object('tyre_id', x, 'to_position_id', pg_temp.t83_pos('2'), 'tread_mm', 10.0),
+            jsonb_build_object('tyre_id', y, 'to_position_id', pg_temp.t83_pos('1'), 'tread_mm', 10.0)),
+          p_occurred_at => now() - interval '30 hours', p_backdate_reason => '83e');
+  IF (SELECT count(*) FROM app.fitment f WHERE f.tyre_id IN (x, y) AND f.removed_at IS NULL
+         AND f.fitted_at = now() - interval '30 hours') <> 2 THEN
+    RAISE EXCEPTION 'FAIL 83e: a rotation thirty hours back with a reason did not land there';
+  END IF;
+  PERFORM app.rotate_tyres(vt, jsonb_build_array(
+            jsonb_build_object('tyre_id', z, 'to_position_id', pg_temp.t83_pos('6'), 'tread_mm', 10.0),
+            jsonb_build_object('tyre_id', w, 'to_position_id', pg_temp.t83_pos('5'), 'tread_mm', 10.0)),
+          p_backdate_reason => '83e', p_occurred_on => today - 2);
+  IF (SELECT count(*) FROM app.fitment f WHERE f.tyre_id IN (z, w) AND f.removed_at IS NULL
+         AND f.fitted_at = app.tenant_day_instant(today - 2)) <> 2 THEN
+    RAISE EXCEPTION 'FAIL 83e: a rotation for an earlier day with a reason did not land at its start';
+  END IF;
+  PERFORM pg_temp.t83_closing('83e');
+  RAISE NOTICE 'PASS  83e a rotation more than a day back succeeds with a reason, by instant and by day';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac uuid := '11111111-1111-1111-1111-111111111111';
+  vh  uuid := md5('t83h')::uuid;
+  vt  uuid := md5('t83t')::uuid;
+  rig uuid := md5('t83e-rig')::uuid;
+  tz text; today date;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  PERFORM pg_temp.t83_units();
+  -- Written directly, as section 47 does, so the rig is coupled an hour ago.
+  INSERT INTO app.combination (id, tenant_id, motive_vehicle_id, effective_from)
+  VALUES (rig, bac, vh, now() - interval '1 hour');
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, vh, 1), (bac, rig, vt, 2);
+  PERFORM app.fit_tyre(pg_temp.t83_tyre('e-h1'), vh, pg_temp.t83_pos('1'), 12.0, 'MARK_OUTBOARD', 100000,
+                       p_reason => '83e', p_occurred_on => today - 5);
+  PERFORM app.fit_tyre(pg_temp.t83_tyre('e-h2'), vh, pg_temp.t83_pos('2'), 12.0, 'MARK_OUTBOARD', 100000,
+                       p_reason => '83e', p_occurred_on => today - 5);
+  PERFORM pg_temp.t83_says('83e a cross-unit rotation for a day before its rig was coupled',
+    format('SELECT app.rotate_tyres(%L, %L::jsonb, p_backdate_reason => ''83e'', p_occurred_on => %L)', vh,
+           jsonb_build_array(
+             jsonb_build_object('tyre_id', md5('t83e-h1')::uuid, 'to_vehicle_id', vt,
+                                'to_position_id', pg_temp.t83_pos('1'), 'tread_mm', 10.0),
+             jsonb_build_object('tyre_id', md5('t83e-h2')::uuid,
+                                'to_position_id', pg_temp.t83_pos('1'), 'tread_mm', 10.0)),
+           today - 1),
+    'TY014 T83-T is not in this unit''s rig at that time');
+  PERFORM pg_temp.t83_closing('83e rig');
+  RAISE NOTICE 'PASS  83e a cross-unit rotation for a day before its rig was coupled is refused in the rotation''s own words';
+END $$;
+ROLLBACK;
+
+\echo '== 83g. a movement given both a day and an instant is refused (TYRE-240; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac  uuid := '11111111-1111-1111-1111-111111111111';
+  vt   uuid := md5('t83t')::uuid;
+  given text := 'TY014 a movement names a day or an instant, not both';
+  tz text; today date; fit uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  PERFORM pg_temp.t83_units();
+  SELECT r.fitment_id INTO fit
+    FROM app.fit_tyre(pg_temp.t83_tyre('g-fitted'), vt, pg_temp.t83_pos('1'), 12.0, 'MARK_OUTBOARD',
+                      p_reason => '83g', p_occurred_on => today - 5) r;
+  PERFORM pg_temp.t83_says('83g fit',
+    format('SELECT app.fit_tyre(%L, %L, %L, 12.0, ''MARK_OUTBOARD'', p_occurred_at => %L, p_occurred_on => %L)',
+           pg_temp.t83_tyre('g-fit'), vt, pg_temp.t83_pos('2'), now() - interval '1 hour', today - 1), given);
+  PERFORM pg_temp.t83_says('83g remove',
+    format('SELECT app.remove_tyre(%L, ''damage'', 9.0, p_occurred_at => %L, p_occurred_on => %L)',
+           fit, now() - interval '1 hour', today - 1), given);
+  PERFORM pg_temp.t83_says('83g rotate',
+    format('SELECT app.rotate_tyres(%L, ''[]''::jsonb, p_occurred_at => %L, p_occurred_on => %L)',
+           vt, now() - interval '1 hour', today - 1), given);
+  PERFORM pg_temp.t83_says('83g return',
+    format('SELECT app.return_tyre_to_stock(%L, p_occurred_at => %L, p_occurred_on => %L)',
+           pg_temp.t83_tyre('g-ret', 'REMOVED'), now() - interval '1 hour', today - 1), given);
+  RAISE NOTICE 'PASS  83g fit, remove, rotate and return each refuse a day and an instant together';
+END $$;
+ROLLBACK;
+
+\echo '== 83j. another fleet''s tyre has no last movement here, beside BAC''s own read as the control (rule 1; rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac uuid := '11111111-1111-1111-1111-111111111111';
+  two uuid := '22222222-2222-2222-2222-222222222222';
+  tz text; today date; ty uuid; ev timestamptz;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  ty := pg_temp.t83_tyre('j');
+  ev := app.tenant_day_instant(today - 3) + interval '9 hours';
+  INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, to_state)
+  VALUES (bac, ty, 'RECEIVED', ev, 'IN_STOCK');
+  IF (SELECT count(*) FROM app.last_movement(ARRAY[ty], '{}', '{}')) <> 1
+     OR app.place_movement(today - 3, ARRAY[ty]) IS DISTINCT FROM ev + interval '1 microsecond' THEN
+    RAISE EXCEPTION 'FAIL 83j: as BAC its own tyre''s movement is not read (the control)';
+  END IF;
+  PERFORM set_config('app.tenant_id', two::text, true);
+  IF (SELECT count(*) FROM app.last_movement(ARRAY[ty], '{}', '{}')) <> 0
+     OR app.place_movement(today - 3, ARRAY[ty]) IS DISTINCT FROM app.tenant_day_instant(today - 3) THEN
+    RAISE EXCEPTION 'FAIL 83j: as Second Fleet BAC''s tyre''s movement is read';
+  END IF;
+  RAISE NOTICE 'PASS  83j another fleet reads no last movement of BAC''s tyre, beside BAC''s own read';
+END $$;
+ROLLBACK;
+
+DROP FUNCTION pg_temp.t83_closing(text);
+DROP FUNCTION pg_temp.t83_says(text, text, text);
+DROP FUNCTION pg_temp.t83_tyre(text, app.tyre_state);
+DROP FUNCTION pg_temp.t83_pos(text);
+DROP FUNCTION pg_temp.t83_units();
 
 -- The shared prelude's helpers (db/tests/helpers.sql), dropped once the
 -- last section that calls them has run.
