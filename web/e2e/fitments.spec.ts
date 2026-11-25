@@ -9,6 +9,7 @@ import {
   SANDBOX_DEPOT,
   SANDBOX_PATTERN,
   SANDBOX_SIZE,
+  tenantDayAgo,
   tileName,
 } from "./sandbox";
 
@@ -62,6 +63,11 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await page.getByLabel("Pattern", { exact: true }).selectOption({ label: SANDBOX_PATTERN });
   await page.getByLabel("New tread (mm)").fill("18.0");
   await page.getByLabel("Depot", { exact: true }).selectOption({ label: SANDBOX_DEPOT });
+  // Received ten days back, so the trailer's fit below can be recorded for
+  // five days back without predating the receipt (FR-FIT-016 as amended).
+  await page
+    .getByLabel("Received date (optional, blank is today)")
+    .fill(await tenantDayAgo(page, 10));
   await Promise.all([
     posted(page, /^\/api\/tyres$/),
     page.getByRole("button", { name: /^receive$/i }).click(),
@@ -94,6 +100,9 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   // than left untouched; the read-back at the closed leg below is what earns
   // it.
   await trailerPanel.getByRole("radio", { name: "Mark inboard" }).check();
+  // U253: the fit is the job card's, five days back, and says why it is late.
+  await trailerPanel.getByLabel("Occurred on").fill(await tenantDayAgo(page, 5));
+  await trailerPanel.getByLabel("Why it is recorded late").fill("fitted from the job card");
   await Promise.all([
     posted(page, new RegExp(`^/api/vehicles/${TRAILER}/fitments$`)),
     trailerPanel.getByRole("button", { name: "Fit tyre" }).click(),
@@ -190,7 +199,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   // "rotation" mention cannot satisfy it.
   const rotated = page
     .getByRole("row")
-    .filter({ has: page.getByRole("cell", { name: "rotation", exact: true }) });
+    .filter({ has: page.getByRole("cell", { name: "Rotation", exact: true }) });
   await expect(rotated).toHaveCount(2);
   for (const code of [stockB, stockC]) {
     await expect(rotated.filter({ hasText: code })).toContainText("900 km (Measured)");
@@ -217,6 +226,8 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   const removalPanel = panel(page, trailerFirst.code);
   await removalPanel.getByRole("combobox", { name: "Reason" }).selectOption("damage");
   await removalPanel.getByLabel("Tread (mm)").fill("12");
+  await removalPanel.getByLabel("Occurred on").fill(await tenantDayAgo(page, 2));
+  await removalPanel.getByLabel("Why it is recorded late").fill("removed per the job card");
   await Promise.all([
     posted(page, /^\/api\/fitments\/[^/]+\/remove$/),
     removalPanel.getByRole("button", { name: "Remove tyre" }).click(),
@@ -232,10 +243,21 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   // is a fact about the mounting the register keeps, so the radio is worth
   // exercising only if something downstream shows what it recorded.
   await expect(trailerLeg.getByRole("cell", { name: "Mark inboard", exact: true })).toBeVisible();
+  // Both legs landed on the days they were recorded for, read as the
+  // tenant's own day counts (FR-TYR-017, rule 6).
+  const trailerLegs = (await apiGet(page, `/api/vehicles/${TRAILER}/fitments`)) as {
+    displayCode: string;
+    fittedAgeDays: number;
+    removedAgeDays: number | null;
+  }[];
+  expect(trailerLegs.find((l) => l.displayCode === stockA)).toMatchObject({
+    fittedAgeDays: 5,
+    removedAgeDays: 2,
+  });
 
   await page.goto("/fleet/tyres");
   const casingA = page.getByRole("row").filter({ hasText: stockA });
-  await expect(casingA.getByRole("cell", { name: "REMOVED", exact: true })).toBeVisible();
+  await expect(casingA.getByRole("cell", { name: "Removed", exact: true })).toBeVisible();
   await Promise.all([
     posted(page, /^\/api\/tyres\/[^/]+\/return$/),
     casingA.getByRole("button", { name: "Return to stock" }).click(),
@@ -243,7 +265,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await expect(
     page.getByText(`Tyre ${stockA} was returned to stock.`, { exact: true }),
   ).toBeVisible();
-  await expect(casingA.getByRole("cell", { name: "IN_STOCK", exact: true })).toBeVisible();
+  await expect(casingA.getByRole("cell", { name: "In stock", exact: true })).toBeVisible();
   // U1/U2's UI contract: a dispatch is from REMOVED only, and a casing that
   // is back in stock is neither returned again nor sent anywhere. The row
   // offers the one write app.dispose_tyre would accept from this state.
@@ -271,7 +293,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   // the list is waited for rather than assumed.
   await page.goto("/fleet/tyres");
   const casingB = page.getByRole("row").filter({ hasText: stockB });
-  await expect(casingB.getByRole("cell", { name: "REMOVED", exact: true })).toBeVisible();
+  await expect(casingB.getByRole("cell", { name: "Removed", exact: true })).toBeVisible();
   await Promise.all([
     page.waitForResponse(
       (res) => new URL(res.url()).pathname === "/api/depots" && res.request().method() === "GET",
@@ -305,7 +327,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await expect(
     page.getByText(`Tyre ${stockB} was sent to the retreader.`, { exact: true }),
   ).toBeVisible();
-  await expect(casingB.getByRole("cell", { name: "AT_RETREADER", exact: true })).toBeVisible();
+  await expect(casingB.getByRole("cell", { name: "At retreader", exact: true })).toBeVisible();
   await expect(
     casingB.getByRole("cell", {
       name: "At the retreader, log the return under Retreads",
@@ -362,7 +384,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
     page
       .getByRole("row")
       .filter({ hasText: stockB })
-      .getByRole("cell", { name: "IN_STOCK", exact: true }),
+      .getByRole("cell", { name: "In stock", exact: true }),
   ).toBeVisible();
   await expect(
     page
@@ -386,9 +408,9 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
     statusForm.getByRole("button", { name: "Set status" }).click(),
   ]);
   await expect(statusForm.getByText("The status was changed.", { exact: true })).toBeVisible();
-  // The select's value is the form's own state, seeded once from the unit and
-  // never re-read, so the confirmation and the unit read are what can say the
-  // status actually moved.
+  // The select follows the unit's status when another write moves it
+  // (comment 13617), so it cannot say on its own that this write landed; the
+  // confirmation and the unit read are what can say the status moved.
   expect((await apiGet(page, `/api/vehicles/${HORSE}`)) as { status: string }).toMatchObject({
     status: "PARKED",
   });

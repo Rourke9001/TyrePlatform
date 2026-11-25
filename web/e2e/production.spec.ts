@@ -78,7 +78,7 @@ test("the production bundle runs under its CSP, signed in, with a Radix Select o
   violations = [];
 
   await page.getByRole("button", { name: "Email me a sign-in code" }).click();
-  await expect(page.getByText("Production Check · CONTROLLER")).toBeVisible();
+  await expect(page.getByText("Production Check · Controller")).toBeVisible();
 
   configRequests = 0;
   await page.goto("/exceptions");

@@ -53,6 +53,18 @@ export async function apiGet(
   return res.json();
 }
 
+// The tenant's day `days` back, as YYYY-MM-DD. Today is the server's: the
+// removal forecast echoes app.tenant_today as its from when none is sent
+// (resolveForecastWindow). The runner's clock never names the day
+// (docs/lessons.md 2026-09-03); the step back is calendar arithmetic on
+// that date alone.
+export async function tenantDayAgo(page: Page, days: number): Promise<string> {
+  const { from } = (await apiGet(page, "/api/analytics/removal-forecast")) as { from: string };
+  const day = new Date(`${from}T00:00:00Z`);
+  day.setUTCDate(day.getUTCDate() - days);
+  return day.toISOString().slice(0, 10);
+}
+
 export async function apiPost(page: Page, path: string, data: unknown): Promise<unknown> {
   const res = await page.request.post(path, { headers: ACTOR, data });
   expect(res.ok(), await res.text()).toBeTruthy();

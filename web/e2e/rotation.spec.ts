@@ -9,6 +9,7 @@ import {
   posted,
   sandboxCatalogue,
   sandboxDepot,
+  tenantDayAgo,
   tileName,
   CONTROLLER,
   type AxleConfiguration,
@@ -163,7 +164,7 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
   // (fitments.spec.ts).
   const closedByRotation = page
     .getByRole("row")
-    .filter({ has: page.getByRole("cell", { name: "rotation", exact: true }) });
+    .filter({ has: page.getByRole("cell", { name: "Rotation", exact: true }) });
   await expect(closedByRotation).toHaveCount(2);
   await expect(closedByRotation.filter({ hasText: travelling.displayCode })).toHaveCount(1);
   const stillFitted = page
@@ -192,4 +193,78 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
   // the leg the rotation opened on this unit carries what the horse's fit
   // asserted.
   await expect(arrived.getByRole("cell", { name: "Mark inboard", exact: true })).toBeVisible();
+});
+
+// FR-FIT-016 as amended (U253): a rotation recorded for an earlier day lands
+// on that day, both its closed and its opened legs, and keeps why.
+test("a controller records a rotation for an earlier day with its reason", async ({ page }) => {
+  const configs = (await apiGet(page, "/api/axle-configurations")) as AxleConfiguration[];
+  const horseId = await createUnit(page, `R3D-${RUN}`, "HORSE", configFor(configs, "HORSE_6X4"));
+
+  // Received ten days back and fitted five days back by the API, so the
+  // rotation three days back follows both (the setup is not under test).
+  const { sizeId, patternId } = await sandboxCatalogue(page);
+  const stock = (await apiPost(page, "/api/tyres", {
+    quantity: 2,
+    sizeId,
+    patternId,
+    newTreadMm: "18.0",
+    depotId: await sandboxDepot(page),
+    receivedDate: await tenantDayAgo(page, 10),
+  })) as {
+    tyres: { id: string; displayCode: string }[];
+  };
+  const [first, second] = await mountedPositions(page, horseId);
+  const fittedOn = await tenantDayAgo(page, 5);
+  for (const [tyre, position] of [
+    [stock.tyres[0], first],
+    [stock.tyres[1], second],
+  ] as const) {
+    await apiPost(page, `/api/vehicles/${horseId}/fitments`, {
+      tyreId: tyre.id,
+      positionId: position.id,
+      treadMm: "16",
+      mountOrientation: "UNKNOWN",
+      odometer: 250100,
+      occurredOn: fittedOn,
+      reason: "fitted from the job card",
+    });
+  }
+
+  await page.goto(`/fleet/units/${horseId}`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(`R3D-${RUN}`);
+  const rotate = page.getByRole("region", { name: "Rotate" });
+  await rotate.getByRole("checkbox", { name: `Rotate ${first.code}`, exact: true }).check();
+  await rotate.getByRole("checkbox", { name: `Rotate ${second.code}`, exact: true }).check();
+  await rotate
+    .getByRole("combobox", { name: `Target for ${first.code}`, exact: true })
+    .selectOption(second.id);
+  await rotate
+    .getByRole("combobox", { name: `Target for ${second.code}`, exact: true })
+    .selectOption(first.id);
+  await rotate.getByLabel(`Tread for ${first.code}`, { exact: true }).fill("15");
+  await rotate.getByLabel(`Tread for ${second.code}`, { exact: true }).fill("15");
+  await rotate.getByLabel("Odometer").fill("251000");
+  await rotate.getByLabel("Occurred on").fill(await tenantDayAgo(page, 3));
+  await rotate.getByLabel("Why it is recorded late").fill("rotated at the depot, logged late");
+  await Promise.all([
+    posted(page, new RegExp(`^/api/vehicles/${horseId}/rotations$`)),
+    rotate.getByRole("button", { name: "Rotate" }).click(),
+  ]);
+  await expect(rotate.getByText("The rotation was applied.", { exact: true })).toBeVisible();
+
+  const closedByRotation = page
+    .getByRole("row")
+    .filter({ has: page.getByRole("cell", { name: "Rotation", exact: true }) });
+  await expect(closedByRotation).toHaveCount(2);
+
+  // Both legs of each casing turned on the day the rotation was recorded
+  // for, read as the tenant's own day counts (FR-TYR-017, rule 6).
+  const legs = (await apiGet(page, `/api/vehicles/${horseId}/fitments`)) as {
+    removedAt: string | null;
+    fittedAgeDays: number;
+    removedAgeDays: number | null;
+  }[];
+  expect(legs.filter((l) => l.removedAt === null).map((l) => l.fittedAgeDays)).toEqual([3, 3]);
+  expect(legs.filter((l) => l.removedAt !== null).map((l) => l.removedAgeDays)).toEqual([3, 3]);
 });
