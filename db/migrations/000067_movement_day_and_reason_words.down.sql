@@ -1241,5 +1241,5 @@ DROP FUNCTION app.lock_position_pairs(uuid[], uuid[]);
 DROP FUNCTION app.positions_free_at(timestamptz, uuid[], uuid[]);
 DROP FUNCTION app.backdate_reason_ok(date, text);
 DROP FUNCTION app.place_movement(date, uuid[], uuid[], uuid[]);
-DROP FUNCTION app.last_movement(uuid[], uuid[], uuid[]);
-DROP FUNCTION app.tenant_ts_text(timestamptz);
+DROP FUNCTION app.last_movement(uuid[], uuid[], uuid[], boolean);
+DROP FUNCTION app.tenant_ts_text(timestamptz, boolean);

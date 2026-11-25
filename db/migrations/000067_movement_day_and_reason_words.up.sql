@@ -10,17 +10,32 @@
 -- function below, so Go never turns a day into an instant (CLAUDE.md, Where
 -- logic belongs). Written as db/CLAUDE.md, Adding a function, says.
 
--- Rule 6: an instant in a refusal reads in the tenant's zone, to the
--- minute, never in the session's, which the API pins to UTC (store.go).
--- The tenant is named for app.last_movement's reason below (P29). TYRE-131
--- holds the older messages that still write the session's.
-CREATE FUNCTION app.tenant_ts_text(p_at timestamptz)
+-- Rule 6: an instant in a refusal reads in the tenant's zone, never in the
+-- session's, which the API pins to UTC (store.go). The tenant is named for
+-- app.last_movement's reason below (P29). TYRE-131 holds the older
+-- messages that still write the session's.
+--
+-- To the minute for a caller who gave a day. p_exact is for one who gave
+-- an instant: to the microsecond, with the offset, so the refusal never
+-- names a time that reads as the one asked for (TYRE-240 M8).
+CREATE FUNCTION app.tenant_ts_text(p_at timestamptz, p_exact boolean DEFAULT false)
 RETURNS text
 LANGUAGE plpgsql STABLE
 SET search_path = app, pg_temp AS $$
-DECLARE tz text;
+DECLARE
+  tz  text;
+  off interval;
 BEGIN
+  IF NOT isfinite(p_at) THEN
+    RETURN p_at::text;
+  END IF;
   SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = app.current_tenant_id();
+  IF p_exact THEN
+    off := (p_at AT TIME ZONE tz) - (p_at AT TIME ZONE 'UTC');
+    RETURN rtrim(rtrim(to_char(p_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI:SS.US'), '0'), '.')
+        || CASE WHEN off < interval '0' THEN '-' || to_char(-off, 'HH24:MI')
+                ELSE '+' || to_char(off, 'HH24:MI') END;
+  END IF;
   RETURN to_char(p_at AT TIME ZONE tz, 'YYYY-MM-DD HH24:MI');
 END $$;
 
@@ -31,8 +46,10 @@ END $$;
 -- (000039:348-360, BR-FIT-001). A fitment opened and closed at one instant
 -- occupies none (BR-FIT-002). The tenant is named in every query because
 -- app.log_retread_return calls this under a role that may bypass RLS (P29).
--- The words give the instant in the tenant's time (app.tenant_ts_text).
-CREATE FUNCTION app.last_movement(p_tyres uuid[], p_vehicles uuid[], p_positions uuid[])
+-- The words give the instant in the tenant's time, exactly when p_exact
+-- (app.tenant_ts_text).
+CREATE FUNCTION app.last_movement(p_tyres uuid[], p_vehicles uuid[], p_positions uuid[],
+                                  p_exact boolean DEFAULT false)
 RETURNS TABLE (at timestamptz, words text)
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
@@ -75,9 +92,9 @@ BEGIN
   at := v_at;
   words := CASE WHEN v_code IS NULL
                 THEN format('this tyre''s last recorded movement is %s; this one cannot predate it',
-                            app.tenant_ts_text(v_at))
+                            app.tenant_ts_text(v_at, p_exact))
                 ELSE format('position %s on %s was vacated at %s; this one cannot predate it',
-                            v_code, v_fleet, app.tenant_ts_text(v_at)) END;
+                            v_code, v_fleet, app.tenant_ts_text(v_at, p_exact)) END;
   RETURN NEXT;
 END $$;
 
@@ -151,7 +168,9 @@ END $$;
 
 -- BR-FIT-002 at every instant: one_open_fitment_per_position (000001)
 -- holds only open fitments, so a fit stamped before a position's last
--- closure would overlap the tyre that came off it.
+-- closure would overlap the tyre that came off it. Placement already
+-- follows these pairs on the day path, so only an instant reaches this
+-- refusal, and its words are exact (app.tenant_ts_text).
 CREATE FUNCTION app.positions_free_at(p_at timestamptz, p_vehicles uuid[], p_positions uuid[])
 RETURNS void
 LANGUAGE plpgsql
@@ -161,7 +180,7 @@ DECLARE
   last_words text;
 BEGIN
   SELECT m.at, m.words INTO last_at, last_words
-    FROM app.last_movement(ARRAY[]::uuid[], p_vehicles, p_positions) m;
+    FROM app.last_movement(ARRAY[]::uuid[], p_vehicles, p_positions, true) m;
   IF last_at > p_at THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = last_words;
   END IF;
@@ -201,12 +220,12 @@ BEGIN
   END LOOP;
 END $$;
 
-REVOKE ALL ON FUNCTION app.tenant_ts_text(timestamptz) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION app.tenant_ts_text(timestamptz) TO app_rw;
+REVOKE ALL ON FUNCTION app.tenant_ts_text(timestamptz, boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.tenant_ts_text(timestamptz, boolean) TO app_rw;
 REVOKE ALL ON FUNCTION app.lock_position_pairs(uuid[], uuid[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.lock_position_pairs(uuid[], uuid[]) TO app_rw;
-REVOKE ALL ON FUNCTION app.last_movement(uuid[], uuid[], uuid[]) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION app.last_movement(uuid[], uuid[], uuid[]) TO app_rw;
+REVOKE ALL ON FUNCTION app.last_movement(uuid[], uuid[], uuid[], boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.last_movement(uuid[], uuid[], uuid[], boolean) TO app_rw;
 REVOKE ALL ON FUNCTION app.place_movement(date, uuid[], uuid[], uuid[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.place_movement(date, uuid[], uuid[], uuid[]) TO app_rw;
 REVOKE ALL ON FUNCTION app.backdate_reason_ok(date, text) FROM PUBLIC;
