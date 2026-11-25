@@ -43,10 +43,29 @@ describe("isEarlierDay", () => {
 });
 
 describe("askWhy", () => {
-  it("asks for an earlier day, and after a TY014 while a day is filled", () => {
+  const late = new ApiError(422, "a movement recorded for an earlier day records why", "TY014");
+
+  it("asks for an earlier day, and after the database asks why while a day is filled", () => {
     expect(askWhy("2026-11-24", today, null)).toBe(true);
-    expect(askWhy("2026-11-25", today, new ApiError(422, "refused", "TY014"))).toBe(true);
+    expect(askWhy("2026-11-25", today, late)).toBe(true);
     expect(askWhy("2026-11-25", today, null)).toBe(false);
-    expect(askWhy("", today, new ApiError(422, "refused", "TY014"))).toBe(false);
+    expect(askWhy("", today, late)).toBe(false);
+  });
+
+  // TYRE-240 M2: TY014 is also a tread, position, reason code or future
+  // day refusal, none of which a reason answers.
+  it("does not ask after any other TY014", () => {
+    const tread = new ApiError(
+      422,
+      "a fitment records its tread in millimetres, above 0 and at most 30",
+      "TY014",
+    );
+    const future = new ApiError(
+      422,
+      "a movement is recorded on or before today, never on a future date",
+      "TY014",
+    );
+    expect(askWhy("2026-11-25", today, tread)).toBe(false);
+    expect(askWhy("2999-01-01", today, future)).toBe(false);
   });
 });
